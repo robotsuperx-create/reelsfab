@@ -1,0 +1,378 @@
+import { TRPCError } from "@trpc/server";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { z } from "zod";
+import {
+  assets,
+  characters,
+  costEntries,
+  premiumClips,
+  renders,
+  scripts,
+  type TranscriptWord,
+} from "../../drizzle/schema";
+import { milliCentsFromUsd, similarity, spokenText } from "../../shared/domain";
+import { buildHiggsfieldPrompt, evaluateQc } from "../../shared/production";
+import { router } from "../_core/trpc";
+import { transcribeAudio } from "../_core/voiceTranscription";
+import { getSettings, requireDb } from "../db";
+import { memberProcedure } from "../procedures";
+import { generateDerivativeVariants, visualConsistencyCheck } from "../services/ai";
+import { storageGetSignedUrl } from "../storage";
+
+function storageKeyFromUrl(url: string | null | undefined) {
+  if (!url) return null;
+  const m = url.match(/^\/manus-storage\/(.+)$/);
+  return m ? m[1] : null;
+}
+
+async function absoluteUrl(url: string | null | undefined) {
+  const key = storageKeyFromUrl(url);
+  if (key) return storageGetSignedUrl(key);
+  if (url && /^https?:\/\//.test(url)) return url;
+  return null;
+}
+
+/** Splits Whisper segments into per-word timings (proportional to word length inside each segment). */
+function wordsFromSegments(segments: { start: number; end: number; text: string }[]): TranscriptWord[] {
+  const out: TranscriptWord[] = [];
+  for (const seg of segments) {
+    const words = seg.text.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) continue;
+    const total = words.reduce((a, w) => a + w.length + 1, 0);
+    let t = seg.start;
+    const span = Math.max(0.05, seg.end - seg.start);
+    for (const w of words) {
+      const d = (span * (w.length + 1)) / total;
+      out.push({ word: w, start: Number(t.toFixed(3)), end: Number((t + d).toFixed(3)) });
+      t += d;
+    }
+  }
+  return out;
+}
+
+export const premiumRouter = router({
+  list: memberProcedure
+    .input(z.object({ status: z.array(z.enum(["requested", "generating", "received", "failed"])).optional() }).optional())
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const rows = await db
+        .select({ clip: premiumClips, script: scripts, character: characters })
+        .from(premiumClips)
+        .innerJoin(scripts, eq(scripts.id, premiumClips.scriptId))
+        .innerJoin(characters, eq(characters.id, premiumClips.characterId))
+        .where(input?.status?.length ? inArray(premiumClips.status, input.status) : undefined)
+        .orderBy(desc(premiumClips.id))
+        .limit(300);
+      return rows.map(r => ({ ...r, fullPrompt: buildHiggsfieldPrompt(r.character, r.script) }));
+    }),
+  update: memberProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        data: z
+          .object({
+            status: z.enum(["requested", "generating", "received", "failed"]),
+            model: z.string().max(120),
+            notes: z.string().nullable(),
+          })
+          .partial(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      await db.update(premiumClips).set(input.data).where(eq(premiumClips.id, input.id));
+      return { ok: true };
+    }),
+  logAttempt: memberProcedure
+    .input(z.object({ id: z.number(), attempts: z.number().int().min(1).max(20), creditsPerAttempt: z.number().int().min(0).max(5000) }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const s = await getSettings();
+      const credits = input.attempts * input.creditsPerAttempt;
+      const usd = credits * s.higgsfieldUsdPerCredit;
+      await db
+        .update(premiumClips)
+        .set({
+          attempts: sql`${premiumClips.attempts} + ${input.attempts}`,
+          creditsSpent: sql`${premiumClips.creditsSpent} + ${credits}`,
+          costCents: sql`${premiumClips.costCents} + ${Math.round(usd * 100)}`,
+          status: "generating",
+        })
+        .where(eq(premiumClips.id, input.id));
+      await db.insert(costEntries).values({
+        category: "higgsfield",
+        amountMilliCents: milliCentsFromUsd(usd),
+        credits,
+        description: `Higgsfield: ${input.attempts} محاولة × ${input.creditsPerAttempt} رصيد (لقطة #${input.id})`,
+        refType: "premium_clip",
+        refId: input.id,
+        createdBy: ctx.user.id,
+      });
+      return { credits, usd };
+    }),
+  attachVideo: memberProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        assetId: z.number(),
+        videoUrl: z.string(),
+        durationMs: z.number().int(),
+        audioUrl: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      const [clip] = await db.select().from(premiumClips).where(eq(premiumClips.id, input.id));
+      if (!clip) throw new TRPCError({ code: "NOT_FOUND", message: "اللقطة غير موجودة" });
+      let transcript: string | null = null;
+      let words: TranscriptWord[] | null = null;
+      let transcribeError: string | null = null;
+      if (input.audioUrl) {
+        const abs = await absoluteUrl(input.audioUrl);
+        if (abs) {
+          const r = await transcribeAudio({ audioUrl: abs, language: "en" });
+          if ("error" in r) transcribeError = `${r.error}${r.details ? `: ${r.details}` : ""}`;
+          else {
+            transcript = r.text.trim();
+            words = wordsFromSegments(r.segments ?? []);
+          }
+        }
+      }
+      await db
+        .update(premiumClips)
+        .set({
+          status: "received",
+          videoAssetId: input.assetId,
+          videoUrl: input.videoUrl,
+          durationMs: input.durationMs,
+          transcript,
+          transcriptWords: words,
+        })
+        .where(eq(premiumClips.id, input.id));
+      await db.update(scripts).set({ status: "premium_uploaded" }).where(eq(scripts.id, clip.scriptId));
+      await db.update(assets).set({ characterId: clip.characterId }).where(eq(assets.id, input.assetId));
+      return { transcript, words: words?.length ?? 0, transcribeError };
+    }),
+  setTranscript: memberProcedure
+    .input(z.object({ id: z.number(), transcript: z.string().min(1), durationMs: z.number().int().optional() }))
+    .mutation(async ({ input }) => {
+      // Manual transcript fallback: spread words evenly over the clip.
+      const db = await requireDb();
+      const [clip] = await db.select().from(premiumClips).where(eq(premiumClips.id, input.id));
+      if (!clip) throw new TRPCError({ code: "NOT_FOUND", message: "اللقطة غير موجودة" });
+      const dur = (input.durationMs ?? clip.durationMs ?? 8000) / 1000;
+      const words = wordsFromSegments([{ start: 0.2, end: Math.max(0.5, dur - 0.3), text: input.transcript }]);
+      await db.update(premiumClips).set({ transcript: input.transcript, transcriptWords: words }).where(eq(premiumClips.id, input.id));
+      return { words: words.length };
+    }),
+  generateDerivatives: memberProcedure
+    .input(z.object({ id: z.number(), count: z.number().int().min(1).max(8) }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const [clip] = await db.select().from(premiumClips).where(eq(premiumClips.id, input.id));
+      if (!clip) throw new TRPCError({ code: "NOT_FOUND", message: "اللقطة غير موجودة" });
+      if (!clip.videoUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "ارفع فيديو Higgsfield أولًا" });
+      const [script] = await db.select().from(scripts).where(eq(scripts.id, clip.scriptId));
+      const [character] = await db.select().from(characters).where(eq(characters.id, clip.characterId));
+      const settings = await getSettings();
+      const variants = await generateDerivativeVariants({
+        character,
+        transcript: clip.transcript || spokenText(script),
+        originalHook: script.hook,
+        count: input.count,
+        model: settings.scriptModel,
+        userId: ctx.user.id,
+        clipId: clip.id,
+      });
+      const ids: number[] = [];
+      for (const v of variants) {
+        const [r] = await db.insert(scripts).values({
+          characterId: clip.characterId,
+          batchId: script.batchId,
+          status: "script_ready",
+          track: "derivative",
+          templateKey: script.templateKey,
+          hookType: v.hookType,
+          topic: `${script.topic ?? ""} · ${v.variantLabel}`.slice(0, 255),
+          hook: v.hook,
+          body: clip.transcript || script.body,
+          payoff: null,
+          cta: v.cta,
+          onScreenText: v.onScreenText.slice(0, 255),
+          caption: v.caption,
+          hashtags: v.hashtags.slice(0, 500),
+          parentScriptId: script.id,
+          premiumClipId: clip.id,
+          notes: v.variantLabel,
+          createdBy: ctx.user.id,
+        });
+        ids.push(Number((r as { insertId: number }).insertId));
+      }
+      await db
+        .update(premiumClips)
+        .set({ derivativesCreated: sql`${premiumClips.derivativesCreated} + ${ids.length}` })
+        .where(eq(premiumClips.id, clip.id));
+      return { created: ids.length, ids };
+    }),
+});
+
+const renderInput = z.object({
+  scriptId: z.number(),
+  kind: z.enum(["economic", "derivative", "premium"]),
+  variantLabel: z.string().max(120).nullable().optional(),
+  videoUrl: z.string(),
+  storageKey: z.string().nullable().optional(),
+  thumbnailUrl: z.string().nullable().optional(),
+  durationMs: z.number().int(),
+  width: z.number().int(),
+  height: z.number().int(),
+  hasAudio: z.boolean(),
+  hasCaptions: z.boolean(),
+  hasDisclosure: z.boolean(),
+  fileSize: z.number().int(),
+  settings: z.record(z.string(), z.unknown()).optional(),
+});
+
+async function maxSimilarityFor(scriptId: number) {
+  const db = await requireDb();
+  const [s] = await db.select().from(scripts).where(eq(scripts.id, scriptId));
+  if (!s) return { script: null, max: 0 };
+  if (s.track === "derivative") return { script: s, max: 0 };
+  const others = await db
+    .select({ id: scripts.id, hook: scripts.hook, body: scripts.body, payoff: scripts.payoff, cta: scripts.cta })
+    .from(scripts)
+    .where(and(eq(scripts.characterId, s.characterId), sql`${scripts.id} <> ${s.id}`, sql`${scripts.track} <> 'derivative'`))
+    .orderBy(desc(scripts.id))
+    .limit(300);
+  const text = spokenText(s);
+  let max = 0;
+  for (const o of others) max = Math.max(max, similarity(text, spokenText(o)));
+  return { script: s, max };
+}
+
+export const rendersRouter = router({
+  /** Items ready for the browser render engine. */
+  queue: memberProcedure.query(async () => {
+    const db = await requireDb();
+    const rendered = await db.select({ scriptId: renders.scriptId }).from(renders);
+    const done = new Set(rendered.map(r => r.scriptId));
+    const economic = await db
+      .select()
+      .from(scripts)
+      .where(and(eq(scripts.track, "economic"), inArray(scripts.status, ["script_ready", "needs_review"])))
+      .orderBy(desc(scripts.id))
+      .limit(500);
+    const derived = await db
+      .select({ script: scripts, clip: premiumClips })
+      .from(scripts)
+      .innerJoin(premiumClips, eq(premiumClips.id, scripts.premiumClipId))
+      .where(
+        and(
+          inArray(scripts.track, ["derivative", "premium"]),
+          inArray(scripts.status, ["script_ready", "premium_uploaded", "needs_review"]),
+          isNotNull(premiumClips.videoUrl),
+        ),
+      )
+      .orderBy(desc(scripts.id))
+      .limit(500);
+    return {
+      economic: economic.filter(s => !done.has(s.id)),
+      video: derived.filter(r => !done.has(r.script.id)),
+    };
+  }),
+  clipForScript: memberProcedure.input(z.object({ scriptId: z.number() })).query(async ({ input }) => {
+    const db = await requireDb();
+    const [s] = await db.select().from(scripts).where(eq(scripts.id, input.scriptId));
+    if (!s?.premiumClipId) return null;
+    const [clip] = await db.select().from(premiumClips).where(eq(premiumClips.id, s.premiumClipId));
+    return clip ?? null;
+  }),
+  create: memberProcedure.input(renderInput).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const { script, max } = await maxSimilarityFor(input.scriptId);
+    if (!script) throw new TRPCError({ code: "NOT_FOUND", message: "النص غير موجود" });
+    const qc = evaluateQc({ ...input, script, maxSimilarity: max });
+    const [r] = await db.insert(renders).values({
+      ...input,
+      variantLabel: input.variantLabel ?? null,
+      characterId: script.characterId,
+      qcStatus: qc.verdict,
+      qcReport: qc,
+      createdBy: ctx.user.id,
+    });
+    await db.update(scripts).set({ status: qc.verdict === "approved" ? "approved" : qc.verdict }).where(eq(scripts.id, script.id));
+    return { id: Number((r as { insertId: number }).insertId), qc };
+  }),
+  list: memberProcedure
+    .input(
+      z
+        .object({
+          qcStatus: z.array(z.enum(["pending", "approved", "needs_review", "rejected"])).optional(),
+          characterId: z.number().optional(),
+          limit: z.number().min(1).max(500).default(200),
+        })
+        .optional(),
+    )
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const conds = [];
+      if (input?.qcStatus?.length) conds.push(inArray(renders.qcStatus, input.qcStatus));
+      if (input?.characterId) conds.push(eq(renders.characterId, input.characterId));
+      return db
+        .select({ render: renders, script: scripts })
+        .from(renders)
+        .innerJoin(scripts, eq(scripts.id, renders.scriptId))
+        .where(conds.length ? and(...conds) : undefined)
+        .orderBy(desc(renders.id))
+        .limit(input?.limit ?? 200);
+    }),
+  review: memberProcedure
+    .input(z.object({ id: z.number(), qcStatus: z.enum(["approved", "needs_review", "rejected"]), notes: z.string().nullable().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      const [r] = await db.select().from(renders).where(eq(renders.id, input.id));
+      if (!r) throw new TRPCError({ code: "NOT_FOUND", message: "الرندر غير موجود" });
+      await db
+        .update(renders)
+        .set({ qcStatus: input.qcStatus, reviewNotes: input.notes ?? null, reviewedBy: ctx.user.id })
+        .where(eq(renders.id, input.id));
+      await db.update(scripts).set({ status: input.qcStatus }).where(eq(scripts.id, r.scriptId));
+      return { ok: true };
+    }),
+  visualCheck: memberProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const [r] = await db.select().from(renders).where(eq(renders.id, input.id));
+    if (!r) throw new TRPCError({ code: "NOT_FOUND", message: "الرندر غير موجود" });
+    if (!r.thumbnailUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "لا توجد صورة مصغرة لهذا الرندر" });
+    const [c] = await db.select().from(characters).where(eq(characters.id, r.characterId));
+    const settings = await getSettings();
+    const frameUrl = await absoluteUrl(r.thumbnailUrl);
+    const refUrl = await absoluteUrl(c.referenceImages?.[0] ?? null);
+    if (!frameUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر الوصول للصورة المصغرة" });
+    const result = await visualConsistencyCheck({
+      frameUrl,
+      referenceUrl: refUrl,
+      character: c,
+      model: settings.reviewModel,
+      userId: ctx.user.id,
+      renderId: r.id,
+    });
+    const visualQc = { ...result, checkedAt: new Date().toISOString() };
+    await db.update(renders).set({ visualQc }).where(eq(renders.id, r.id));
+    return visualQc;
+  }),
+  remove: memberProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const db = await requireDb();
+    const [r] = await db.select().from(renders).where(eq(renders.id, input.id));
+    if (!r) return { ok: true };
+    await db.delete(renders).where(eq(renders.id, input.id));
+    const [s] = await db.select().from(scripts).where(eq(scripts.id, r.scriptId));
+    if (s && !["scheduled", "published"].includes(s.status)) {
+      await db
+        .update(scripts)
+        .set({ status: s.track === "economic" || s.track === "derivative" ? "script_ready" : "premium_uploaded" })
+        .where(eq(scripts.id, s.id));
+    }
+    return { ok: true };
+  }),
+});

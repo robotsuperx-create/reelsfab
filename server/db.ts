@@ -1,7 +1,9 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { characters, InsertUser, settings, users } from "../drizzle/schema";
+import { AppSettings, DEFAULT_SETTINGS } from "../shared/domain";
 import { ENV } from './_core/env';
+import { CHARACTER_SEED } from "./seed";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -70,6 +72,15 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     await db.insert(users).values(values).onDuplicateKeyUpdate({
       set: updateSet,
     });
+
+    // Internal tool bootstrap: if the team has no admin yet, the first person to sign in becomes admin.
+    const [{ admins }] = (await db
+      .select({ admins: sql<number>`count(*)` })
+      .from(users)
+      .where(eq(users.role, "admin"))) as { admins: number }[];
+    if (Number(admins) === 0) {
+      await db.update(users).set({ role: "admin" }).where(eq(users.openId, user.openId));
+    }
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -88,4 +99,41 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function requireDb() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  return db;
+}
+
+export async function getSettings(): Promise<AppSettings> {
+  const db = await requireDb();
+  const rows = await db.select().from(settings);
+  const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS };
+  for (const row of rows) merged[row.key] = row.value;
+  return merged as AppSettings;
+}
+
+export async function saveSettings(patch: Partial<AppSettings>) {
+  const db = await requireDb();
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    await db
+      .insert(settings)
+      .values({ key, value: value as unknown })
+      .onDuplicateKeyUpdate({ set: { value: value as unknown } });
+  }
+  return getSettings();
+}
+
+let seeded = false;
+/** Inserts the Character Bible roster once (idempotent by slug). */
+export async function ensureSeed() {
+  if (seeded) return;
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select({ slug: characters.slug }).from(characters);
+  const have = new Set(existing.map(r => r.slug));
+  const missing = CHARACTER_SEED.filter(c => !have.has(c.slug));
+  if (missing.length) await db.insert(characters).values(missing);
+  seeded = true;
+}

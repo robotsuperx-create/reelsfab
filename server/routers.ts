@@ -2,9 +2,20 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
+import { batchesRouter, charactersRouter, scriptsRouter } from "./modules/content";
+import { analyticsRouter, postsRouter } from "./modules/distribution";
+import {
+  assetsRouter,
+  automationRouter,
+  costsRouter,
+  dashboardRouter,
+  settingsRouter,
+  teamRouter,
+} from "./modules/ops";
+import { premiumRouter, rendersRouter } from "./modules/production";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
+  // All APIs live under /api/ so the gateway routes them to the server.
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -16,13 +27,19 @@ export const appRouter = router({
       } as const;
     }),
   }),
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  team: teamRouter,
+  dashboard: dashboardRouter,
+  characters: charactersRouter,
+  scripts: scriptsRouter,
+  batches: batchesRouter,
+  premium: premiumRouter,
+  renders: rendersRouter,
+  posts: postsRouter,
+  analytics: analyticsRouter,
+  assets: assetsRouter,
+  costs: costsRouter,
+  settings: settingsRouter,
+  automation: automationRouter,
 });
 
 export type AppRouter = typeof appRouter;
