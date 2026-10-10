@@ -16,6 +16,16 @@ export const charactersRouter = router({
     const db = await requireDb();
     return db.select().from(characters).orderBy(characters.sortOrder, characters.id);
   }),
+  create: memberProcedure.input(z.object({
+    name: z.string().min(1).max(120), nameAr: z.string().max(120).nullable(), age: z.string().max(120), origin: z.string().max(160), niche: z.string().max(240), appearancePrompt: z.string(), wardrobe: z.string(), voiceDescription: z.string(), style: z.string().max(240), catchphrase: z.string().max(240), contentTemplates: z.array(z.string()), product: z.string(), rules: z.string(), loraKeyword: z.string().max(80), ttsVoice: z.string().max(40), ttsSpeed: z.number().int().min(60).max(150), colors: colorsSchema, dailyQuota: z.number().int().min(0).max(50)
+  })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const base = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || `character-${Date.now()}`;
+    const slug = `${base}-${ctx.user.id}`;
+    const [created] = await db.insert(characters).values({ ...input, slug, nameAr: input.nameAr, referenceImages: [], needsDesignFile: true, isActive: true, captionFont: "Montserrat", externalVoiceId: null, sortOrder: 0 }).$returningId();
+    const [c] = await db.select().from(characters).where(eq(characters.id, created.id));
+    return c;
+  }),
   get: memberProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const db = await requireDb();
     const [c] = await db.select().from(characters).where(eq(characters.id, input.id));

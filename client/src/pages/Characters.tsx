@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { KOKORO_VOICES } from "@shared/domain";
 import { Link } from "wouter";
 import { PageHeader, Tally, useCharacterMap } from "@/components/fab/common";
+import CharacterGeneratorDialog from "@/components/fab/CharacterGeneratorDialog";
 
 export default function Characters() {
   const { list, isLoading } = useCharacterMap();
@@ -11,6 +12,7 @@ export default function Characters() {
         kicker="CHARACTER BIBLE · v1"
         title="الشخصيات"
         subtitle="عشر شخصيات من ملف الشخصيات. كل شخصية تُعلَن كشخصية AI، ولكل منها هوية ألوان، خط ترجمة، صوت مجاني للاختبار، وحصة يومية."
+        actions={<CharacterGeneratorDialog />}
       />
       {isLoading ? (
         <div className="text-sm text-muted-foreground">جارٍ التحميل…</div>
