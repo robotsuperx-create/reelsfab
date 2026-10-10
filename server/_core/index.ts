@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerMediaRoutes } from "../routes/media";
+import { registerMetaRoutes } from "../routes/meta";
 
 async function startServer() {
   const app = express();
@@ -21,6 +22,7 @@ async function startServer() {
   });
   registerOAuthRoutes(app);
   registerMediaRoutes(app);
+  registerMetaRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

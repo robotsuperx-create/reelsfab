@@ -32,6 +32,7 @@ export default function CharacterDetail() {
   const id = Number(params.id);
   const utils = trpc.useUtils();
   const q = trpc.characters.get.useQuery({ id }, { enabled: Number.isFinite(id) });
+  const social = trpc.socialAccounts.list.useQuery({ characterId: id }, { enabled: Number.isFinite(id) });
   const update = trpc.characters.update.useMutation({
     onSuccess: () => {
       utils.characters.list.invalidate();
@@ -139,9 +140,14 @@ export default function CharacterDetail() {
         title={`${d.name}${d.nameAr ? ` — ${d.nameAr}` : ""}`}
         subtitle={d.niche ?? ""}
         actions={
-          <Button onClick={() => save()} disabled={update.isPending}>
-            <Save /> حفظ التعديلات
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => { window.location.href = `/api/meta/start?characterId=${id}`; }}>
+              {social.data?.some(a => a.platform === "instagram" && a.status === "connected") ? "إعادة ربط Instagram" : "ربط Instagram"}
+            </Button>
+            <Button onClick={() => save()} disabled={update.isPending}>
+              <Save /> حفظ التعديلات
+            </Button>
+          </div>
         }
       />
       <div className="grid gap-6 lg:grid-cols-[300px_1fr]">

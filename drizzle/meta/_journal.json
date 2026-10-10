@@ -15,6 +15,13 @@
       "when": 1791603823705,
       "tag": "0001_fluffy_ben_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1791610268550,
+      "tag": "0002_wealthy_sway",
+      "breakpoints": true
     }
   ]
 }

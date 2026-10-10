@@ -324,3 +324,24 @@ export const insights = mysqlTable("insights", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type Insight = typeof insights.$inferSelect;
+export const socialAccounts = mysqlTable(
+  "social_accounts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    characterId: int("characterId").notNull(),
+    platform: mysqlEnum("platform", ["instagram", "tiktok", "youtube"]).notNull(),
+    handle: varchar("handle", { length: 160 }),
+    platformUserId: varchar("platformUserId", { length: 160 }),
+    encryptedAccessToken: text("encryptedAccessToken"),
+    encryptedRefreshToken: text("encryptedRefreshToken"),
+    tokenExpiresAt: timestamp("tokenExpiresAt"),
+    timezone: varchar("timezone", { length: 80 }).default("UTC").notNull(),
+    status: mysqlEnum("status", ["disconnected", "connected", "expired", "error"]).default("disconnected").notNull(),
+    lastError: text("lastError"),
+    connectedBy: int("connectedBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [index("social_character_idx").on(t.characterId), index("social_platform_idx").on(t.platform)],
+);
+export type SocialAccount = typeof socialAccounts.$inferSelect;

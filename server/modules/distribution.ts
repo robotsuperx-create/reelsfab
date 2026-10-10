@@ -6,6 +6,9 @@ import { router } from "../_core/trpc";
 import { getSettings, requireDb } from "../db";
 import { memberProcedure } from "../procedures";
 import { performanceInsights } from "../services/ai";
+import { getInstagramToken } from "../services/social-accounts";
+import { InstagramClient } from "../services/instagram/client";
+import { storageGetSignedUrl } from "../storage";
 
 function slotDate(day: string, slot: string, tzOffsetMinutes: number) {
   // day "YYYY-MM-DD", slot "HH:MM" in the team's local time; tzOffsetMinutes = Date.getTimezoneOffset() of the browser.
@@ -135,6 +138,20 @@ export const postsRouter = router({
       }
       return { scheduledReels: created };
     }),
+  publishInstagram: memberProcedure.input(z.object({ postId: z.number(), socialAccountId: z.number() })).mutation(async ({ input }) => {
+    const db = await requireDb();
+    const [row] = await db.select({ post: posts, render: renders }).from(posts).innerJoin(renders, eq(renders.id, posts.renderId)).where(eq(posts.id, input.postId));
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "المنشور غير موجود" });
+    if (row.post.platform !== "instagram") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء مخصص لـInstagram" });
+    if (row.render.qcStatus !== "approved") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن نشر ريل غير معتمد" });
+    const account = await getInstagramToken(input.socialAccountId);
+    if (account.characterId !== row.post.characterId) throw new TRPCError({ code: "FORBIDDEN", message: "الحساب لا يخص شخصية هذا الريل" });
+    const videoUrl = row.render.storageKey ? await storageGetSignedUrl(row.render.storageKey) : row.render.videoUrl;
+    const result = await new InstagramClient({ igUserId: account.platformUserId!, accessToken: account.accessToken }).publishReel({ videoUrl, caption: row.post.caption ?? "" });
+    await db.update(posts).set({ status: "published", externalId: result.id, publishedAt: new Date() }).where(eq(posts.id, input.postId));
+    await db.update(scripts).set({ status: "published" }).where(eq(scripts.id, row.post.scriptId));
+    return { ok: true, externalId: result.id };
+  }),
   update: memberProcedure
     .input(
       z.object({

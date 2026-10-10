@@ -14,6 +14,7 @@ import {
 } from "./modules/ops";
 import { premiumRouter, rendersRouter } from "./modules/production";
 import { characterGeneratorRouter } from "./modules/character-generator";
+import { socialAccountsRouter } from "./modules/social-accounts";
 
 export const appRouter = router({
   // All APIs live under /api/ so the gateway routes them to the server.
@@ -32,6 +33,7 @@ export const appRouter = router({
   dashboard: dashboardRouter,
   characters: charactersRouter,
   characterGenerator: characterGeneratorRouter,
+  socialAccounts: socialAccountsRouter,
   scripts: scriptsRouter,
   batches: batchesRouter,
   premium: premiumRouter,
