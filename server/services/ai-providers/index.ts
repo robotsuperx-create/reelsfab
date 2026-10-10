@@ -27,7 +27,7 @@ async function callOpenAI(r: ProviderRequest): Promise<ProviderResult> {
 async function callAnthropic(r: ProviderRequest): Promise<ProviderResult> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not configured");
-  const res = await request("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: r.model, max_tokens: r.maxTokens ?? 1200, system: r.system, messages: [{ role: "user", content: `${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }) }, r.timeoutMs ?? 45000);
+  const res = await request("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", ...(process.env.ANTHROPIC_WORKSPACE_ID ? { "anthropic-workspace-id": process.env.ANTHROPIC_WORKSPACE_ID } : {}) }, body: JSON.stringify({ model: r.model, max_tokens: r.maxTokens ?? 1200, system: r.system, messages: [{ role: "user", content: `${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }) }, r.timeoutMs ?? 45000);
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json(); return { provider: r.provider, model: r.model, text: data.content?.map((x: any) => x.text ?? "").join("") ?? "", usage: { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens } };
 }
