@@ -23,3 +23,7 @@
 - Official source: https://developers.openai.com/api/reference/overview/
 - Responses API is the recommended surface for direct text/image/tool requests; bearer API keys must remain server-side.
 - Production integrations should log request IDs and handle rate limits/errors.
+
+## Morocco account / US audience
+Meta's official Content Publishing documentation requires a professional Instagram account, appropriate access level and permissions, a publicly accessible media URL, and the publishing flow; it does not list the account's country as a restriction. Instagram Login does not require a linked Facebook Page. Organic publishing through the API does not provide a country-targeting parameter; country targeting is an Ads Manager concept. For paid promotion, Meta Ads Manager supports location targeting such as countries, regions and cities, subject to account/payment/ad-policy eligibility.
+Sources: https://developers.facebook.com/documentation/instagram-platform/content-publishing ; https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login ; https://www.facebook.com/business/help/202297959811696
