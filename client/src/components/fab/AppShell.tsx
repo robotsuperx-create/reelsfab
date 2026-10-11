@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -23,6 +24,7 @@ import {
   Users,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Logo } from "./common";
 
@@ -119,7 +121,15 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function Gate({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, refresh } = useAuth();
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const localLogin = trpc.auth.localLogin.useMutation({
+    onSuccess: async () => {
+      setPassword("");
+      await refresh();
+    },
+  });
   const access = trpc.team.access.useQuery(undefined, { enabled: Boolean(user), retry: false });
   if (loading || (user && access.isLoading)) {
     return (
@@ -141,6 +151,46 @@ function Gate({ children }: { children: ReactNode }) {
           <Button className="mt-6 w-full" onClick={() => startLogin()}>
             تسجيل الدخول
           </Button>
+          <div className="my-5 flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            <span>أو دخول محلي آمن</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <form
+            className="space-y-3 text-right"
+            onSubmit={event => {
+              event.preventDefault();
+              localLogin.mutate({ identifier, password });
+            }}
+          >
+            <label className="block text-xs text-muted-foreground" htmlFor="local-identifier">رقم الدخول</label>
+            <Input
+              id="local-identifier"
+              value={identifier}
+              onChange={event => setIdentifier(event.target.value)}
+              autoComplete="username"
+              inputMode="tel"
+              dir="ltr"
+              placeholder="أدخل المعرّف"
+              required
+            />
+            <label className="block text-xs text-muted-foreground" htmlFor="local-password">كلمة المرور</label>
+            <Input
+              id="local-password"
+              type="password"
+              value={password}
+              onChange={event => setPassword(event.target.value)}
+              autoComplete="current-password"
+              dir="ltr"
+              placeholder="••••••••"
+              required
+            />
+            <Button className="w-full" type="submit" disabled={localLogin.isPending}>
+              {localLogin.isPending ? "جارٍ التحقق…" : "دخول محلي"}
+            </Button>
+            {localLogin.error && <p className="text-center text-xs text-red-400">بيانات الدخول غير صحيحة أو تم تجاوز عدد المحاولات.</p>}
+            <p className="text-center text-[10px] leading-5 text-muted-foreground/70">تُرسل البيانات إلى الخادم عبر HTTPS ولا تُخزَّن في المتصفح أو الكود.</p>
+          </form>
         </div>
       </div>
     );

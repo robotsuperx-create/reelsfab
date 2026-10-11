@@ -7,6 +7,7 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { LOCAL_OPEN_ID } from "./localAuth";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -280,6 +281,15 @@ class SDKServer {
 
     if (!session) {
       throw ForbiddenError("Invalid session cookie");
+    }
+
+    if (session.openId === LOCAL_OPEN_ID) {
+      const localUser = await db.getUserByOpenId(LOCAL_OPEN_ID);
+      if (!localUser || localUser.role !== "admin") {
+        throw ForbiddenError("Local administrator is not provisioned");
+      }
+      await db.upsertUser({ openId: LOCAL_OPEN_ID, lastSignedIn: new Date(), role: "admin" });
+      return localUser;
     }
 
     if (session.openId.startsWith(CRON_OPEN_ID_PREFIX)) {
