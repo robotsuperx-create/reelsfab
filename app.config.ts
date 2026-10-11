@@ -1,3 +1,3 @@
 export default {
-  logoUrl: "https://dummyimage.com/256x256/07111f/31e7b4.png&text=RF",
+  logoUrl: "https://dummyimage.com/256x256/0b0f0b/dfff00.png&text=RF",
 };

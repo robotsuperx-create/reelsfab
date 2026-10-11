@@ -18,12 +18,13 @@ export type ScriptRow = RouterOutputs["scripts"]["list"][number];
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5 ltr" dir="ltr">
-      <div className="relative h-8 w-[18px] rounded-[4px] border-2 border-foreground/80">
-        <span className="absolute left-1/2 top-1.5 -translate-x-1/2 tally-dot text-tally tally-live" style={{ width: 6, height: 6 }} />
+      <div className="relative grid h-8 w-8 place-items-center overflow-hidden rounded-[10px] border border-tally/80 bg-tally text-[10px] font-black tracking-[-0.08em] text-black shadow-[0_0_22px_oklch(0.92_0.24_112_/_35%)]">
+        <span className="relative z-10">RF</span>
+        <span className="absolute -bottom-3 -left-2 h-7 w-7 rounded-full bg-white/45 blur-md" />
       </div>
       {!compact && (
-        <span className="font-display text-[17px] font-bold tracking-tight">
-          REELS<span className="text-tally">/</span>FAB
+        <span className="font-display text-[17px] font-extrabold tracking-[-0.04em]">
+          REELS<span className="text-tally">/</span><span className="text-foreground">FAB</span>
         </span>
       )}
     </div>

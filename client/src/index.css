@@ -49,46 +49,46 @@
   --color-stop: var(--stop);
 }
 
-/* Broadcast control room: graphite surfaces, status colors only where state lives. */
+/* REELS/FAB visual system: cinematic black, electric lime, editorial cards. */
 :root,
 .dark {
-  --tally: oklch(0.82 0.16 75); /* Tally Amber #FFB627 */
-  --go: oklch(0.74 0.17 150);
-  --hold: oklch(0.82 0.16 75);
-  --stop: oklch(0.65 0.22 25);
+  --tally: oklch(0.92 0.24 112); /* ownable electric lime */
+  --go: oklch(0.82 0.19 145);
+  --hold: oklch(0.92 0.24 112);
+  --stop: oklch(0.68 0.22 25);
   --primary: var(--tally);
-  --primary-foreground: oklch(0.18 0.01 260);
+  --primary-foreground: oklch(0.12 0.01 110);
   --sidebar-primary: var(--tally);
-  --sidebar-primary-foreground: oklch(0.18 0.01 260);
-  --radius: 0.6rem;
-  --background: oklch(0.165 0.006 260);
-  --foreground: oklch(0.93 0.005 260);
-  --card: oklch(0.205 0.007 260);
-  --card-foreground: oklch(0.93 0.005 260);
-  --popover: oklch(0.22 0.008 260);
-  --popover-foreground: oklch(0.93 0.005 260);
-  --secondary: oklch(0.25 0.008 260);
-  --secondary-foreground: oklch(0.88 0.005 260);
-  --muted: oklch(0.24 0.008 260);
-  --muted-foreground: oklch(0.68 0.012 260);
-  --accent: oklch(0.27 0.01 260);
-  --accent-foreground: oklch(0.95 0.005 260);
+  --sidebar-primary-foreground: oklch(0.12 0.01 110);
+  --radius: 0.85rem;
+  --background: oklch(0.105 0.008 115);
+  --foreground: oklch(0.96 0.006 110);
+  --card: oklch(0.145 0.01 115);
+  --card-foreground: oklch(0.96 0.006 110);
+  --popover: oklch(0.17 0.012 115);
+  --popover-foreground: oklch(0.96 0.006 110);
+  --secondary: oklch(0.19 0.012 115);
+  --secondary-foreground: oklch(0.9 0.006 110);
+  --muted: oklch(0.2 0.012 115);
+  --muted-foreground: oklch(0.68 0.018 110);
+  --accent: oklch(0.25 0.025 112);
+  --accent-foreground: oklch(0.98 0.006 110);
   --destructive: oklch(0.62 0.22 25);
   --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.82 0.16 75 / 60%);
-  --chart-1: oklch(0.82 0.16 75);
-  --chart-2: oklch(0.74 0.17 150);
-  --chart-3: oklch(0.7 0.14 240);
-  --chart-4: oklch(0.68 0.2 330);
-  --chart-5: oklch(0.65 0.22 25);
-  --sidebar: oklch(0.135 0.006 260);
-  --sidebar-foreground: oklch(0.86 0.006 260);
-  --sidebar-accent: oklch(0.22 0.008 260);
-  --sidebar-accent-foreground: oklch(0.97 0.005 260);
-  --sidebar-border: oklch(1 0 0 / 7%);
-  --sidebar-ring: oklch(0.82 0.16 75 / 60%);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.92 0.24 112 / 65%);
+  --chart-1: oklch(0.92 0.24 112);
+  --chart-2: oklch(0.82 0.19 145);
+  --chart-3: oklch(0.74 0.15 225);
+  --chart-4: oklch(0.72 0.2 330);
+  --chart-5: oklch(0.68 0.22 25);
+  --sidebar: oklch(0.075 0.007 115);
+  --sidebar-foreground: oklch(0.88 0.008 110);
+  --sidebar-accent: oklch(0.16 0.018 112);
+  --sidebar-accent-foreground: oklch(0.98 0.006 110);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.92 0.24 112 / 65%);
 }
 
 @layer base {
@@ -97,16 +97,20 @@
   }
   html {
     font-family: var(--font-sans);
+    background: var(--background);
   }
   body {
     @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at 82% -10%, oklch(0.92 0.24 112 / 9%), transparent 32rem),
+      radial-gradient(circle at 8% 110%, oklch(0.35 0.08 145 / 7%), transparent 28rem);
   }
   h1,
   h2,
   h3,
   h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.01em;
+    letter-spacing: -0.025em;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
@@ -161,10 +165,9 @@
     unicode-bidi: isolate;
   }
 
-  /* Film-strip sprocket divider */
   .sprockets {
     height: 10px;
-    background-image: radial-gradient(circle at 6px 5px, oklch(1 0 0 / 10%) 2.4px, transparent 2.6px);
+    background-image: radial-gradient(circle at 6px 5px, oklch(0.92 0.24 112 / 28%) 2.4px, transparent 2.6px);
     background-size: 16px 10px;
     background-repeat: repeat-x;
   }
@@ -185,6 +188,12 @@
 
   .panel {
     @apply rounded-xl border bg-card;
+    box-shadow: 0 18px 55px oklch(0 0 0 / 15%);
+    transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+  }
+
+  .panel:hover {
+    border-color: oklch(0.92 0.24 112 / 25%);
   }
 }
 
@@ -192,8 +201,10 @@
   0%,
   100% {
     opacity: 1;
+    filter: drop-shadow(0 0 0 transparent);
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.45;
+    filter: drop-shadow(0 0 7px currentColor);
   }
 }
