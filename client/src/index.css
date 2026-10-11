@@ -56,6 +56,8 @@
   --go: oklch(0.82 0.19 145);
   --hold: oklch(0.92 0.24 112);
   --stop: oklch(0.68 0.22 25);
+  --surface-glass: oklch(1 0 0 / 3.5%);
+  --surface-raised: oklch(0.17 0.014 115);
   --primary: var(--tally);
   --primary-foreground: oklch(0.12 0.01 110);
   --sidebar-primary: var(--tally);
@@ -98,12 +100,17 @@
   html {
     font-family: var(--font-sans);
     background: var(--background);
+    color-scheme: dark;
+    scrollbar-color: oklch(0.92 0.24 112 / 35%) transparent;
+    scrollbar-width: thin;
   }
   body {
     @apply bg-background text-foreground antialiased;
     background-image:
-      radial-gradient(circle at 82% -10%, oklch(0.92 0.24 112 / 9%), transparent 32rem),
-      radial-gradient(circle at 8% 110%, oklch(0.35 0.08 145 / 7%), transparent 28rem);
+      linear-gradient(115deg, transparent 0 48%, oklch(0.92 0.24 112 / 2.5%) 48.1%, transparent 48.3%),
+      radial-gradient(circle at 82% -10%, oklch(0.92 0.24 112 / 10%), transparent 32rem),
+      radial-gradient(circle at 8% 110%, oklch(0.35 0.08 145 / 9%), transparent 28rem);
+    min-height: 100vh;
   }
   h1,
   h2,
@@ -187,13 +194,26 @@
   }
 
   .panel {
-    @apply rounded-xl border bg-card;
-    box-shadow: 0 18px 55px oklch(0 0 0 / 15%);
-    transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+    @apply rounded-2xl border bg-card;
+    background-image: linear-gradient(145deg, oklch(1 0 0 / 3%), transparent 42%);
+    box-shadow: 0 18px 55px oklch(0 0 0 / 18%), inset 0 1px 0 oklch(1 0 0 / 3%);
+    transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
   }
 
   .panel:hover {
-    border-color: oklch(0.92 0.24 112 / 25%);
+    border-color: oklch(0.92 0.24 112 / 28%);
+    box-shadow: 0 22px 65px oklch(0 0 0 / 22%), inset 0 1px 0 oklch(1 0 0 / 5%);
+  }
+
+  .glass {
+    background: var(--surface-glass);
+    border: 1px solid oklch(1 0 0 / 9%);
+    backdrop-filter: blur(18px);
+  }
+
+  ::selection {
+    background: var(--tally);
+    color: oklch(0.12 0.01 110);
   }
 }
 
