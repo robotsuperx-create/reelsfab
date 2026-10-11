@@ -93,6 +93,34 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+function TopNav() {
+  const [loc] = useLocation();
+  const items = NAV.flatMap(group => group.items);
+  return (
+    <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 overflow-x-auto lg:flex" aria-label="التنقل الرئيسي">
+      {items.map(it => {
+        const active = it.href === "/" ? loc === "/" : loc.startsWith(it.href);
+        const Icon = it.icon;
+        return (
+          <Link
+            key={it.href}
+            href={it.href}
+            title={it.label}
+            className={cn(
+              "relative flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-all duration-200",
+              active ? "bg-tally/12 text-tally" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+            )}
+          >
+            <Icon className="size-3.5" />
+            <span className="hidden xl:inline">{it.label}</span>
+            {active && <span className="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-tally shadow-[0_0_12px_var(--tally)]" />}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   const { user, logout } = useAuth();
   return (
@@ -217,28 +245,36 @@ function Gate({ children }: { children: ReactNode }) {
 }
 
 export default function AppShell({ children }: { children: ReactNode }) {
+  const { user, logout } = useAuth();
   return (
     <Gate>
-      <div className="flex min-h-screen">
-        <aside className="sticky top-0 hidden h-screen w-[236px] shrink-0 border-l border-sidebar-border bg-sidebar lg:block">
-          <SidebarBody />
-        </aside>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/85 px-4 py-2.5 backdrop-blur lg:hidden">
+      <div className="min-h-screen">
+        <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-background/80 backdrop-blur-xl">
+          <div className="container flex h-[68px] items-center gap-3">
             <Logo />
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button size="icon-sm" variant="ghost">
-                  <Menu />
+            <TopNav />
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <div className="hidden items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.035] py-1.5 pl-3 pr-1.5 sm:flex">
+                <span className="grid size-6 place-items-center rounded-full bg-tally text-[9px] font-black text-black">{user?.name?.slice(0, 2) || "RF"}</span>
+                <span className="max-w-24 truncate text-[11px] text-muted-foreground">{user?.name || "عضو الفريق"}</span>
+                <Button size="icon-sm" variant="ghost" onClick={() => logout()} title="تسجيل الخروج">
+                  <LogOut />
                 </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-[260px] bg-sidebar p-0">
-                <SidebarBody />
-              </SheetContent>
-            </Sheet>
-          </header>
-          <main className="container flex-1 py-6 md:py-8">{children}</main>
-        </div>
+              </div>
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button size="icon-sm" variant="ghost" className="lg:hidden">
+                    <Menu />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-[280px] bg-sidebar p-0">
+                  <SidebarBody />
+                </SheetContent>
+              </Sheet>
+            </div>
+          </div>
+        </header>
+        <main className="container flex-1 py-8 md:py-10">{children}</main>
       </div>
     </Gate>
   );

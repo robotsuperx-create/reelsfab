@@ -60,19 +60,16 @@ export default function Dashboard() {
         }
       />
 
-      {/* Film strip of pipeline stages */}
-      <div className="panel overflow-hidden">
-        <div className="sprockets mx-3 mt-2" />
-        <div className="grid grid-cols-2 divide-x divide-x-reverse divide-border sm:grid-cols-4 lg:grid-cols-7">
+      {/* Creative pipeline cards */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           {STAGES.map((st, i) => (
-            <Link key={st.key} href={st.href} className="group px-4 py-4 transition-colors hover:bg-accent/40">
-              <div className="timecode text-[10px] text-muted-foreground">{String(i + 1).padStart(2, "0")}</div>
-              <div className="timecode mt-1 text-3xl font-semibold">{stageCounts[st.key] ?? 0}</div>
-              <div className="mt-1 text-xs text-muted-foreground group-hover:text-foreground">{st.label}</div>
+            <Link key={st.key} href={st.href} className="panel group relative overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:border-tally/35">
+              <div className="timecode text-[10px] text-muted-foreground/70">{String(i + 1).padStart(2, "0")}</div>
+              <div className="timecode mt-2 text-3xl font-bold tracking-[-0.06em] group-hover:text-tally">{stageCounts[st.key] ?? 0}</div>
+              <div className="mt-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">{st.label}</div>
+              <div className="absolute inset-x-0 bottom-0 h-0.5 origin-right scale-x-0 bg-tally transition-transform duration-300 group-hover:scale-x-100" />
             </Link>
           ))}
-        </div>
-        <div className="sprockets mx-3 mb-2" />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">

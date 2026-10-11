@@ -33,11 +33,16 @@ export function Logo({ compact = false }: { compact?: boolean }) {
 
 export function PageHeader({ title, subtitle, actions, kicker }: { title: string; subtitle?: ReactNode; actions?: ReactNode; kicker?: string }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-      <div>
-        {kicker && <div className="timecode mb-1 text-[11px] uppercase tracking-[0.18em] text-tally">{kicker}</div>}
-        <h1 className="text-2xl font-bold md:text-[28px]">{title}</h1>
-        {subtitle && <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">{subtitle}</p>}
+    <div className="relative mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+      <div className="relative">
+        {kicker && (
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-tally/25 bg-tally/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-tally">
+            <span className="tally-dot tally-live" style={{ width: 5, height: 5 }} />
+            <span className="timecode">{kicker}</span>
+          </div>
+        )}
+        <h1 className="max-w-3xl text-3xl font-extrabold leading-[1.08] tracking-[-0.045em] md:text-5xl">{title}</h1>
+        {subtitle && <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -100,7 +105,7 @@ export function TrackBadge({ track }: { track: string }) {
   return (
     <span
       className={cn(
-        "rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+        "rounded-full border px-2 py-0.5 text-[11px] font-medium",
         track === "premium" && "border-tally/40 bg-tally/10 text-tally",
         track === "derivative" && "border-chart-3/40 bg-chart-3/10 text-chart-3",
         track === "economic" && "border-border bg-secondary text-muted-foreground",
@@ -115,7 +120,7 @@ export function CharacterAvatar({ character, size = 36, className }: { character
   const img = character?.referenceImages?.[0];
   return (
     <div
-      className={cn("shrink-0 overflow-hidden rounded-md border bg-secondary", className)}
+      className={cn("shrink-0 overflow-hidden rounded-xl border bg-secondary shadow-lg", className)}
       style={{ width: size, height: size * 1.25, background: character?.colors?.primary }}
       title={character?.name}
     >
@@ -153,7 +158,8 @@ export function CopyButton({ text, label = "نسخ", size = "sm", variant = "out
 
 export function Stat({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: Tone }) {
   return (
-    <div className="panel p-4">
+    <div className="panel group relative overflow-hidden p-4">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-l from-transparent via-tally/45 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {tone && <span className={cn("tally-dot", toneClass[tone])} />}
         {label}
