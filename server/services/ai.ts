@@ -2,6 +2,7 @@ import { costEntries, type Character } from "../../drizzle/schema";
 import { HOOK_TYPE_KEYS, LLM_PRICE_PER_MTOK, TEMPLATES, TEMPLATE_KEYS } from "../../shared/domain";
 import { invokeLLM, type Message } from "../_core/llm";
 import { requireDb } from "../db";
+import { invokeProvider, providerConfigured, type ProviderName } from "./ai-providers";
 
 type JsonSchemaObject = Record<string, unknown>;
 
@@ -11,7 +12,26 @@ function estimateMilliCents(model: string, tokensIn: number, tokensOut: number) 
   return Math.max(1, Math.round(usd * 100000));
 }
 
-/** Calls the built-in LLM with a strict JSON schema and records an estimated cost entry. */
+function resolveProvider(model: string): { provider: ProviderName; model: string } {
+  const explicit = model.match(/^(manus|openai|anthropic|gemini):(.+)$/i);
+  if (explicit) return { provider: explicit[1].toLowerCase() as ProviderName, model: explicit[2] };
+  if (/^gpt[-_]/i.test(model)) return { provider: "openai", model };
+  if (/^claude[-_]/i.test(model)) return { provider: "anthropic", model };
+  if (/^gemini[-_]/i.test(model)) return { provider: "gemini", model };
+  return { provider: "manus", model };
+}
+
+function textOnlyMessages(messages: Message[]) {
+  const text = (content: Message["content"]): string | null => {
+    const parts = Array.isArray(content) ? content : [content];
+    if (parts.some(part => typeof part !== "string" && part.type !== "text")) return null;
+    return parts.map(part => typeof part === "string" ? part : part.type === "text" ? part.text : "").join("\n");
+  };
+  const values = messages.map(message => ({ role: message.role, text: text(message.content) }));
+  return values.some(value => value.text === null) ? null : values as { role: Message["role"]; text: string }[];
+}
+
+/** Uses the configured external provider when its model/key is available; otherwise keeps Manus as a safe fallback. */
 export async function callJson<T>(opts: {
   model: string;
   messages: Message[];
@@ -23,19 +43,44 @@ export async function callJson<T>(opts: {
   refId?: number;
   userId?: number;
 }): Promise<T> {
-  const result = await invokeLLM({
-    model: opts.model,
-    messages: opts.messages,
-    maxTokens: opts.maxTokens ?? 8000,
-    outputSchema: { name: opts.schemaName, schema: opts.schema, strict: true },
-  });
-  const raw = result.choices?.[0]?.message?.content;
-  const text =
-    typeof raw === "string"
+  const target = resolveProvider(opts.model);
+  const textMessages = textOnlyMessages(opts.messages);
+  let text = "";
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let billedModel = opts.model;
+
+  if (target.provider !== "manus" && textMessages && providerConfigured(target.provider)) {
+    const system = textMessages.filter(message => message.role === "system").map(message => message.text).join("\n\n");
+    const prompt = textMessages.filter(message => message.role !== "system").map(message => `${message.role.toUpperCase()}:\n${message.text}`).join("\n\n");
+    const result = await invokeProvider({
+      provider: target.provider,
+      model: target.model,
+      system: system || undefined,
+      prompt,
+      jsonSchema: opts.schema,
+      maxTokens: opts.maxTokens ?? 8000,
+    });
+    text = result.text;
+    tokensIn = result.usage?.inputTokens ?? 0;
+    tokensOut = result.usage?.outputTokens ?? 0;
+    billedModel = target.model;
+  } else {
+    const result = await invokeLLM({
+      model: opts.model,
+      messages: opts.messages,
+      maxTokens: opts.maxTokens ?? 8000,
+      outputSchema: { name: opts.schemaName, schema: opts.schema, strict: true },
+    });
+    const raw = result.choices?.[0]?.message?.content;
+    text = typeof raw === "string"
       ? raw
       : Array.isArray(raw)
         ? raw.map(p => (p.type === "text" ? p.text : "")).join("")
         : "";
+    tokensIn = result.usage?.prompt_tokens ?? 0;
+    tokensOut = result.usage?.completion_tokens ?? 0;
+  }
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
   let parsed: T;
   try {
@@ -48,13 +93,11 @@ export async function callJson<T>(opts: {
   }
   try {
     const db = await requireDb();
-    const tokensIn = result.usage?.prompt_tokens ?? 0;
-    const tokensOut = result.usage?.completion_tokens ?? 0;
     await db.insert(costEntries).values({
       category: "llm",
-      amountMilliCents: estimateMilliCents(opts.model, tokensIn, tokensOut),
+      amountMilliCents: estimateMilliCents(billedModel, tokensIn, tokensOut),
       description: opts.description.slice(0, 500),
-      model: opts.model,
+      model: billedModel,
       tokensIn,
       tokensOut,
       refType: opts.refType,

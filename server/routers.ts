@@ -29,7 +29,7 @@ export const appRouter = router({
     localLogin: publicProcedure
       .input(z.object({ identifier: z.string().min(1).max(160), password: z.string().min(1).max(512) }))
       .mutation(async ({ input, ctx }) => {
-        if (!verifyLocalCredentials(ctx.req, input.identifier, input.password)) {
+        if (!(await verifyLocalCredentials(ctx.req, input.identifier, input.password))) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "معرّف الدخول أو كلمة المرور غير صحيحة" });
         }
 

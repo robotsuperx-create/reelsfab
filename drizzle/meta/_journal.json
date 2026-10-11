@@ -22,6 +22,13 @@
       "when": 1791610268550,
       "tag": "0002_wealthy_sway",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1791687499397,
+      "tag": "0003_lazy_valeria_richards",
+      "breakpoints": true
     }
   ]
 }

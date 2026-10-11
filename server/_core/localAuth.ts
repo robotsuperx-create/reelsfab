@@ -1,17 +1,19 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
+import { eq } from "drizzle-orm";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { loginAttempts } from "../../drizzle/schema";
+import { requireDb } from "../db";
 import { getSessionCookieOptions } from "./cookies";
 
 export const LOCAL_OPEN_ID = "local_admin";
 
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
-const attempts = new Map<string, { count: number; firstAttemptAt: number }>();
-
 function clientKey(req: Request, identifier: string) {
-  const forwarded = req.headers["x-forwarded-for"];
-  const ip = typeof forwarded === "string" ? forwarded.split(",")[0]?.trim() : req.ip;
+  // Do not trust X-Forwarded-For: clients can spoof it unless a trusted proxy
+  // allow-list is configured. The socket address is the only safe default here.
+  const ip = req.socket.remoteAddress || "unknown";
   return `${ip || "unknown"}:${identifier.trim().toLowerCase()}`;
 }
 
@@ -21,16 +23,19 @@ function safeEqual(left: string, right: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function verifyLocalCredentials(req: Request, identifier: string, password: string) {
+export async function verifyLocalCredentials(req: Request, identifier: string, password: string) {
+  const db = await requireDb();
   const configuredIdentifier = process.env.APP_ADMIN_IDENTIFIER ?? "";
   const configuredPassword = process.env.APP_ADMIN_PASSWORD ?? "";
   const normalizedIdentifier = identifier.trim();
   const key = clientKey(req, normalizedIdentifier);
-  const now = Date.now();
-  const current = attempts.get(key);
+  const now = new Date();
+  const [current] = await db.select().from(loginAttempts).where(eq(loginAttempts.key, key));
 
-  if (current && now - current.firstAttemptAt >= WINDOW_MS) attempts.delete(key);
-  const active = attempts.get(key);
+  if (current && now.getTime() - current.firstAttemptAt.getTime() >= WINDOW_MS) {
+    await db.delete(loginAttempts).where(eq(loginAttempts.key, key));
+  }
+  const active = current && now.getTime() - current.firstAttemptAt.getTime() < WINDOW_MS ? current : null;
   if (active && active.count >= MAX_ATTEMPTS) return false;
 
   const valid = Boolean(configuredIdentifier && configuredPassword)
@@ -38,14 +43,15 @@ export function verifyLocalCredentials(req: Request, identifier: string, passwor
     && safeEqual(password, configuredPassword);
 
   if (valid) {
-    attempts.delete(key);
+    await db.delete(loginAttempts).where(eq(loginAttempts.key, key));
     return true;
   }
 
-  const next = active && now - active.firstAttemptAt < WINDOW_MS
-    ? { count: active.count + 1, firstAttemptAt: active.firstAttemptAt }
-    : { count: 1, firstAttemptAt: now };
-  attempts.set(key, next);
+  if (active) {
+    await db.update(loginAttempts).set({ count: active.count + 1, updatedAt: now }).where(eq(loginAttempts.key, key));
+  } else {
+    await db.insert(loginAttempts).values({ key, count: 1, firstAttemptAt: now, updatedAt: now });
+  }
   return false;
 }
 

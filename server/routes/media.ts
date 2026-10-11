@@ -89,6 +89,8 @@ export function registerMediaRoutes(app: Express) {
 
   // Same-origin byte proxy so canvases/WebCodecs can read stored media without CORS tainting.
   app.get("/api/media/*", async (req: Request, res: Response) => {
+    const user = await requireMember(req, res);
+    if (!user) return;
     const key = (req.params as Record<string, string>)[0];
     if (!key || key.includes("..")) {
       res.status(400).send("bad key");

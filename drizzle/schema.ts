@@ -31,6 +31,13 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+export const loginAttempts = mysqlTable("login_attempts", {
+  key: varchar("key", { length: 255 }).primaryKey(),
+  count: int("count").default(0).notNull(),
+  firstAttemptAt: timestamp("firstAttemptAt").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type CharacterColors = { primary: string; accent: string; text: string };
 
 export const characters = mysqlTable("characters", {
