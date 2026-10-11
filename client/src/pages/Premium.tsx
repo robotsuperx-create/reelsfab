@@ -261,7 +261,7 @@ export default function Premium() {
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {rows.map(r => (
-            <ClipCard key={r.clip.id} row={r} defaultCredits={s?.higgsfieldCreditsPerAttempt ?? 72} derivativesDefault={s?.derivativesPerPremium ?? 3} />
+            <ClipCard key={`premium-${r.clip.id}-${r.script.id}`} row={r} defaultCredits={s?.higgsfieldCreditsPerAttempt ?? 72} derivativesDefault={s?.derivativesPerPremium ?? 3} />
           ))}
         </div>
       )}
