@@ -6,6 +6,7 @@ import { ENV } from "../_core/env";
 import { sdk } from "../_core/sdk";
 import { getSettings, requireDb } from "../db";
 import { runDailyAutomation } from "../services/batch";
+import { publishDueInstagramPosts } from "../services/publishing";
 import { storageGetSignedUrl, storagePut } from "../storage";
 
 const ASSET_KINDS = [
@@ -36,6 +37,39 @@ async function requireMember(req: Request, res: Response) {
 
 function safeName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-80) || "file";
+}
+
+async function requireScheduledTask(req: Request, res: Response, expectedTaskUid: string | null) {
+  try {
+    const token = parseCookieHeader(req.headers.cookie ?? "")["app_session_id"];
+    if (!token || !expectedTaskUid) {
+      res.status(401).json({ error: "missing scheduler ticket" });
+      return null;
+    }
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(ENV.cookieSecret), { algorithms: ["HS256"] });
+    if (payload.appId !== ENV.appId || typeof payload.openId !== "string" || !payload.openId.startsWith("cron_")) {
+      res.status(403).json({ error: "invalid scheduler ticket" });
+      return null;
+    }
+    const infoResp = await fetch(`${ENV.oAuthServerUrl.replace(/\/$/, "")}/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jwt_token: token, project_id: ENV.appId }),
+    });
+    if (!infoResp.ok) {
+      res.status(403).json({ error: "identity lookup failed" });
+      return null;
+    }
+    const info = (await infoResp.json()) as { taskUid?: string };
+    if (info.taskUid !== expectedTaskUid) {
+      res.status(403).json({ error: "unknown schedule" });
+      return null;
+    }
+    return token;
+  } catch {
+    res.status(403).json({ error: "invalid scheduler ticket" });
+    return null;
+  }
 }
 
 export function registerMediaRoutes(app: Express) {
@@ -163,6 +197,23 @@ export function registerMediaRoutes(app: Express) {
     } catch (e) {
       console.error("[scheduled] daily batch failed", e);
       res.status(500).json({ error: e instanceof Error ? e.message : "failed" });
+    }
+  });
+
+  app.post("/api/scheduled/publish-due", async (req: Request, res: Response) => {
+    try {
+      const settings = await getSettings();
+      const ticket = await requireScheduledTask(req, res, settings.publishingTaskUid);
+      if (!ticket) return;
+      if (!settings.automationEnabled) {
+        res.json({ ok: true, skipped: "automation disabled" });
+        return;
+      }
+      const result = await publishDueInstagramPosts();
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      console.error("[scheduled] Instagram publish failed", e);
+      res.status(500).json({ error: e instanceof Error ? e.message : "publish failed" });
     }
   });
 }

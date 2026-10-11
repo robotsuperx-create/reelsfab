@@ -171,6 +171,8 @@ const settingsPatch = z
     higgsfieldDefaultModel: z.string().max(120),
     scriptModel: z.string().max(80),
     reviewModel: z.string().max(80),
+    automationTaskUid: z.string().nullable(),
+    publishingTaskUid: z.string().nullable(),
     postingSlots: z.array(z.string().regex(/^\d{2}:\d{2}$/)).max(12),
     platforms: z.array(z.enum(["tiktok", "instagram", "youtube"])),
     accounts: z.record(z.string(), z.record(z.string(), z.string())),
@@ -184,6 +186,7 @@ export const settingsRouter = router({
 });
 
 const CRON_PATH = "/api/scheduled/daily-batch";
+const PUBLISH_CRON_PATH = "/api/scheduled/publish-due";
 
 export const automationRouter = router({
   status: memberProcedure.query(async () => {
@@ -198,7 +201,7 @@ export const automationRouter = router({
         jobError = e instanceof Error ? e.message : String(e);
       }
     }
-    return { enabled: s.automationEnabled, hourUtc: s.automationHourUtc, taskUid: s.automationTaskUid, job, jobError };
+    return { enabled: s.automationEnabled, hourUtc: s.automationHourUtc, taskUid: s.automationTaskUid, publishingTaskUid: s.publishingTaskUid, job, jobError };
   }),
   runNow: memberProcedure.mutation(async ({ ctx }) => runDailyAutomation("manual", ctx.user.id)),
   runs: memberProcedure.query(async () => {
@@ -226,8 +229,26 @@ export const automationRouter = router({
       taskUid = r.taskUid;
       nextExecutionAt = r.nextExecutionAt;
     }
-    await saveSettings({ automationEnabled: true, automationHourUtc: input.hourUtc, automationTaskUid: taskUid });
-    return { taskUid, nextExecutionAt };
+    let publishingTaskUid = s.publishingTaskUid;
+    let nextPublishingExecutionAt: string | null | undefined = null;
+    if (publishingTaskUid) {
+      try {
+        const r = await updateHeartbeatJob(publishingTaskUid, { cron: "0 */5 * * * *", enable: true, path: PUBLISH_CRON_PATH }, "");
+        nextPublishingExecutionAt = r.nextExecutionAt;
+      } catch {
+        publishingTaskUid = null;
+      }
+    }
+    if (!publishingTaskUid) {
+      const r = await createHeartbeatJob(
+        { name: "reels-publish-due", cron: "0 */5 * * * *", path: PUBLISH_CRON_PATH, method: "POST", payload: {}, description: "AI Reels Factory: نشر Instagram للمنشورات المستحقة" },
+        "",
+      );
+      publishingTaskUid = r.taskUid;
+      nextPublishingExecutionAt = r.nextExecutionAt;
+    }
+    await saveSettings({ automationEnabled: true, automationHourUtc: input.hourUtc, automationTaskUid: taskUid, publishingTaskUid });
+    return { taskUid, nextExecutionAt, publishingTaskUid, nextPublishingExecutionAt };
   }),
   disable: teamAdminProcedure.mutation(async () => {
     const s = await getSettings();
@@ -236,6 +257,13 @@ export const automationRouter = router({
         await updateHeartbeatJob(s.automationTaskUid, { enable: false }, "");
       } catch (e) {
         console.warn("[automation] pause failed", e);
+      }
+    }
+    if (s.publishingTaskUid) {
+      try {
+        await updateHeartbeatJob(s.publishingTaskUid, { enable: false }, "");
+      } catch (e) {
+        console.warn("[automation] publishing pause failed", e);
       }
     }
     await saveSettings({ automationEnabled: false });
