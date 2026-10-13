@@ -53,14 +53,23 @@ export async function callJson<T>(opts: {
   if (target.provider !== "manus" && textMessages && await providerConfigured(target.provider)) {
     const system = textMessages.filter(message => message.role === "system").map(message => message.text).join("\n\n");
     const prompt = textMessages.filter(message => message.role !== "system").map(message => `${message.role.toUpperCase()}:\n${message.text}`).join("\n\n");
-    const result = await invokeProvider({
-      provider: target.provider,
-      model: target.model,
-      system: system || undefined,
-      prompt,
-      jsonSchema: opts.schema,
-      maxTokens: opts.maxTokens ?? 8000,
-    });
+    let result: Awaited<ReturnType<typeof invokeProvider>>;
+    try {
+      result = await invokeProvider({
+        provider: target.provider,
+        model: target.model,
+        system: system || undefined,
+        prompt,
+        jsonSchema: opts.schema,
+        maxTokens: opts.maxTokens ?? 8000,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (target.provider === "anthropic" && /credit balance|insufficient_quota|billing/i.test(message)) {
+        throw new Error("Claude رفض الطلب لأن رصيد Anthropic غير كافٍ. أضف رصيدًا من Plans & Billing في Anthropic، أو غيّر نموذج النصوص إلى manus أو مزود آخر. مفتاح Higgsfield لا يولّد النصوص؛ هو مخصص لفيديو Premium.");
+      }
+      throw new Error(`${target.provider} لم يتمكن من توليد النص: ${message.slice(0, 500)}`);
+    }
     text = result.text;
     tokensIn = result.usage?.inputTokens ?? 0;
     tokensOut = result.usage?.outputTokens ?? 0;
