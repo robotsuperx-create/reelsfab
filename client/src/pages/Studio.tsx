@@ -156,9 +156,9 @@ export default function Studio() {
             </div>
           </div>
           <div className="flex-1 divide-y overflow-y-auto">
-            {list.map(s => (
+            {list.map((s, index) => (
               <button
-                key={s.id}
+                key={`script-${s.id}-${index}`}
                 onClick={() => setScriptId(s.id)}
                 className={cn("flex w-full items-start gap-2 p-2.5 text-right transition-colors hover:bg-accent/40", s.id === scriptId && "bg-tally/10")}
               >
@@ -216,11 +216,11 @@ export default function Studio() {
                     <div className="text-xs text-stop">لا توجد صور لهذه الشخصية — ارفعها من صفحة الشخصية.</div>
                   ) : (
                     <div className="grid grid-cols-4 gap-1.5">
-                      {candidates.map(u => {
+                      {candidates.map((u, index) => {
                         const on = images.includes(u);
                         return (
                           <button
-                            key={u}
+                            key={`image-${index}-${u}`}
                             onClick={() => setImages(prev => (on ? prev.filter(x => x !== u) : [...prev, u]))}
                             className={cn("relative overflow-hidden rounded border-2", on ? "border-tally" : "border-transparent opacity-60")}
                           >
@@ -237,8 +237,8 @@ export default function Studio() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {KOKORO_VOICES.map(v => (
-                        <SelectItem key={v.id} value={v.id}>
+                      {KOKORO_VOICES.map((v, index) => (
+                        <SelectItem key={`voice-${v.id}-${index}`} value={v.id}>
                           {v.label}
                         </SelectItem>
                       ))}
@@ -288,8 +288,8 @@ export default function Studio() {
                     <SelectItem value="gen:warm">مولّدة — دافئة</SelectItem>
                     <SelectItem value="gen:bright">مولّدة — مشرقة</SelectItem>
                     <SelectItem value="gen:moody">مولّدة — هادئة/قصصية</SelectItem>
-                    {(music.data ?? []).map(m => (
-                      <SelectItem key={m.id} value={`asset:${m.url}`}>
+                    {(music.data ?? []).map((m, index) => (
+                      <SelectItem key={`music-${m.id}-${index}`} value={`asset:${m.url}`}>
                         {m.title || `#${m.id}`}
                       </SelectItem>
                     ))}
@@ -314,8 +314,8 @@ export default function Studio() {
                       <StatusTally status={qc.verdict} kind="qc" />
                     </div>
                     <div className="flex flex-col gap-1">
-                      {qc.checks.map(c => (
-                        <div key={c.key} className="flex items-center justify-between text-[11px]">
+                      {qc.checks.map((c, index) => (
+                        <div key={`qc-${c.key}-${index}`} className="flex items-center justify-between text-[11px]">
                           <span className={c.status === "pass" ? "text-muted-foreground" : c.status === "warn" ? "text-hold" : "text-stop"}>{c.label}</span>
                           <span className="timecode text-muted-foreground">{c.detail}</span>
                         </div>
