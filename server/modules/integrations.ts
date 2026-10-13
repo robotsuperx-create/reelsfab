@@ -18,7 +18,7 @@ async function getRow(id: number) {
 
 async function probe(provider: string, config: Record<string, string>) {
   const key = config.apiKey || config.accessToken || config.token;
-  if (!key && provider !== "custom") throw new Error("أدخل apiKey أو accessToken أولاً");
+  if (!key && provider !== "custom" && provider !== "higgsfield" && provider !== "youtube") throw new Error("أدخل apiKey أو accessToken أولاً");
   if (provider === "openai") {
     const r = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` } });
     if (!r.ok) throw new Error(`OpenAI رفض الاتصال (${r.status})`);
@@ -28,6 +28,15 @@ async function probe(provider: string, config: Record<string, string>) {
   } else if (provider === "gemini") {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key!)}`);
     if (!r.ok) throw new Error(`Gemini رفض الاتصال (${r.status})`);
+  } else if (provider === "elevenlabs") {
+    const r = await fetch("https://api.elevenlabs.io/v1/user", { headers: { "xi-api-key": key! } });
+    if (!r.ok) throw new Error(`ElevenLabs رفض الاتصال (${r.status})`);
+  } else if (provider === "higgsfield") {
+    if (!config.apiKey || !config.apiSecret) throw new Error("Higgsfield يحتاج apiKey و apiSecret");
+    return { checked: false, note: "تم التحقق من وجود المفتاحين؛ أول طلب فيديو سيجري اختبار الصلاحية دون استهلاك إضافي." };
+  } else if (provider === "youtube") {
+    if (!config.clientId || !config.clientSecret) throw new Error("YouTube يحتاج clientId و clientSecret بالإضافة إلى OAuth token للحساب");
+    return { checked: false, note: "بيانات OAuth مسجلة؛ اختبار الرفع يتم عند نشر أول فيديو." };
   } else if (provider === "custom") {
     if (!config.testUrl) throw new Error("أضف testUrl لاختبار الموصل المخصص");
     const r = await fetch(config.testUrl, { headers: key ? { Authorization: `Bearer ${key}` } : undefined });

@@ -6,8 +6,9 @@ import { ENV } from "../_core/env";
 import { sdk } from "../_core/sdk";
 import { getSettings, requireDb } from "../db";
 import { runDailyAutomation } from "../services/batch";
-import { publishDueInstagramPosts } from "../services/publishing";
+import { publishDueInstagramPosts, publishDueSocialPosts } from "../services/publishing";
 import { syncHiggsfieldClips } from "../services/higgsfield-jobs";
+import { syncPublishedMetrics } from "../services/analytics-sync";
 import { storageGetSignedUrl, storagePut } from "../storage";
 
 const ASSET_KINDS = [
@@ -212,8 +213,10 @@ export function registerMediaRoutes(app: Express) {
         return;
       }
       const higgsfield = await syncHiggsfieldClips();
-      const result = await publishDueInstagramPosts();
-      res.json({ ok: true, ...result, higgsfield });
+      const instagram = await publishDueInstagramPosts();
+      const social = await publishDueSocialPosts();
+      const analytics = await syncPublishedMetrics();
+      res.json({ ok: true, instagram, social, higgsfield, analytics });
     } catch (e) {
       console.error("[scheduled] Instagram publish failed", e);
       res.status(500).json({ error: e instanceof Error ? e.message : "publish failed" });

@@ -37,6 +37,7 @@ export default function Studio() {
   const music = trpc.assets.list.useQuery({ kinds: ["music"] });
   const settings = trpc.settings.get.useQuery();
   const createRender = trpc.renders.create.useMutation();
+  const eleven = trpc.mediaGeneration.elevenlabsSpeech.useMutation({ onSuccess: r => { setVoiceUrl(r.url); toast.success("تم توليد التعليق الصوتي عبر ElevenLabs"); }, onError: e => toast.error(e.message) });
 
   const [images, setImages] = useState<string[]>([]);
   const [voice, setVoice] = useState<string>("");
@@ -244,6 +245,7 @@ export default function Studio() {
                     </SelectContent>
                   </Select>
                   <div className="flex items-center gap-2">
+                    {character.externalVoiceId && <Button size="sm" variant="outline" onClick={() => eleven.mutate({ voiceId: character.externalVoiceId!, text: [script.hook, script.body, script.payoff, script.cta].filter(Boolean).join(" ") })} disabled={eleven.isPending || Boolean(voiceUrl)}><Mic /> {eleven.isPending ? "جارٍ توليد ElevenLabs…" : "توليد ElevenLabs"}</Button>}
                     <Button size="sm" variant="outline" onClick={() => voiceFile.current?.click()}>
                       <Mic /> {voiceUrl ? "تم رفع صوت خارجي" : "رفع صوت جاهز (اختياري)"}
                     </Button>

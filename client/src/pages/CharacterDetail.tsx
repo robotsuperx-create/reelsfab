@@ -9,7 +9,7 @@ import { uploadBlob } from "@/lib/api";
 import { speak } from "@/lib/tts";
 import { trpc } from "@/lib/trpc";
 import { CAPTION_FONTS, KOKORO_VOICES } from "@shared/domain";
-import { ArrowRight, ImagePlus, Play, Save, Star, Trash2 } from "lucide-react";
+import { ArrowRight, ImagePlus, Play, Save, Star, Trash2, Link2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useParams } from "wouter";
@@ -44,6 +44,9 @@ export default function CharacterDetail() {
   const [d, setD] = useState<Draft | null>(null);
   const [testing, setTesting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [account, setAccount] = useState({ platform: "tiktok" as "tiktok" | "youtube", handle: "", platformUserId: "", accessToken: "", refreshToken: "", timezone: "America/New_York" });
+  const connectAccount = trpc.socialAccounts.connectManual.useMutation({ onSuccess: () => { utils.socialAccounts.list.invalidate({ characterId: id }); setAccountOpen(false); setAccount(a => ({ ...a, accessToken: "", refreshToken: "" })); toast.success("تم حفظ الحساب المشفر"); }, onError: e => toast.error(e.message) });
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -144,12 +147,14 @@ export default function CharacterDetail() {
             <Button variant="outline" onClick={() => { window.location.href = `/api/meta/start?characterId=${id}`; }}>
               {social.data?.some(a => a.platform === "instagram" && a.status === "connected") ? "إعادة ربط Instagram" : "ربط Instagram"}
             </Button>
+            <Button variant="outline" onClick={() => setAccountOpen(v => !v)}><Link2 /> TikTok / YouTube</Button>
             <Button onClick={() => save()} disabled={update.isPending}>
               <Save /> حفظ التعديلات
             </Button>
           </div>
         }
       />
+      {accountOpen && <div className="panel mb-5 grid gap-3 p-4 md:grid-cols-3"><div><Label>المنصة</Label><Select value={account.platform} onValueChange={v => setAccount({ ...account, platform: v as "tiktok" | "youtube" })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tiktok">TikTok</SelectItem><SelectItem value="youtube">YouTube</SelectItem></SelectContent></Select></div><div><Label>اسم الحساب</Label><Input className="mt-1" value={account.handle} onChange={e => setAccount({ ...account, handle: e.target.value })} placeholder="@handle" /></div><div><Label>Platform User ID / Channel ID</Label><Input className="mt-1" dir="ltr" value={account.platformUserId} onChange={e => setAccount({ ...account, platformUserId: e.target.value })} /></div><div className="md:col-span-2"><Label>Access Token</Label><Input className="mt-1" type="password" dir="ltr" value={account.accessToken} onChange={e => setAccount({ ...account, accessToken: e.target.value })} /></div><div><Label>Refresh Token (YouTube)</Label><Input className="mt-1" type="password" dir="ltr" value={account.refreshToken} onChange={e => setAccount({ ...account, refreshToken: e.target.value })} /></div><div><Label>Timezone</Label><Input className="mt-1" dir="ltr" value={account.timezone} onChange={e => setAccount({ ...account, timezone: e.target.value })} /></div><div className="flex items-end"><Button disabled={connectAccount.isPending || account.accessToken.length < 10} onClick={() => connectAccount.mutate({ characterId: id, platform: account.platform, handle: account.handle || null, platformUserId: account.platformUserId || null, accessToken: account.accessToken, refreshToken: account.refreshToken || null, expiresAt: null, timezone: account.timezone })}>حفظ وربط الحساب</Button></div></div>}
       <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
         <div className="flex flex-col gap-4">
           <div className="panel p-3">

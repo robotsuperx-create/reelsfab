@@ -21,6 +21,7 @@ import { z } from "zod";
 import { characterGeneratorRouter } from "./modules/character-generator";
 import { socialAccountsRouter } from "./modules/social-accounts";
 import { integrationsRouter } from "./modules/integrations";
+import { mediaGenerationRouter } from "./modules/media-generation";
 
 export const appRouter = router({
   // All APIs live under /api/ so the gateway routes them to the server.
@@ -59,6 +60,7 @@ export const appRouter = router({
   characterGenerator: characterGeneratorRouter,
   socialAccounts: socialAccountsRouter,
   integrations: integrationsRouter,
+  mediaGeneration: mediaGenerationRouter,
   scripts: scriptsRouter,
   batches: batchesRouter,
   premium: premiumRouter,
