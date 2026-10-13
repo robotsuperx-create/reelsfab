@@ -7,6 +7,7 @@ import { sdk } from "../_core/sdk";
 import { getSettings, requireDb } from "../db";
 import { runDailyAutomation } from "../services/batch";
 import { publishDueInstagramPosts } from "../services/publishing";
+import { syncHiggsfieldClips } from "../services/higgsfield-jobs";
 import { storageGetSignedUrl, storagePut } from "../storage";
 
 const ASSET_KINDS = [
@@ -193,7 +194,8 @@ export function registerMediaRoutes(app: Express) {
         return;
       }
       const result = await runDailyAutomation("schedule");
-      res.json({ ok: true, ...result });
+      const higgsfield = await syncHiggsfieldClips();
+      res.json({ ok: true, ...result, higgsfield });
     } catch (e) {
       console.error("[scheduled] daily batch failed", e);
       res.status(500).json({ error: e instanceof Error ? e.message : "failed" });
@@ -209,8 +211,9 @@ export function registerMediaRoutes(app: Express) {
         res.json({ ok: true, skipped: "automation disabled" });
         return;
       }
+      const higgsfield = await syncHiggsfieldClips();
       const result = await publishDueInstagramPosts();
-      res.json({ ok: true, ...result });
+      res.json({ ok: true, ...result, higgsfield });
     } catch (e) {
       console.error("[scheduled] Instagram publish failed", e);
       res.status(500).json({ error: e instanceof Error ? e.message : "publish failed" });

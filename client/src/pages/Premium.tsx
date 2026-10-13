@@ -9,7 +9,7 @@ import { extractSpeechWav } from "@/lib/render/audio";
 import { trpc } from "@/lib/trpc";
 import { formatUsd } from "@shared/domain";
 import { ALL_FORMATS, BlobSource, Input as MbInput } from "mediabunny";
-import { Coins, ExternalLink, FileVideo, GitBranch, Upload } from "lucide-react";
+import { Ban, Coins, ExternalLink, FileVideo, GitBranch, RefreshCw, Send, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -91,6 +91,9 @@ function ClipCard({ row, defaultCredits, derivativesDefault }: { row: Row; defau
     },
     onError: e => toast.error(e.message),
   });
+  const submit = trpc.premium.submitToHiggsfield.useMutation({ onSuccess: () => { utils.premium.list.invalidate(); toast.success("تم إرسال اللقطة إلى Higgsfield"); }, onError: e => toast.error(e.message) });
+  const sync = trpc.premium.syncFromHiggsfield.useMutation({ onSuccess: r => { utils.premium.list.invalidate(); toast.success(r.status === "received" ? "اكتمل الفيديو وحُفظ في مكتبة النظام" : `حالة Higgsfield: ${r.status}`); }, onError: e => toast.error(e.message) });
+  const cancel = trpc.premium.cancelHiggsfield.useMutation({ onSuccess: () => { utils.premium.list.invalidate(); toast.success("تم إلغاء الطلب"); }, onError: e => toast.error(e.message) });
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -185,6 +188,9 @@ function ClipCard({ row, defaultCredits, derivativesDefault }: { row: Row; defau
         </div>
       )}
       <div className="flex flex-wrap gap-2 border-t pt-3">
+        {clip.status === "requested" && <Button size="sm" onClick={() => submit.mutate({ id: clip.id })} disabled={submit.isPending}><Send /> {submit.isPending ? "جارٍ الإرسال…" : "إرسال إلى Higgsfield"}</Button>}
+        {clip.status === "generating" && <Button size="sm" variant="outline" onClick={() => sync.mutate({ id: clip.id })} disabled={sync.isPending}><RefreshCw /> {sync.isPending ? "جارٍ الفحص…" : "تحديث الحالة"}</Button>}
+        {clip.status === "generating" && clip.providerCancelUrl && <Button size="sm" variant="ghost" className="text-stop" onClick={() => cancel.mutate({ id: clip.id })} disabled={cancel.isPending}><Ban /> إلغاء الطلب</Button>}
         {clip.status === "requested" && (
           <Button size="sm" variant="outline" onClick={() => update.mutate({ id: clip.id, data: { status: "generating" } })}>
             بدأت التوليد

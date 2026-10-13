@@ -187,6 +187,12 @@ export const premiumClips = mysqlTable("premium_clips", {
     .default("requested")
     .notNull(),
   model: varchar("model", { length: 120 }),
+  providerRequestId: varchar("providerRequestId", { length: 160 }),
+  providerStatusUrl: varchar("providerStatusUrl", { length: 1024 }),
+  providerCancelUrl: varchar("providerCancelUrl", { length: 1024 }),
+  providerError: text("providerError"),
+  submittedAt: timestamp("submittedAt"),
+  completedAt: timestamp("completedAt"),
   attempts: int("attempts").default(0).notNull(),
   creditsSpent: int("creditsSpent").default(0).notNull(),
   costCents: int("costCents").default(0).notNull(),

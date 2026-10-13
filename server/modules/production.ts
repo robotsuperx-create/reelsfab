@@ -17,7 +17,9 @@ import { transcribeAudio } from "../_core/voiceTranscription";
 import { getSettings, requireDb } from "../db";
 import { memberProcedure } from "../procedures";
 import { generateDerivativeVariants, visualConsistencyCheck } from "../services/ai";
-import { storageGetSignedUrl } from "../storage";
+import { storageGetSignedUrl, storagePut } from "../storage";
+import { cancelHiggsfield, getHiggsfieldStatus, submitHiggsfield } from "../services/higgsfield";
+import { randomUUID } from "node:crypto";
 
 function storageKeyFromUrl(url: string | null | undefined) {
   if (!url) return null;
@@ -65,6 +67,42 @@ export const premiumRouter = router({
         .limit(300);
       return rows.map(r => ({ ...r, fullPrompt: buildHiggsfieldPrompt(r.character, r.script) }));
     }),
+  submitToHiggsfield: memberProcedure.input(z.object({ id: z.number(), model: z.string().max(180).optional() })).mutation(async ({ input, ctx }) => {
+    const db = await requireDb();
+    const [row] = await db.select({ clip: premiumClips, script: scripts, character: characters }).from(premiumClips).innerJoin(scripts, eq(scripts.id, premiumClips.scriptId)).innerJoin(characters, eq(characters.id, premiumClips.characterId)).where(eq(premiumClips.id, input.id));
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "اللقطة غير موجودة" });
+    const result = await submitHiggsfield({ model: input.model || row.clip.model, prompt: buildHiggsfieldPrompt(row.character, row.script), duration: 15, aspectRatio: "9:16", idempotencyKey: `premium-clip-${input.id}-${randomUUID()}` });
+    const settings = await getSettings();
+    const credits = settings.higgsfieldCreditsPerAttempt;
+    const usd = credits * settings.higgsfieldUsdPerCredit;
+    await db.update(premiumClips).set({ status: "generating", model: input.model || row.clip.model || "kling-video/v3.0/std/text-to-video", providerRequestId: result.request_id, providerStatusUrl: result.status_url ?? null, providerCancelUrl: result.cancel_url ?? null, providerError: null, submittedAt: new Date(), attempts: sql`${premiumClips.attempts} + 1`, creditsSpent: sql`${premiumClips.creditsSpent} + ${credits}`, costCents: sql`${premiumClips.costCents} + ${Math.round(usd * 100)}` }).where(eq(premiumClips.id, input.id));
+    await db.insert(costEntries).values({ category: "higgsfield", amountMilliCents: milliCentsFromUsd(usd), credits, description: `Higgsfield API: محاولة تلقائية للّقطة #${input.id}`, refType: "premium_clip", refId: input.id, createdBy: ctx.user.id });
+    return { status: result.status, requestId: result.request_id };
+  }),
+  syncFromHiggsfield: memberProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const db = await requireDb();
+    const [clip] = await db.select().from(premiumClips).where(eq(premiumClips.id, input.id));
+    if (!clip?.providerStatusUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "لم يتم إرسال هذه اللقطة إلى Higgsfield بعد" });
+    const result = await getHiggsfieldStatus(clip.providerStatusUrl);
+    if (result.status === "completed" && result.video?.url) {
+      const video = await fetch(result.video.url);
+      if (!video.ok) throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر تنزيل فيديو Higgsfield" });
+      const stored = await storagePut(`premium/${clip.characterId}/clip-${clip.id}.mp4`, Buffer.from(await video.arrayBuffer()), "video/mp4");
+      await db.update(premiumClips).set({ status: "received", videoUrl: stored.url, durationMs: 15000, providerError: null, completedAt: new Date() }).where(eq(premiumClips.id, clip.id));
+      await db.update(scripts).set({ status: "premium_uploaded" }).where(eq(scripts.id, clip.scriptId));
+      return { status: "received", videoUrl: stored.url };
+    }
+    if (["failed", "cancelled", "nsfw"].includes(result.status)) await db.update(premiumClips).set({ status: "failed", providerError: JSON.stringify(result.error ?? result.status).slice(0, 1000) }).where(eq(premiumClips.id, clip.id));
+    return { status: result.status, videoUrl: null };
+  }),
+  cancelHiggsfield: memberProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const db = await requireDb();
+    const [clip] = await db.select().from(premiumClips).where(eq(premiumClips.id, input.id));
+    if (!clip?.providerCancelUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد طلب Higgsfield قابل للإلغاء" });
+    await cancelHiggsfield(clip.providerCancelUrl);
+    await db.update(premiumClips).set({ status: "failed", providerError: "تم الإلغاء من لوحة الإنتاج" }).where(eq(premiumClips.id, input.id));
+    return { ok: true };
+  }),
   update: memberProcedure
     .input(
       z.object({
