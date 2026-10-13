@@ -18,6 +18,7 @@ import QcPage from "./pages/Qc";
 import RenderQueue from "./pages/RenderQueue";
 import Scripts from "./pages/Scripts";
 import SettingsPage from "./pages/Settings";
+import IntegrationsPage from "./pages/Integrations";
 import Studio from "./pages/Studio";
 
 function Router() {
@@ -38,6 +39,7 @@ function Router() {
         <Route path="/costs" component={Costs} />
         <Route path="/automation" component={Automation} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/integrations" component={IntegrationsPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

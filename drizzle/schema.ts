@@ -311,6 +311,26 @@ export const settings = mysqlTable("settings", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const integrations = mysqlTable(
+  "integrations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    provider: varchar("provider", { length: 80 }).notNull(),
+    label: varchar("label", { length: 120 }).notNull(),
+    capabilities: json("capabilities").$type<string[]>().notNull(),
+    configKeys: json("configKeys").$type<string[]>().notNull(),
+    encryptedConfig: text("encryptedConfig").notNull(),
+    status: mysqlEnum("status", ["connected", "error", "disabled"]).default("connected").notNull(),
+    lastCheckedAt: timestamp("lastCheckedAt"),
+    lastError: text("lastError"),
+    createdBy: int("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [index("integrations_provider_idx").on(t.provider), index("integrations_status_idx").on(t.status)],
+);
+export type Integration = typeof integrations.$inferSelect;
+
 export const automationRuns = mysqlTable("automation_runs", {
   id: int("id").autoincrement().primaryKey(),
   trigger: mysqlEnum("trigger", ["manual", "schedule"]).notNull(),

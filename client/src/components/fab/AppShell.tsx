@@ -22,6 +22,7 @@ import {
   Sparkles,
   Timer,
   Users,
+  Cable,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -55,6 +56,7 @@ const NAV: { group: string; items: { href: string; label: string; icon: typeof G
       { href: "/costs", label: "التكلفة", icon: Coins },
       { href: "/automation", label: "الأتمتة اليومية", icon: Timer },
       { href: "/settings", label: "الإعدادات والفريق", icon: Settings },
+      { href: "/integrations", label: "مركز التكاملات", icon: Cable },
     ],
   },
 ];

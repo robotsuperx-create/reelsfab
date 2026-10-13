@@ -50,7 +50,7 @@ export async function callJson<T>(opts: {
   let tokensOut = 0;
   let billedModel = opts.model;
 
-  if (target.provider !== "manus" && textMessages && providerConfigured(target.provider)) {
+  if (target.provider !== "manus" && textMessages && await providerConfigured(target.provider)) {
     const system = textMessages.filter(message => message.role === "system").map(message => message.text).join("\n\n");
     const prompt = textMessages.filter(message => message.role !== "system").map(message => `${message.role.toUpperCase()}:\n${message.text}`).join("\n\n");
     const result = await invokeProvider({

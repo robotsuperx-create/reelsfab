@@ -1,12 +1,33 @@
-import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { socialAccounts } from "../../drizzle/schema";
 import { requireDb } from "../db";
+import { decryptSecret, encryptSecret } from "./integration-vault";
 
-const key = () => { const raw = process.env.META_TOKEN_ENCRYPTION_KEY; if (!raw) throw new Error("META_TOKEN_ENCRYPTION_KEY is not configured"); return crypto.createHash("sha256").update(raw).digest(); };
-export function encryptSecret(value: string) { const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv("aes-256-gcm", key(), iv); const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]); return `${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${ciphertext.toString("base64url")}`; }
-export function decryptSecret(value: string) { const [iv, tag, ciphertext] = value.split("."); if (!iv || !tag || !ciphertext) throw new Error("Invalid encrypted token"); const decipher = crypto.createDecipheriv("aes-256-gcm", key(), Buffer.from(iv, "base64url")); decipher.setAuthTag(Buffer.from(tag, "base64url")); return Buffer.concat([decipher.update(Buffer.from(ciphertext, "base64url")), decipher.final()]).toString("utf8"); }
-export async function listSocialAccounts(characterId?: number) { const db = await requireDb(); const rows = await db.select({ id: socialAccounts.id, characterId: socialAccounts.characterId, platform: socialAccounts.platform, handle: socialAccounts.handle, platformUserId: socialAccounts.platformUserId, tokenExpiresAt: socialAccounts.tokenExpiresAt, timezone: socialAccounts.timezone, status: socialAccounts.status, lastError: socialAccounts.lastError, createdAt: socialAccounts.createdAt, updatedAt: socialAccounts.updatedAt }).from(socialAccounts).where(characterId ? eq(socialAccounts.characterId, characterId) : undefined); return rows; }
-export async function saveSocialToken(input: { id?: number; characterId: number; platform: "instagram"|"tiktok"|"youtube"; handle?: string|null; platformUserId?: string|null; accessToken: string; refreshToken?: string|null; expiresAt?: Date|null; timezone?: string; userId: number }) { const db = await requireDb(); const values = { characterId: input.characterId, platform: input.platform, handle: input.handle ?? null, platformUserId: input.platformUserId ?? null, encryptedAccessToken: encryptSecret(input.accessToken), encryptedRefreshToken: input.refreshToken ? encryptSecret(input.refreshToken) : null, tokenExpiresAt: input.expiresAt ?? null, timezone: input.timezone ?? "UTC", status: "connected" as const, lastError: null, connectedBy: input.userId }; if (input.id) await db.update(socialAccounts).set(values).where(eq(socialAccounts.id, input.id)); else await db.insert(socialAccounts).values(values); return listSocialAccounts(input.characterId); }
-export async function deleteSocialAccount(id: number) { const db = await requireDb(); await db.delete(socialAccounts).where(eq(socialAccounts.id, id)); return { ok: true }; }
-export async function getInstagramToken(id: number) { const db = await requireDb(); const [row] = await db.select().from(socialAccounts).where(and(eq(socialAccounts.id, id), eq(socialAccounts.platform, "instagram"))); if (!row?.encryptedAccessToken) throw new Error("Instagram account is not connected"); return { ...row, accessToken: decryptSecret(row.encryptedAccessToken) }; }
+export { decryptSecret, encryptSecret } from "./integration-vault";
+
+export async function listSocialAccounts(characterId?: number) {
+  const db = await requireDb();
+  const rows = await db.select({ id: socialAccounts.id, characterId: socialAccounts.characterId, platform: socialAccounts.platform, handle: socialAccounts.handle, platformUserId: socialAccounts.platformUserId, tokenExpiresAt: socialAccounts.tokenExpiresAt, timezone: socialAccounts.timezone, status: socialAccounts.status, lastError: socialAccounts.lastError, createdAt: socialAccounts.createdAt, updatedAt: socialAccounts.updatedAt }).from(socialAccounts).where(characterId ? eq(socialAccounts.characterId, characterId) : undefined);
+  return rows;
+}
+
+export async function saveSocialToken(input: { id?: number; characterId: number; platform: "instagram"|"tiktok"|"youtube"; handle?: string|null; platformUserId?: string|null; accessToken: string; refreshToken?: string|null; expiresAt?: Date|null; timezone?: string; userId: number }) {
+  const db = await requireDb();
+  const values = { characterId: input.characterId, platform: input.platform, handle: input.handle ?? null, platformUserId: input.platformUserId ?? null, encryptedAccessToken: encryptSecret(input.accessToken), encryptedRefreshToken: input.refreshToken ? encryptSecret(input.refreshToken) : null, tokenExpiresAt: input.expiresAt ?? null, timezone: input.timezone ?? "UTC", status: "connected" as const, lastError: null, connectedBy: input.userId };
+  if (input.id) await db.update(socialAccounts).set(values).where(eq(socialAccounts.id, input.id));
+  else await db.insert(socialAccounts).values(values);
+  return listSocialAccounts(input.characterId);
+}
+
+export async function deleteSocialAccount(id: number) {
+  const db = await requireDb();
+  await db.delete(socialAccounts).where(eq(socialAccounts.id, id));
+  return { ok: true };
+}
+
+export async function getInstagramToken(id: number) {
+  const db = await requireDb();
+  const [row] = await db.select().from(socialAccounts).where(and(eq(socialAccounts.id, id), eq(socialAccounts.platform, "instagram")));
+  if (!row?.encryptedAccessToken) throw new Error("Instagram account is not connected");
+  return { ...row, accessToken: decryptSecret(row.encryptedAccessToken) };
+}

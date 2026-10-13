@@ -20,6 +20,7 @@ import { getUserByOpenId, upsertUser } from "./db";
 import { z } from "zod";
 import { characterGeneratorRouter } from "./modules/character-generator";
 import { socialAccountsRouter } from "./modules/social-accounts";
+import { integrationsRouter } from "./modules/integrations";
 
 export const appRouter = router({
   // All APIs live under /api/ so the gateway routes them to the server.
@@ -57,6 +58,7 @@ export const appRouter = router({
   characters: charactersRouter,
   characterGenerator: characterGeneratorRouter,
   socialAccounts: socialAccountsRouter,
+  integrations: integrationsRouter,
   scripts: scriptsRouter,
   batches: batchesRouter,
   premium: premiumRouter,
