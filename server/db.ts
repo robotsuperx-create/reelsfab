@@ -110,6 +110,13 @@ export async function getSettings(): Promise<AppSettings> {
   const rows = await db.select().from(settings);
   const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const row of rows) merged[row.key] = row.value;
+  const deprecatedGeminiModels = new Set(["gemini-2.5-flash", "gemini-3-flash-preview", "gemini:gemini-2.5-flash", "gemini:gemini-3-flash-preview"]);
+  for (const key of ["scriptModel", "reviewModel"] as const) {
+    if (typeof merged[key] === "string" && deprecatedGeminiModels.has(merged[key] as string)) {
+      merged[key] = "gemini-3.8-flash";
+      await db.insert(settings).values({ key, value: merged[key] }).onDuplicateKeyUpdate({ set: { value: merged[key] } });
+    }
+  }
   return merged as AppSettings;
 }
 

@@ -68,6 +68,9 @@ export async function callJson<T>(opts: {
       if (target.provider === "anthropic" && /credit balance|insufficient_quota|billing/i.test(message)) {
         throw new Error("Claude رفض الطلب لأن رصيد Anthropic غير كافٍ. أضف رصيدًا من Plans & Billing في Anthropic، أو غيّر نموذج النصوص إلى manus أو مزود آخر. مفتاح Higgsfield لا يولّد النصوص؛ هو مخصص لفيديو Premium.");
       }
+      if (target.provider === "gemini" && /404|no longer available|not found/i.test(message)) {
+        throw new Error("نموذج Gemini المختار لم يعد متاحًا للحسابات الجديدة. استخدم gemini-3.8-flash؛ تم تحديث الإعداد تلقائيًا من النماذج القديمة.");
+      }
       throw new Error(`${target.provider} لم يتمكن من توليد النص: ${message.slice(0, 500)}`);
     }
     text = result.text;
