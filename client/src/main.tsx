@@ -14,6 +14,9 @@ const queryClient = new QueryClient();
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
+  // When Supabase Auth is configured, the Gate component owns the login UI.
+  // Do not unexpectedly redirect an independent deployment to Manus OAuth.
+  if (window.__MANUS_CONFIG__?.supabaseUrl && window.__MANUS_CONFIG__?.supabaseAnonKey) return;
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
 
