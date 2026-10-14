@@ -5,6 +5,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { getSupabaseClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import {
   BarChart3,
@@ -24,7 +25,7 @@ import {
   Users,
   Cable,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Logo } from "./common";
@@ -154,6 +155,11 @@ function Gate({ children }: { children: ReactNode }) {
   const { user, loading, refresh } = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [supabaseEmail, setSupabaseEmail] = useState("");
+  const [supabasePassword, setSupabasePassword] = useState("");
+  const [supabaseMode, setSupabaseMode] = useState<"signin" | "signup">("signin");
+  const [supabaseBusy, setSupabaseBusy] = useState(false);
+  const [supabaseMessage, setSupabaseMessage] = useState<string | null>(null);
   const localLogin = trpc.auth.localLogin.useMutation({
     onSuccess: async () => {
       setPassword("");
@@ -161,6 +167,33 @@ function Gate({ children }: { children: ReactNode }) {
     },
   });
   const access = trpc.team.access.useQuery(undefined, { enabled: Boolean(user), retry: false });
+  const handleSupabaseAuth = async (event: FormEvent) => {
+    event.preventDefault();
+    setSupabaseMessage(null);
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setSupabaseMessage("لم تُضبط مفاتيح Supabase العامة بعد.");
+      return;
+    }
+    setSupabaseBusy(true);
+    try {
+      const result = supabaseMode === "signin"
+        ? await supabase.auth.signInWithPassword({ email: supabaseEmail, password: supabasePassword })
+        : await supabase.auth.signUp({ email: supabaseEmail, password: supabasePassword });
+      if (result.error) throw result.error;
+      if (result.data.session) {
+        setSupabasePassword("");
+        await refresh();
+      } else {
+        setSupabaseMessage("تم إنشاء الحساب. تحقق من بريدك الإلكتروني ثم سجّل الدخول.");
+        setSupabaseMode("signin");
+      }
+    } catch (error) {
+      setSupabaseMessage(error instanceof Error ? error.message : "تعذر إتمام مصادقة Supabase.");
+    } finally {
+      setSupabaseBusy(false);
+    }
+  };
   if (loading || (user && access.isLoading)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -181,6 +214,47 @@ function Gate({ children }: { children: ReactNode }) {
           <Button className="mt-6 w-full" onClick={() => startLogin()}>
             تسجيل الدخول
           </Button>
+          <div className="my-5 flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            <span>دخول مستقل عبر Supabase</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <form className="space-y-3 text-right" onSubmit={handleSupabaseAuth}>
+            <label className="block text-xs text-muted-foreground" htmlFor="supabase-email">البريد الإلكتروني</label>
+            <Input
+              id="supabase-email"
+              type="email"
+              value={supabaseEmail}
+              onChange={event => setSupabaseEmail(event.target.value)}
+              autoComplete="email"
+              dir="ltr"
+              placeholder="you@example.com"
+              required
+            />
+            <label className="block text-xs text-muted-foreground" htmlFor="supabase-password">كلمة المرور</label>
+            <Input
+              id="supabase-password"
+              type="password"
+              value={supabasePassword}
+              onChange={event => setSupabasePassword(event.target.value)}
+              autoComplete={supabaseMode === "signin" ? "current-password" : "new-password"}
+              dir="ltr"
+              minLength={6}
+              placeholder="••••••••"
+              required
+            />
+            <Button className="w-full" type="submit" variant="outline" disabled={supabaseBusy}>
+              {supabaseBusy ? "جارٍ الاتصال…" : supabaseMode === "signin" ? "دخول مستقل" : "إنشاء حساب مستقل"}
+            </Button>
+            <button
+              type="button"
+              className="w-full text-center text-[11px] text-tally hover:underline"
+              onClick={() => { setSupabaseMode(mode => mode === "signin" ? "signup" : "signin"); setSupabaseMessage(null); }}
+            >
+              {supabaseMode === "signin" ? "ليس لديك حساب؟ أنشئ حساب Supabase" : "لديك حساب؟ عُد إلى تسجيل الدخول"}
+            </button>
+            {supabaseMessage && <p className="text-center text-xs text-amber-300">{supabaseMessage}</p>}
+          </form>
           <div className="my-5 flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="h-px flex-1 bg-border" />
             <span>أو دخول محلي آمن</span>

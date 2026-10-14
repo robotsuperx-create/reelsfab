@@ -8,6 +8,7 @@ import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
 import { LOCAL_OPEN_ID } from "./localAuth";
+import { getSupabaseIdentity } from "../services/supabase-auth";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -270,14 +271,35 @@ class SDKServer {
     // 2. Fallback to the Authorization header (Preview auto-login via
     //    sessionStorage), used when the browser blocks iframe cookies such as
     //    Safari ITP, private browsing, or iOS/Android WebView.
+    let supabaseAccessToken: string | null = null;
     if (!sessionToken) {
       const authHeader = req.headers.authorization;
       if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
-        sessionToken = authHeader.slice(7);
+        supabaseAccessToken = authHeader.slice(7);
+        sessionToken = supabaseAccessToken;
       }
     }
 
     const session = await this.verifySession(sessionToken);
+
+    // Independent mode: accept a Supabase Auth access token when no Manus or
+    // local application session is present. The local users table remains the
+    // authorization source for team roles and approval state.
+    if (!session && supabaseAccessToken) {
+      const identity = await getSupabaseIdentity(supabaseAccessToken);
+      if (identity) {
+        const openId = `supabase:${identity.id}`;
+        await db.upsertUser({
+          openId,
+          name: identity.name,
+          email: identity.email,
+          loginMethod: "supabase",
+          lastSignedIn: new Date(),
+        });
+        const user = await db.getUserByOpenId(openId);
+        if (user) return user;
+      }
+    }
 
     if (!session) {
       throw ForbiddenError("Invalid session cookie");

@@ -23,7 +23,7 @@ import { randomUUID } from "node:crypto";
 
 function storageKeyFromUrl(url: string | null | undefined) {
   if (!url) return null;
-  const m = url.match(/^\/manus-storage\/(.+)$/);
+  const m = url.match(/^(?:\/api\/media|\/manus-storage)\/(.+)$/);
   return m ? m[1] : null;
 }
 

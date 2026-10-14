@@ -1,5 +1,6 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { getSupabaseClient } from "@/lib/supabase";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
 
@@ -39,6 +40,11 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
+      try {
+        await getSupabaseClient()?.auth.signOut();
+      } catch {
+        // The local/Manus session has already been cleared; do not block logout.
+      }
       // Clear the Preview auto-login token mirrored into sessionStorage, so
       // header-based sessions (Safari ITP / WebView) are logged out too. The
       // backend cookie is cleared by the logout mutation.
