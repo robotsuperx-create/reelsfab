@@ -18,6 +18,8 @@ export async function getSupabaseIdentity(accessToken: string): Promise<Supabase
   });
   const { data, error } = await client.auth.getUser(accessToken);
   if (error || !data.user) return null;
+  // Only trust e-mail addresses Supabase has verified (needed for ADMIN_EMAILS matching).
+  const verified = Boolean(data.user.email_confirmed_at);
 
   const metadata = data.user.user_metadata ?? {};
   const name =
@@ -26,5 +28,5 @@ export async function getSupabaseIdentity(accessToken: string): Promise<Supabase
     data.user.email?.split("@")[0] ||
     null;
 
-  return { id: data.user.id, email: data.user.email ?? null, name };
+  return { id: data.user.id, email: verified ? (data.user.email ?? null) : null, name };
 }

@@ -10,6 +10,7 @@ import { publishDueInstagramPosts, publishDueSocialPosts } from "../services/pub
 import { syncHiggsfieldClips } from "../services/higgsfield-jobs";
 import { syncPublishedMetrics } from "../services/analytics-sync";
 import { storageGetSignedUrl, storagePut } from "../storage";
+import { hasValidCronSecret, UPLOAD_MAX_BYTES, UPLOAD_MIME_ALLOWLIST } from "../_core/security";
 
 const ASSET_KINDS = [
   "character_image",
@@ -42,6 +43,7 @@ function safeName(name: string) {
 }
 
 async function requireScheduledTask(req: Request, res: Response, expectedTaskUid: string | null) {
+  if (hasValidCronSecret(req)) return "cron-secret";
   try {
     const token = parseCookieHeader(req.headers.cookie ?? "")["app_session_id"];
     if (!token || !expectedTaskUid) {
@@ -78,7 +80,7 @@ export function registerMediaRoutes(app: Express) {
   // Raw binary upload → project storage → assets row.
   app.post(
     "/api/upload",
-    express.raw({ type: () => true, limit: "200mb" }),
+    express.raw({ type: () => true, limit: UPLOAD_MAX_BYTES }),
     async (req: Request, res: Response) => {
       const user = await requireMember(req, res);
       if (!user) return;
@@ -93,7 +95,11 @@ export function registerMediaRoutes(app: Express) {
         return;
       }
       const filename = safeName(String(req.query.filename ?? "upload.bin"));
-      const contentType = String(req.headers["content-type"] ?? "application/octet-stream");
+      const contentType = String(req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+      if (!UPLOAD_MIME_ALLOWLIST.has(contentType)) {
+        res.status(415).json({ error: "unsupported media type" });
+        return;
+      }
       const num = (k: string) => {
         const v = req.query[k];
         const n = typeof v === "string" ? Number(v) : NaN;
@@ -139,7 +145,12 @@ export function registerMediaRoutes(app: Express) {
         res.status(upstream.status || 502).send("upstream error");
         return;
       }
-      res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/octet-stream");
+      const upstreamType = (upstream.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+      // Never reflect an arbitrary stored type: anything outside the allow-list is served as an opaque download.
+      res.setHeader("Content-Type", UPLOAD_MIME_ALLOWLIST.has(upstreamType) ? upstreamType : "application/octet-stream");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+      res.setHeader("Content-Disposition", "inline");
       const len = upstream.headers.get("content-length");
       if (len) res.setHeader("Content-Length", len);
       res.setHeader("Cache-Control", "private, max-age=600");
@@ -160,36 +171,9 @@ export function registerMediaRoutes(app: Express) {
   // Heartbeat daily batch callback.
   app.post("/api/scheduled/daily-batch", async (req: Request, res: Response) => {
     try {
-      const token = parseCookieHeader(req.headers.cookie ?? "")["app_session_id"];
-      if (!token) {
-        res.status(401).json({ error: "missing scheduler ticket" });
-        return;
-      }
-      const { payload } = await jwtVerify(token, new TextEncoder().encode(ENV.cookieSecret), {
-        algorithms: ["HS256"],
-      });
-      if (payload.appId !== ENV.appId || typeof payload.openId !== "string" || !payload.openId.startsWith("cron_")) {
-        res.status(403).json({ error: "invalid scheduler ticket" });
-        return;
-      }
-      const infoResp = await fetch(
-        `${ENV.oAuthServerUrl.replace(/\/$/, "")}/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jwt_token: token, project_id: ENV.appId }),
-        },
-      );
-      if (!infoResp.ok) {
-        res.status(403).json({ error: "identity lookup failed" });
-        return;
-      }
-      const info = (await infoResp.json()) as { taskUid?: string };
-      const settings = (await getSettings()) as unknown as Record<string, unknown>;
-      if (!info.taskUid || info.taskUid !== settings.automationTaskUid) {
-        res.status(403).json({ error: "unknown schedule" });
-        return;
-      }
+      const settings = await getSettings();
+      const ticket = await requireScheduledTask(req, res, settings.automationTaskUid);
+      if (!ticket) return;
       if (!settings.automationEnabled) {
         res.json({ ok: true, skipped: "automation disabled" });
         return;

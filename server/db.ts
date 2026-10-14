@@ -79,13 +79,24 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       set: updateSet as never,
     });
 
-    // Internal tool bootstrap: if the team has no admin yet, the first person to sign in becomes admin.
-    const [{ admins }] = (await db
-      .select({ admins: sql<number>`count(*)` })
-      .from(users)
-      .where(eq(users.role, "admin"))) as { admins: number }[];
-    if (Number(admins) === 0) {
+    // Admin bootstrap. Never "first sign-in wins": that lets a stranger take over a fresh
+    // deployment. Admins come from ADMIN_EMAILS (verified e-mails only, see supabase-auth)
+    // or OWNER_OPEN_ID. ALLOW_FIRST_USER_ADMIN=true re-enables the old behaviour for local dev.
+    const adminEmails = (process.env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map(e => e.trim().toLowerCase())
+      .filter(Boolean);
+    const email = typeof user.email === "string" ? user.email.toLowerCase() : null;
+    if (email && adminEmails.includes(email) && user.loginMethod === "supabase") {
       await db.update(users).set({ role: "admin" }).where(eq(users.openId, user.openId));
+    } else if (process.env.ALLOW_FIRST_USER_ADMIN === "true") {
+      const [{ admins }] = (await db
+        .select({ admins: sql<number>`count(*)` })
+        .from(users)
+        .where(eq(users.role, "admin"))) as { admins: number }[];
+      if (Number(admins) === 0) {
+        await db.update(users).set({ role: "admin" }).where(eq(users.openId, user.openId));
+      }
     }
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
