@@ -9,17 +9,19 @@ import {
   costEntries,
   posts,
   premiumClips,
+  renderJobs,
   renders,
   scripts,
   users,
 } from "../../drizzle/schema";
 import { milliCentsFromUsd, usdFromMilliCents } from "../../shared/domain";
-import { createHeartbeatJob, listHeartbeatJobs, updateHeartbeatJob } from "../_core/heartbeat";
 import { router } from "../_core/trpc";
 import { protectedProcedure } from "../_core/trpc";
 import { getSettings, requireDb, saveSettings } from "../db";
 import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { runDailyAutomation } from "../services/batch";
+import { autopilotStatus } from "../worker/autopilot";
+import { drainQueue, enqueueReadyScripts, queueStats } from "../worker/jobs";
 
 export const teamRouter = router({
   list: teamAdminProcedure.query(async () => {
@@ -185,87 +187,68 @@ export const settingsRouter = router({
   update: teamAdminProcedure.input(settingsPatch).mutation(({ input }) => saveSettings(input)),
 });
 
-const CRON_PATH = "/api/scheduled/daily-batch";
-const PUBLISH_CRON_PATH = "/api/scheduled/publish-due";
-
 export const automationRouter = router({
   status: memberProcedure.query(async () => {
     const s = await getSettings();
-    let job: { nextExecutionAt?: string | null; lastExecutedAt?: string | null; isEnable?: boolean } | null = null;
-    let jobError: string | null = null;
-    if (s.automationTaskUid) {
-      try {
-        const list = await listHeartbeatJobs("", { pageSize: 50 });
-        job = list.jobs.find(j => j.taskUid === s.automationTaskUid) ?? null;
-      } catch (e) {
-        jobError = e instanceof Error ? e.message : String(e);
-      }
-    }
-    return { enabled: s.automationEnabled, hourUtc: s.automationHourUtc, taskUid: s.automationTaskUid, publishingTaskUid: s.publishingTaskUid, job, jobError };
+    const db = await requireDb();
+    const lease = (await autopilotStatus()) as { owner?: string; until?: number } | null;
+    const [last] = await db.select().from(automationRuns).orderBy(desc(automationRuns.id)).limit(1);
+    const spentRow = await db
+      .select({ mc: sql<number>`coalesce(sum(${costEntries.amountMilliCents}),0)` })
+      .from(costEntries)
+      .where(gte(costEntries.createdAt, new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1))));
+    return {
+      enabled: s.automationEnabled,
+      hourUtc: s.automationHourUtc,
+      workerEnabled: process.env.AUTOPILOT_ENABLED === "true",
+      workerAlive: Boolean(lease?.until && lease.until > Date.now()),
+      queue: await queueStats(),
+      lastRun: last ?? null,
+      monthCostUsd: usdFromMilliCents(Number(spentRow[0]?.mc ?? 0)),
+      monthlyBudgetUsd: s.monthlyBudgetUsd,
+    };
+  }),
+  jobs: memberProcedure.query(async () => {
+    const db = await requireDb();
+    return db
+      .select({
+        id: renderJobs.id,
+        scriptId: renderJobs.scriptId,
+        status: renderJobs.status,
+        attempts: renderJobs.attempts,
+        error: renderJobs.error,
+        updatedAt: renderJobs.updatedAt,
+        hook: scripts.hook,
+        characterId: scripts.characterId,
+      })
+      .from(renderJobs)
+      .leftJoin(scripts, eq(scripts.id, renderJobs.scriptId))
+      .orderBy(desc(renderJobs.updatedAt))
+      .limit(40);
   }),
   runNow: memberProcedure.mutation(async ({ ctx }) => runDailyAutomation("manual", ctx.user.id)),
+  renderNow: memberProcedure.mutation(async () => {
+    const queued = await enqueueReadyScripts();
+    void drainQueue(3).catch(e => console.error("[renderNow]", e));
+    return { queued };
+  }),
+  retryFailed: memberProcedure.mutation(async () => {
+    const db = await requireDb();
+    await db
+      .update(renderJobs)
+      .set({ status: "queued", attempts: 0, error: null, runAfter: new Date() })
+      .where(eq(renderJobs.status, "failed"));
+    return { ok: true };
+  }),
   runs: memberProcedure.query(async () => {
     const db = await requireDb();
     return db.select().from(automationRuns).orderBy(desc(automationRuns.id)).limit(30);
   }),
   enable: teamAdminProcedure.input(z.object({ hourUtc: z.number().int().min(0).max(23) })).mutation(async ({ input }) => {
-    const s = await getSettings();
-    const cron = `0 0 ${input.hourUtc} * * *`;
-    let taskUid = s.automationTaskUid;
-    let nextExecutionAt: string | null | undefined = null;
-    if (taskUid) {
-      try {
-        const r = await updateHeartbeatJob(taskUid, { cron, enable: true, path: CRON_PATH }, "");
-        nextExecutionAt = r.nextExecutionAt;
-      } catch {
-        taskUid = null;
-      }
-    }
-    if (!taskUid) {
-      const r = await createHeartbeatJob(
-        { name: "reels-daily-batch", cron, path: CRON_PATH, method: "POST", payload: {}, description: "AI Reels Factory: توليد دفعة النصوص اليومية" },
-        "",
-      );
-      taskUid = r.taskUid;
-      nextExecutionAt = r.nextExecutionAt;
-    }
-    let publishingTaskUid = s.publishingTaskUid;
-    let nextPublishingExecutionAt: string | null | undefined = null;
-    if (publishingTaskUid) {
-      try {
-        const r = await updateHeartbeatJob(publishingTaskUid, { cron: "0 */5 * * * *", enable: true, path: PUBLISH_CRON_PATH }, "");
-        nextPublishingExecutionAt = r.nextExecutionAt;
-      } catch {
-        publishingTaskUid = null;
-      }
-    }
-    if (!publishingTaskUid) {
-      const r = await createHeartbeatJob(
-        { name: "reels-publish-due", cron: "0 */5 * * * *", path: PUBLISH_CRON_PATH, method: "POST", payload: {}, description: "AI Reels Factory: نشر Instagram للمنشورات المستحقة" },
-        "",
-      );
-      publishingTaskUid = r.taskUid;
-      nextPublishingExecutionAt = r.nextExecutionAt;
-    }
-    await saveSettings({ automationEnabled: true, automationHourUtc: input.hourUtc, automationTaskUid: taskUid, publishingTaskUid });
-    return { taskUid, nextExecutionAt, publishingTaskUid, nextPublishingExecutionAt };
+    await saveSettings({ automationEnabled: true, automationHourUtc: input.hourUtc });
+    return { ok: true };
   }),
   disable: teamAdminProcedure.mutation(async () => {
-    const s = await getSettings();
-    if (s.automationTaskUid) {
-      try {
-        await updateHeartbeatJob(s.automationTaskUid, { enable: false }, "");
-      } catch (e) {
-        console.warn("[automation] pause failed", e);
-      }
-    }
-    if (s.publishingTaskUid) {
-      try {
-        await updateHeartbeatJob(s.publishingTaskUid, { enable: false }, "");
-      } catch (e) {
-        console.warn("[automation] publishing pause failed", e);
-      }
-    }
     await saveSettings({ automationEnabled: false });
     return { ok: true };
   }),

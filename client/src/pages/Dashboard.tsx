@@ -20,6 +20,7 @@ const STAGES: { key: string; label: string; statuses: string[]; href: string }[]
 
 export default function Dashboard() {
   const q = trpc.dashboard.overview.useQuery({ tzOffsetMinutes: tzOffset() }, { refetchInterval: 15000 });
+  const ap = trpc.automation.status.useQuery(undefined, { refetchInterval: 15000 });
   const { map } = useCharacterMap();
   const d = q.data;
 
@@ -59,6 +60,19 @@ export default function Dashboard() {
           </>
         }
       />
+
+      {/* Autopilot strip */}
+      <Link href="/automation" className="panel mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-tally/20 px-4 py-3 text-sm">
+        <Tally
+          tone={!ap.data?.workerEnabled ? "stop" : ap.data.workerAlive ? "go" : "hold"}
+          live={Boolean(ap.data?.workerAlive)}
+          label={!ap.data?.workerEnabled ? "الاستوديو الآلي متوقف" : ap.data.workerAlive ? "الاستوديو الآلي يعمل" : "الاستوديو الآلي يبدأ…"}
+        />
+        <span className="timecode text-xs text-muted-foreground">
+          طابور {ap.data?.queue.queued ?? 0} · يُرندر {ap.data?.queue.running ?? 0} · تم {ap.data?.queue.done ?? 0} · فشل {ap.data?.queue.failed ?? 0}
+        </span>
+        <span className="mr-auto text-xs text-tally">فتح لوحة الاستوديو الآلي ←</span>
+      </Link>
 
       {/* Creative pipeline cards */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">

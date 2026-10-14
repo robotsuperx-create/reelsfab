@@ -55,7 +55,7 @@ const NAV: { group: string; items: { href: string; label: string; icon: typeof G
     items: [
       { href: "/library", label: "مكتبة الأصول", icon: FolderOpen },
       { href: "/costs", label: "التكلفة", icon: Coins },
-      { href: "/automation", label: "الأتمتة اليومية", icon: Timer },
+      { href: "/automation", label: "الاستوديو الآلي", icon: Timer },
       { href: "/settings", label: "الإعدادات والفريق", icon: Settings },
       { href: "/integrations", label: "مركز التكاملات", icon: Cable },
     ],
