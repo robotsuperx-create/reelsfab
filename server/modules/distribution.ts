@@ -9,14 +9,7 @@ import { performanceInsights } from "../services/ai";
 import { getInstagramToken } from "../services/social-accounts";
 import { InstagramClient } from "../services/instagram/client";
 import { storageGetSignedUrl } from "../storage";
-
-function slotDate(day: string, slot: string, tzOffsetMinutes: number) {
-  // day "YYYY-MM-DD", slot "HH:MM" in the team's local time; tzOffsetMinutes = Date.getTimezoneOffset() of the browser.
-  const [h, m] = slot.split(":").map(Number);
-  const d = new Date(`${day}T00:00:00.000Z`);
-  d.setUTCHours(h, m, 0, 0);
-  return new Date(d.getTime() + tzOffsetMinutes * 60000);
-}
+import { autoFillSchedule } from "../services/scheduler";
 
 export const postsRouter = router({
   list: memberProcedure
@@ -83,61 +76,7 @@ export const postsRouter = router({
   /** Fill posting slots for the next N days with approved, unscheduled renders (per character, round-robin). */
   autoSchedule: memberProcedure
     .input(z.object({ startDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), days: z.number().int().min(1).max(14), tzOffsetMinutes: z.number().int() }))
-    .mutation(async ({ input, ctx }) => {
-      const db = await requireDb();
-      const s = await getSettings();
-      const scheduled = await db.select({ renderId: posts.renderId, characterId: posts.characterId, scheduledAt: posts.scheduledAt }).from(posts);
-      const used = new Set(scheduled.map(p => p.renderId));
-      const taken = new Set(scheduled.map(p => `${p.characterId}|${p.scheduledAt.toISOString()}`));
-      const approved = await db
-        .select({ render: renders, script: scripts })
-        .from(renders)
-        .innerJoin(scripts, eq(scripts.id, renders.scriptId))
-        .where(eq(renders.qcStatus, "approved"))
-        .orderBy(asc(renders.id));
-      const queue = new Map<number, typeof approved>();
-      for (const row of approved) {
-        if (used.has(row.render.id)) continue;
-        const list = queue.get(row.render.characterId) ?? [];
-        list.push(row);
-        queue.set(row.render.characterId, list);
-      }
-      const chars = await db.select().from(characters);
-      const slugById = new Map(chars.map(c => [c.id, c.slug]));
-      const slots = [...s.postingSlots].sort();
-      let created = 0;
-      const base = new Date(`${input.startDay}T00:00:00.000Z`);
-      for (let d = 0; d < input.days; d++) {
-        const day = new Date(base.getTime() + d * 86400000).toISOString().slice(0, 10);
-        for (const slot of slots) {
-          const when = slotDate(day, slot, input.tzOffsetMinutes);
-          if (when.getTime() < Date.now()) continue;
-          for (const [characterId, list] of Array.from(queue.entries())) {
-            if (!list.length) continue;
-            const key = `${characterId}|${when.toISOString()}`;
-            if (taken.has(key)) continue;
-            const row = list.shift()!;
-            const caption = [row.script.caption, row.script.hashtags].filter(Boolean).join("\n\n");
-            for (const p of s.platforms as (typeof PLATFORMS)[number][]) {
-              await db.insert(posts).values({
-                renderId: row.render.id,
-                scriptId: row.script.id,
-                characterId,
-                platform: p,
-                accountHandle: s.accounts?.[slugById.get(characterId) ?? ""]?.[p] ?? null,
-                caption,
-                scheduledAt: when,
-                createdBy: ctx.user.id,
-              });
-            }
-            taken.add(key);
-            await db.update(scripts).set({ status: "scheduled" }).where(eq(scripts.id, row.script.id));
-            created++;
-          }
-        }
-      }
-      return { scheduledReels: created };
-    }),
+    .mutation(({ input, ctx }) => autoFillSchedule({ ...input, userId: ctx.user.id })),
   publishInstagram: memberProcedure.input(z.object({ postId: z.number(), socialAccountId: z.number() })).mutation(async ({ input }) => {
     const db = await requireDb();
     const [row] = await db.select({ post: posts, render: renders }).from(posts).innerJoin(renders, eq(renders.id, posts.renderId)).where(eq(posts.id, input.postId));

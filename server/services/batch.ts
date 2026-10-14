@@ -1,14 +1,15 @@
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   automationRuns,
   batches,
   characters,
+  costEntries,
   premiumClips,
   scripts,
   type Character,
   type InsertScript,
 } from "../../drizzle/schema";
-import { checkCompliance, countWords, similarity, spokenText } from "../../shared/domain";
+import { checkCompliance, countWords, similarity, spokenText, usdFromMilliCents } from "../../shared/domain";
 import { notifyOwner } from "../_core/notification";
 import { ensureSeed, getSettings, requireDb } from "../db";
 import { generateScriptsForCharacter } from "./ai";
@@ -26,6 +27,29 @@ export function allocate(total: number, weights: number[]) {
   return out;
 }
 
+/**
+ * Budget guard: how many premium clips today's share of the remaining monthly budget can pay for.
+ * Pure so it can be tested; the remaining budget is spread evenly over the remaining days of the month.
+ */
+export function premiumAllowance(o: { requested: number; budgetUsd: number; spentUsd: number; perClipUsd: number; now?: Date }) {
+  if (o.perClipUsd <= 0) return o.requested;
+  const now = o.now ?? new Date();
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  const daysLeft = Math.max(1, daysInMonth - now.getUTCDate() + 1);
+  const dailyUsd = Math.max(0, o.budgetUsd - o.spentUsd) / daysLeft;
+  return Math.min(o.requested, Math.floor(dailyUsd / o.perClipUsd));
+}
+
+async function monthSpentUsd() {
+  const db = await requireDb();
+  const start = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+  const [row] = await db
+    .select({ mc: sql<number>`coalesce(sum(${costEntries.amountMilliCents}),0)` })
+    .from(costEntries)
+    .where(gte(costEntries.createdAt, start));
+  return usdFromMilliCents(Number(row?.mc ?? 0));
+}
+
 export async function buildDailyPlan(opts?: { target?: number; premiumSharePercent?: number }) {
   const db = await requireDb();
   const s = await getSettings();
@@ -39,7 +63,14 @@ export async function buildDailyPlan(opts?: { target?: number; premiumSharePerce
     target,
     roster.map(c => c.dailyQuota),
   );
-  const premiumTotal = Math.round((target * share) / 100);
+  const requestedPremium = Math.round((target * share) / 100);
+  const perClipUsd = s.higgsfieldCreditsPerAttempt * s.higgsfieldAttemptsPerClip * s.higgsfieldUsdPerCredit;
+  const premiumTotal = premiumAllowance({
+    requested: requestedPremium,
+    budgetUsd: s.monthlyBudgetUsd,
+    spentUsd: await monthSpentUsd(),
+    perClipUsd,
+  });
   // Premium needs an on-camera character with an identity reference; Shelly-type entries waiting for a design file are skipped.
   const premiumWeights = roster.map((c, i) => (c.needsDesignFile ? 0 : counts[i]));
   const premium = allocate(premiumTotal, premiumWeights.some(w => w > 0) ? premiumWeights : counts);

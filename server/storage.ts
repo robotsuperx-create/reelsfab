@@ -80,3 +80,18 @@ export async function storageGetSignedUrl(relKey: string, expiresIn = 3600): Pro
   if (!signed) throw new Error("Supabase Storage returned an empty signed URL");
   return signed.startsWith("http") ? signed : `${url}/storage/v1${signed.startsWith("/") ? signed : `/${signed}`}`;
 }
+
+/** Downloads an object through a short-lived signed URL (used by the render worker). */
+export async function storageDownload(relKey: string): Promise<Buffer> {
+  const signed = await storageGetSignedUrl(relKey, 300);
+  const response = await fetch(signed);
+  if (!response.ok) throw new Error(`Storage download failed (${response.status})`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+/** Maps an app media URL (/api/media/<key>) back to its storage key. */
+export function storageKeyFromUrl(url: string | null | undefined) {
+  if (!url) return null;
+  const m = url.match(/^(?:\/api\/media|\/manus-storage)\/(.+)$/);
+  return m ? m[1] : null;
+}

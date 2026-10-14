@@ -368,3 +368,27 @@ export const socialAccounts = pgTable(
   t => [index("social_character_idx").on(t.characterId), index("social_platform_idx").on(t.platform)],
 );
 export type SocialAccount = typeof socialAccounts.$inferSelect;
+
+/**
+ * Server-side render queue. One job per script; workers claim rows with
+ * FOR UPDATE SKIP LOCKED so several instances can run safely.
+ */
+export const renderJobs = pgTable(
+  "render_jobs",
+  {
+    id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+    scriptId: integer("scriptId").notNull().unique(),
+    status: text("status").$type<"queued" | "running" | "done" | "failed">().default("queued").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    maxAttempts: integer("maxAttempts").default(3).notNull(),
+    runAfter: timestamp("runAfter").defaultNow().notNull(),
+    lockedAt: timestamp("lockedAt"),
+    lockedBy: varchar("lockedBy", { length: 80 }),
+    renderId: integer("renderId"),
+    error: text("error"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  t => [index("render_jobs_claim_idx").on(t.status, t.runAfter)],
+);
+export type RenderJob = typeof renderJobs.$inferSelect;
