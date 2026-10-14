@@ -1,14 +1,15 @@
 import { defineConfig } from "drizzle-kit";
+import { getDatabaseUrl } from "./server/_core/database-url";
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = getDatabaseUrl();
 if (!connectionString) {
-  throw new Error("DATABASE_URL is required to run drizzle commands");
+  throw new Error("SUPABASE_DB_URL is required to run Drizzle commands");
 }
 
 export default defineConfig({
   schema: "./drizzle/schema.ts",
-  out: "./drizzle",
-  dialect: "mysql",
+  out: "./drizzle/supabase",
+  dialect: "postgresql",
   dbCredentials: {
     url: connectionString,
   },

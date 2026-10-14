@@ -92,8 +92,8 @@ export async function startBatch(opts: BatchOptions) {
     plan: { items: opts.items, templateKeys: opts.templateKeys, topicHints: opts.topicHints },
     status: "running",
     createdBy: opts.userId,
-  });
-  const batchId = Number((ins as { insertId: number }).insertId);
+  }).returning({ id: batches.id });
+  const batchId = ins.id;
   const done = processBatch(batchId, opts).catch(async e => {
     console.error("[batch] crashed", e);
     await db
@@ -174,8 +174,8 @@ async function processBatch(batchId: number, opts: BatchOptions) {
             similarity: Math.round(best * 100),
             createdBy: opts.userId,
           };
-          const [r] = await db.insert(scripts).values(values);
-          const scriptId = Number((r as { insertId: number }).insertId);
+          const [r] = await db.insert(scripts).values(values).returning({ id: scripts.id });
+          const scriptId = r.id;
           history.unshift({ id: scriptId, hook: g.hook, body: g.body, payoff: g.payoff, cta: g.cta });
           if (isPremium) {
             const [pc] = await db.insert(premiumClips).values({
@@ -183,10 +183,10 @@ async function processBatch(batchId: number, opts: BatchOptions) {
               characterId: character.id,
               status: "requested",
               model: s.higgsfieldDefaultModel,
-            });
+            }).returning({ id: premiumClips.id });
             await db
               .update(scripts)
-              .set({ premiumClipId: Number((pc as { insertId: number }).insertId) })
+              .set({ premiumClipId: pc.id })
               .where(eq(scripts.id, scriptId));
             premiumTotal++;
           }
@@ -235,8 +235,8 @@ export async function runDailyAutomation(trigger: "manual" | "schedule", userId?
       .limit(1);
     if (already.length) return { skipped: true as const, reason: "already ran today" };
   }
-  const [run] = await db.insert(automationRuns).values({ trigger, status: "running" });
-  const runId = Number((run as { insertId: number }).insertId);
+  const [run] = await db.insert(automationRuns).values({ trigger, status: "running" }).returning({ id: automationRuns.id });
+  const runId = run.id;
   const plan = await buildDailyPlan();
   const started = await startBatch({
     name: `دفعة ${todayKeyUtc()}${trigger === "schedule" ? " (تلقائية)" : ""}`,

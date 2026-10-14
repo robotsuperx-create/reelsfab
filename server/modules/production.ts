@@ -243,8 +243,8 @@ export const premiumRouter = router({
           premiumClipId: clip.id,
           notes: v.variantLabel,
           createdBy: ctx.user.id,
-        });
-        ids.push(Number((r as { insertId: number }).insertId));
+        }).returning({ id: scripts.id });
+        ids.push(r.id);
       }
       await db
         .update(premiumClips)
@@ -337,9 +337,9 @@ export const rendersRouter = router({
       qcStatus: qc.verdict,
       qcReport: qc,
       createdBy: ctx.user.id,
-    });
+    }).returning({ id: renders.id });
     await db.update(scripts).set({ status: qc.verdict === "approved" ? "approved" : qc.verdict }).where(eq(scripts.id, script.id));
-    return { id: Number((r as { insertId: number }).insertId), qc };
+    return { id: r.id, qc };
   }),
   list: memberProcedure
     .input(

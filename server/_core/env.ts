@@ -2,7 +2,11 @@
 export const ENV = {
   get appId() { return process.env.MANUS_PROJECT_ID ?? ""; },
   get cookieSecret() { return process.env.MANUS_JWT_SECRET ?? ""; },
-  get databaseUrl() { return process.env.DATABASE_URL ?? ""; },
+  get databaseUrl() { return process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? ""; },
+  get supabaseUrl() { return process.env.SUPABASE_URL ?? ""; },
+  get supabaseAnonKey() { return process.env.SUPABASE_ANON_KEY ?? ""; },
+  get supabaseServiceRoleKey() { return process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""; },
+  get supabaseStorageBucket() { return process.env.SUPABASE_STORAGE_BUCKET ?? "reelsfab"; },
   get oAuthServerUrl() { return process.env.MANUS_OAUTH_API_URL ?? ""; },
   // Preserve the legacy hint when supplied; otherwise roles remain application data.
   get ownerOpenId() { return process.env.OWNER_OPEN_ID ?? ""; },

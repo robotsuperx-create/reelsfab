@@ -22,7 +22,7 @@ export const charactersRouter = router({
     const db = await requireDb();
     const base = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || `character-${Date.now()}`;
     const slug = `${base}-${ctx.user.id}`;
-    const [created] = await db.insert(characters).values({ ...input, slug, nameAr: input.nameAr, referenceImages: [], needsDesignFile: true, isActive: true, captionFont: "Montserrat", externalVoiceId: null, sortOrder: 0 }).$returningId();
+    const [created] = await db.insert(characters).values({ ...input, slug, nameAr: input.nameAr, referenceImages: [], needsDesignFile: true, isActive: true, captionFont: "Montserrat", externalVoiceId: null, sortOrder: 0 }).returning({ id: characters.id });
     const [c] = await db.select().from(characters).where(eq(characters.id, created.id));
     return c;
   }),
@@ -173,16 +173,17 @@ export const scriptsRouter = router({
         status: input.status ?? (track === "premium" ? "prompt_ready" : "script_ready"),
         templateKey: input.templateKey ?? "direct_tip",
         createdBy: ctx.user.id,
-      });
-      const id = Number((r as { insertId: number }).insertId);
+      }).returning({ id: scripts.id });
+      const id = r.id;
       if (track === "premium") {
         const s = await getSettings();
         const [pc] = await db
           .insert(premiumClips)
-          .values({ scriptId: id, characterId: input.characterId, model: s.higgsfieldDefaultModel });
+          .values({ scriptId: id, characterId: input.characterId, model: s.higgsfieldDefaultModel })
+          .returning({ id: premiumClips.id });
         await db
           .update(scripts)
-          .set({ premiumClipId: Number((pc as { insertId: number }).insertId) })
+        .set({ premiumClipId: pc.id })
           .where(eq(scripts.id, id));
       }
       await recomputeChecks(id);
@@ -197,10 +198,11 @@ export const scriptsRouter = router({
       const s = await getSettings();
       const [pc] = await db
         .insert(premiumClips)
-        .values({ scriptId: before.id, characterId: before.characterId, model: s.higgsfieldDefaultModel });
+        .values({ scriptId: before.id, characterId: before.characterId, model: s.higgsfieldDefaultModel })
+        .returning({ id: premiumClips.id });
       await db
         .update(scripts)
-        .set({ premiumClipId: Number((pc as { insertId: number }).insertId), status: "prompt_ready" })
+        .set({ premiumClipId: pc.id, status: "prompt_ready" })
         .where(eq(scripts.id, before.id));
     }
     await recomputeChecks(input.id);

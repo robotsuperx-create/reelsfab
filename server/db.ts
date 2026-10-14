@@ -1,17 +1,22 @@
 import { eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { characters, InsertUser, settings, users } from "../drizzle/schema";
 import { AppSettings, DEFAULT_SETTINGS } from "../shared/domain";
 import { ENV } from './_core/env';
+import { getDatabaseUrl } from './_core/database-url';
 import { CHARACTER_SEED } from "./seed";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _sqlClient: ReturnType<typeof postgres> | null = null;
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  const databaseUrl = getDatabaseUrl();
+  if (!_db && databaseUrl) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _sqlClient = postgres(databaseUrl, { prepare: false, max: 10, ssl: "require" });
+      _db = drizzle(_sqlClient);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -69,8 +74,9 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
+      set: updateSet as never,
     });
 
     // Internal tool bootstrap: if the team has no admin yet, the first person to sign in becomes admin.
@@ -114,7 +120,7 @@ export async function getSettings(): Promise<AppSettings> {
   for (const key of ["scriptModel", "reviewModel"] as const) {
     if (typeof merged[key] === "string" && deprecatedGeminiModels.has(merged[key] as string)) {
       merged[key] = "gemini-3.8-flash";
-      await db.insert(settings).values({ key, value: merged[key] }).onDuplicateKeyUpdate({ set: { value: merged[key] } });
+      await db.insert(settings).values({ key, value: merged[key] }).onConflictDoUpdate({ target: settings.key, set: { value: merged[key] } });
     }
   }
   return merged as AppSettings;
@@ -127,7 +133,7 @@ export async function saveSettings(patch: Partial<AppSettings>) {
     await db
       .insert(settings)
       .values({ key, value: value as unknown })
-      .onDuplicateKeyUpdate({ set: { value: value as unknown } });
+      .onConflictDoUpdate({ target: settings.key, set: { value: value as unknown } });
   }
   return getSettings();
 }

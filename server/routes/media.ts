@@ -114,8 +114,8 @@ export function registerMediaRoutes(app: Express) {
           width: num("width"),
           height: num("height"),
           createdBy: user.id,
-        });
-        res.json({ id: Number((r as { insertId: number }).insertId), url, key, size: body.length });
+        }).returning({ id: assets.id });
+        res.json({ id: r.id, url, key, size: body.length });
       } catch (e) {
         console.error("[upload] failed", e);
         res.status(500).json({ error: e instanceof Error ? e.message : "upload failed" });
