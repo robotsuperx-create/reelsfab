@@ -42,6 +42,7 @@ async function callAnthropic(r: ProviderRequest): Promise<ProviderResult> {
 }
 
 async function callGemini(r: ProviderRequest): Promise<ProviderResult> {
+  if (r.images?.length) throw new Error("الفحص البصري يحتاج Claude أو OpenAI؛ غيّر نموذج المراجعة في الإعدادات");
   const config = await getIntegrationConfig("gemini");
   const key = config.apiKey || process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not configured");

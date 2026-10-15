@@ -55,8 +55,9 @@ export async function buildDailyPlan(opts?: { target?: number; premiumSharePerce
   const s = await getSettings();
   const target = opts?.target ?? s.dailyTarget;
   const share = opts?.premiumSharePercent ?? s.premiumSharePercent;
+  // Characters still waiting for their design file / reference image get no scripts: nothing could be rendered.
   const roster = (await db.select().from(characters).where(eq(characters.isActive, true))).filter(
-    c => c.dailyQuota > 0,
+    c => c.dailyQuota > 0 && !(c.needsDesignFile && !(c.referenceImages ?? []).length),
   );
   if (!roster.length) return { items: [] as BatchPlanItem[], target, premiumTotal: 0 };
   const counts = allocate(
@@ -171,8 +172,14 @@ async function processBatch(batchId: number, opts: BatchOptions) {
           batchId,
         });
         for (let k = 0; k < generated.length; k++) {
-          const g = generated[k];
-          const isPremium = k < chunkPremium;
+          const raw = generated[k] as Partial<Record<keyof typeof generated[number], unknown>>;
+          const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+          const g = {
+            topic: str(raw.topic), templateKey: str(raw.templateKey) || "direct_tip", hookType: str(raw.hookType) || null,
+            hook: str(raw.hook), body: str(raw.body), payoff: str(raw.payoff), cta: str(raw.cta),
+            onScreenText: str(raw.onScreenText), caption: str(raw.caption), hashtags: str(raw.hashtags), higgsfieldPrompt: str(raw.higgsfieldPrompt),
+          };
+          if (!g.hook || !g.body) continue; // malformed item from the model
           const text = spokenText(g);
           let best = 0;
           let bestId: number | null = null;
@@ -183,24 +190,28 @@ async function processBatch(batchId: number, opts: BatchOptions) {
               bestId = h.id;
             }
           }
+          const complianceFlags = checkCompliance([text, g.onScreenText, g.caption].join(" "));
+          // Blocked claims or near-duplicates go to human review: never rendered, never sent to paid Higgsfield.
+          const held = complianceFlags.some(f => f.severity === "block") || best >= 0.55;
+          const isPremium = k < chunkPremium && !held;
           const values: InsertScript = {
             characterId: character.id,
             batchId,
-            status: isPremium ? "prompt_ready" : "script_ready",
+            status: held ? "needs_review" : isPremium ? "prompt_ready" : "script_ready",
             track: isPremium ? "premium" : "economic",
             templateKey: g.templateKey,
             hookType: g.hookType,
             topic: g.topic.slice(0, 255),
             hook: g.hook,
             body: g.body,
-            payoff: g.payoff,
-            cta: g.cta,
-            onScreenText: g.onScreenText.slice(0, 255),
-            caption: g.caption,
-            hashtags: g.hashtags.slice(0, 500),
-            higgsfieldPrompt: isPremium ? g.higgsfieldPrompt : null,
+            payoff: g.payoff || null,
+            cta: g.cta || null,
+            onScreenText: g.onScreenText.slice(0, 255) || null,
+            caption: g.caption || null,
+            hashtags: g.hashtags.slice(0, 500) || null,
+            higgsfieldPrompt: isPremium ? g.higgsfieldPrompt || null : null,
             wordCount: countWords(text),
-            complianceFlags: checkCompliance([text, g.onScreenText, g.caption].join(" ")),
+            complianceFlags,
             duplicateOf: best >= 0.55 ? bestId : null,
             similarity: Math.round(best * 100),
             createdBy: opts.userId,
@@ -299,7 +310,7 @@ async function finishAutomation(
     try {
       await notifyOwner({
         title: `دفعة اليوم جاهزة: ${result.total} نص`,
-        content: `تم توليد ${result.total} نصًا (${result.premiumTotal} Premium لـ Higgsfield و${result.total - result.premiumTotal} اقتصادي).\nالخطوة التالية: افتح "الرندر الجماعي" لإنتاج الريلات الاقتصادية، و"مركز Higgsfield" لنسخ البرومبتات.${result.errors.length ? `\nأخطاء: ${result.errors.join(" | ")}` : ""}`,
+        content: `تم توليد ${result.total} نصًا (${result.premiumTotal} Premium لـ Higgsfield و${result.total - result.premiumTotal} اقتصادي).\nالاستوديو الآلي يرندرها ويجدولها تلقائيًا؛ النصوص الموقوفة للمراجعة تجدها في "بنك الأفكار".${result.errors.length ? `\nأخطاء: ${result.errors.join(" | ")}` : ""}`,
       });
     } catch (e) {
       console.warn("[automation] notify failed", e);

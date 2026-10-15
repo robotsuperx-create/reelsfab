@@ -76,7 +76,7 @@ export const postsRouter = router({
   /** Fill posting slots for the next N days with approved, unscheduled renders (per character, round-robin). */
   autoSchedule: memberProcedure
     .input(z.object({ startDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), days: z.number().int().min(1).max(14), tzOffsetMinutes: z.number().int() }))
-    .mutation(({ input, ctx }) => autoFillSchedule({ ...input, userId: ctx.user.id })),
+    .mutation(({ input, ctx }) => autoFillSchedule({ startDay: input.startDay, days: input.days, userId: ctx.user.id })),
   publishInstagram: memberProcedure.input(z.object({ postId: z.number(), socialAccountId: z.number() })).mutation(async ({ input }) => {
     const db = await requireDb();
     const [row] = await db.select({ post: posts, render: renders }).from(posts).innerJoin(renders, eq(renders.id, posts.renderId)).where(eq(posts.id, input.postId));

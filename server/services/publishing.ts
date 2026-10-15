@@ -1,4 +1,4 @@
-import { and, asc, eq, lte } from "drizzle-orm";
+import { and, asc, eq, lte, ne } from "drizzle-orm";
 import { posts, renders, scripts, socialAccounts } from "../../drizzle/schema";
 import { requireDb } from "../db";
 import { decryptSecret } from "./social-accounts";
@@ -22,73 +22,124 @@ export function withDisclosure(caption: string | null | undefined, maxLength?: n
   return base ? `${base}\n\n${missing.join(" ")}` : missing.join(" ");
 }
 
-/** Publishes a small bounded batch so a scheduler run cannot monopolize the worker. */
-export async function publishDueInstagramPosts(limit = 3) {
+/** Atomically moves a due post from "queued" to "publishing" so two runners can never publish it twice. */
+async function claimPost(id: number) {
   const db = await requireDb();
-  const due = await db
-    .select({ post: posts, render: renders })
-    .from(posts)
-    .innerJoin(renders, eq(renders.id, posts.renderId))
-    .where(and(eq(posts.platform, "instagram"), eq(posts.status, "queued"), lte(posts.scheduledAt, new Date()), eq(renders.qcStatus, "approved")))
-    .orderBy(asc(posts.scheduledAt))
-    .limit(limit);
-  if (!due.length) return { attempted: 0, published: 0, failed: 0, errors: [] as string[] };
+  const rows = await db
+    .update(posts)
+    .set({ status: "publishing" })
+    .where(and(eq(posts.id, id), eq(posts.status, "queued")))
+    .returning({ id: posts.id });
+  return rows.length > 0;
+}
 
+async function finishPost(id: number, scriptId: number, result: { id: string; url?: string | null }) {
+  const db = await requireDb();
+  await db
+    .update(posts)
+    .set({ status: "published", externalId: result.id, postUrl: result.url ?? null, publishedAt: new Date() })
+    .where(eq(posts.id, id));
+  await db.update(scripts).set({ status: "published" }).where(eq(scripts.id, scriptId));
+}
+
+async function failPost(id: number) {
+  const db = await requireDb();
+  await db.update(posts).set({ status: "failed" }).where(eq(posts.id, id));
+}
+
+function dueQuery(platform: "instagram" | "other", limit: number) {
+  return requireDb().then(db =>
+    db
+      .select({ post: posts, render: renders })
+      .from(posts)
+      .innerJoin(renders, eq(renders.id, posts.renderId))
+      .where(
+        and(
+          platform === "instagram" ? eq(posts.platform, "instagram") : ne(posts.platform, "instagram"),
+          eq(posts.status, "queued"),
+          lte(posts.scheduledAt, new Date()),
+          eq(renders.qcStatus, "approved"),
+        ),
+      )
+      .orderBy(asc(posts.scheduledAt))
+      .limit(limit),
+  );
+}
+
+type PublishSummary = { attempted: number; published: number; failed: number; errors: string[] };
+
+/** Publishes a small bounded batch of due Instagram posts. */
+export async function publishDueInstagramPosts(limit = 3): Promise<PublishSummary> {
+  const db = await requireDb();
+  const due = await dueQuery("instagram", limit);
+  const out: PublishSummary = { attempted: 0, published: 0, failed: 0, errors: [] };
+  if (!due.length) return out;
   const accounts = await db.select().from(socialAccounts).where(eq(socialAccounts.platform, "instagram"));
-  let published = 0;
-  let failed = 0;
-  const errors: string[] = [];
-
   for (const row of due) {
-    const account = accounts.find(candidate =>
-      candidate.characterId === row.post.characterId &&
-      candidate.status === "connected" &&
-      (!row.post.accountHandle || candidate.handle === row.post.accountHandle),
+    if (!(await claimPost(row.post.id))) continue;
+    out.attempted++;
+    const account = accounts.find(
+      a => a.characterId === row.post.characterId && a.status === "connected" && (!row.post.accountHandle || a.handle === row.post.accountHandle),
     );
-    if (!account?.encryptedAccessToken || !account.platformUserId) {
-      failed++;
-      errors.push(`post-${row.post.id}: Instagram account is not connected`);
-      await db.update(posts).set({ status: "failed" }).where(eq(posts.id, row.post.id));
-      continue;
-    }
-
     try {
+      if (!account?.encryptedAccessToken || !account.platformUserId) throw new Error("Instagram account is not connected");
       const videoUrl = row.render.storageKey ? await storageGetSignedUrl(row.render.storageKey) : row.render.videoUrl;
       const result = await new InstagramClient({
         igUserId: account.platformUserId,
         accessToken: decryptSecret(account.encryptedAccessToken),
       }).publishReel({ videoUrl, caption: withDisclosure(row.post.caption, 2200) });
-      await db.update(posts).set({ status: "published", externalId: result.id, publishedAt: new Date() }).where(eq(posts.id, row.post.id));
-      await db.update(scripts).set({ status: "published" }).where(eq(scripts.id, row.post.scriptId));
-      published++;
+      await finishPost(row.post.id, row.post.scriptId, { id: result.id });
+      out.published++;
     } catch (error) {
-      failed++;
-      const message = error instanceof Error ? error.message : "Instagram publish failed";
-      errors.push(`post-${row.post.id}: ${message}`);
-      await db.update(posts).set({ status: "failed" }).where(eq(posts.id, row.post.id));
+      out.failed++;
+      out.errors.push(`post-${row.post.id} (instagram): ${error instanceof Error ? error.message : "publish failed"}`);
+      await failPost(row.post.id);
     }
   }
-  return { attempted: due.length, published, failed, errors };
+  return out;
 }
 
-export async function publishDueSocialPosts(limit = 3) {
+/** Publishes a small bounded batch of due TikTok / YouTube posts. */
+export async function publishDueSocialPosts(limit = 3): Promise<PublishSummary> {
   const db = await requireDb();
-  const due = await db.select({ post: posts, render: renders }).from(posts).innerJoin(renders, eq(renders.id, posts.renderId)).where(and(eq(posts.status, "queued"), lte(posts.scheduledAt, new Date()), eq(renders.qcStatus, "approved"))).orderBy(asc(posts.scheduledAt)).limit(limit);
-  if (!due.length) return { attempted: 0, published: 0, failed: 0, errors: [] as string[] };
+  const due = await dueQuery("other", limit);
+  const out: PublishSummary = { attempted: 0, published: 0, failed: 0, errors: [] };
+  if (!due.length) return out;
   const accounts = await db.select().from(socialAccounts);
-  let published = 0; let failed = 0; const errors: string[] = [];
   for (const row of due) {
-    if (row.post.platform === "instagram") continue;
-    const account = accounts.find(a => a.platform === row.post.platform && a.characterId === row.post.characterId && a.status === "connected" && (!row.post.accountHandle || a.handle === row.post.accountHandle));
-    if (!account) { failed++; errors.push(`post-${row.post.id}: ${row.post.platform} account is not connected`); await db.update(posts).set({ status: "failed" }).where(eq(posts.id, row.post.id)); continue; }
+    if (!(await claimPost(row.post.id))) continue;
+    out.attempted++;
+    const account = accounts.find(
+      a =>
+        a.platform === row.post.platform &&
+        a.characterId === row.post.characterId &&
+        a.status === "connected" &&
+        (!row.post.accountHandle || a.handle === row.post.accountHandle),
+    );
     try {
-      const title = withDisclosure((row.post.caption ?? "AI Reel").split("\n")[0], 100);
-      const result = row.post.platform === "tiktok"
-        ? await publishTikTok({ account, storageKey: row.render.storageKey, videoUrl: row.render.videoUrl, title })
-        : await publishYouTube({ account, storageKey: row.render.storageKey, videoUrl: row.render.videoUrl, title, description: withDisclosure(row.post.caption, 5000) });
-      await db.update(posts).set({ status: "published", externalId: result.id, postUrl: result.url ?? null, publishedAt: new Date() }).where(eq(posts.id, row.post.id));
-      await db.update(scripts).set({ status: "published" }).where(eq(scripts.id, row.post.scriptId)); published++;
-    } catch (error) { failed++; const message = error instanceof Error ? error.message : `${row.post.platform} publish failed`; errors.push(`post-${row.post.id}: ${message}`); await db.update(posts).set({ status: "failed" }).where(eq(posts.id, row.post.id)); }
+      if (!account) throw new Error(`${row.post.platform} account is not connected`);
+      const result =
+        row.post.platform === "tiktok"
+          ? await publishTikTok({
+              account,
+              storageKey: row.render.storageKey,
+              videoUrl: row.render.videoUrl,
+              title: withDisclosure((row.post.caption ?? "AI Reel").split("\n")[0], 100),
+            })
+          : await publishYouTube({
+              account,
+              storageKey: row.render.storageKey,
+              videoUrl: row.render.videoUrl,
+              title: withDisclosure((row.post.caption ?? "AI Reel").split("\n")[0], 100),
+              description: withDisclosure(row.post.caption, 5000),
+            });
+      await finishPost(row.post.id, row.post.scriptId, result);
+      out.published++;
+    } catch (error) {
+      out.failed++;
+      out.errors.push(`post-${row.post.id} (${row.post.platform}): ${error instanceof Error ? error.message : "publish failed"}`);
+      await failPost(row.post.id);
+    }
   }
-  return { attempted: due.length, published, failed, errors };
+  return out;
 }

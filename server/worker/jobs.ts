@@ -71,6 +71,15 @@ export async function processJob(job: { id: number; scriptId: number; attempts: 
   try {
     const [script] = await db.select().from(scripts).where(eq(scripts.id, job.scriptId));
     if (!script) throw new Error("Script not found");
+    // Idempotency: a crash after the render was stored must not produce a second render on retry.
+    const [existing] = await db.select({ id: renders.id }).from(renders).where(eq(renders.scriptId, script.id)).limit(1);
+    if (existing || script.status !== "script_ready") {
+      await db
+        .update(renderJobs)
+        .set({ status: "done", renderId: existing?.id ?? null, error: existing ? null : `skipped: script is ${script.status}`, lockedAt: null, lockedBy: null })
+        .where(eq(renderJobs.id, job.id));
+      return { ok: true as const, renderId: existing?.id ?? null };
+    }
     const [ch] = await db.select().from(characters).where(eq(characters.id, script.characterId));
     if (!ch) throw new Error("Character not found");
     const img = await loadReferenceImage(ch.referenceImages);
@@ -112,7 +121,9 @@ export async function processJob(job: { id: number; scriptId: number; attempts: 
     return { ok: true as const, renderId: rec.id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const final = job.attempts >= job.maxAttempts;
+    // Retrying cannot fix a missing reference image or an over-long script; fail fast so the owner is told now.
+    const permanent = /اختصر النص|لا توجد صورة مرجعية|Script not found|Character not found/.test(msg);
+    const final = permanent || job.attempts >= job.maxAttempts;
     const backoffMin = 2 ** job.attempts; // 2, 4, 8 minutes
     await db
       .update(renderJobs)

@@ -86,6 +86,7 @@ const statusTone: Record<string, Tone> = {
   generating: "hold",
   received: "go",
   running: "hold",
+  publishing: "hold",
   done: "go",
 };
 
@@ -94,7 +95,7 @@ export function StatusTally({ status, kind = "script" }: { status: string; kind?
     kind === "qc"
       ? QC_LABELS[status] ?? status
       : kind === "post"
-        ? ({ queued: "مجدول", published: "منشور", failed: "فشل", skipped: "متخطى" } as Record<string, string>)[status] ?? status
+        ? ({ queued: "مجدول", publishing: "قيد النشر", published: "منشور", failed: "فشل", skipped: "متخطى" } as Record<string, string>)[status] ?? status
         : kind === "clip"
           ? ({ requested: "بانتظار التوليد", generating: "قيد التوليد", received: "تم الاستلام", failed: "فشل" } as Record<string, string>)[status] ?? status
           : STATUS_LABELS[status] ?? status;

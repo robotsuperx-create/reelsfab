@@ -28,3 +28,12 @@ Note: Kokoro downloads its model from Hugging Face on first use; this was not te
 ## Runtime services
 
 Text generation uses Claude by default (Anthropic/OpenAI/Gemini keys), transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
+
+## Full-cycle test
+
+`pnpm e2e` runs the whole studio against a throwaway local Postgres with every external service (Claude, Supabase Storage, Instagram) faked at the network boundary: seed + reference images → daily batch → render queue (real ffmpeg) → QC → scheduling (connected platforms only) → concurrent publishing (no double posts) → autopilot tick. It refuses to run unless `DATABASE_URL` points at localhost.
+
+```
+createdb reelsfab_e2e && psql reelsfab_e2e -f drizzle/supabase/0000_*.sql -f drizzle/supabase/0001_*.sql
+DATABASE_URL=postgres://postgres@127.0.0.1:5432/reelsfab_e2e pnpm e2e
+```

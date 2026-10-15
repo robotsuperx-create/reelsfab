@@ -75,6 +75,10 @@ export async function renderReel(req: RenderRequest): Promise<RenderResult> {
     }
 
     const total = planDuration(durationSec);
+    // Never ship a reel whose voice gets cut off: the script must be shortened instead.
+    if (durationSec > total - 0.3) {
+      throw new Error(`النص أطول من مدة الريل (${durationSec.toFixed(1)}s صوت) — اختصر النص`);
+    }
     const frames = Math.round(total * FPS);
     const words = wordTimings(req.spokenText, 0.25, durationSec);
     const assPath = join(dir, "reel.ass");

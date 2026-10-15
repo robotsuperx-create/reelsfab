@@ -10,7 +10,7 @@ import { autoFillSchedule } from "../services/scheduler";
 import { drainQueue, enqueueReadyScripts } from "./jobs";
 
 const LEASE_KEY = "autopilot_lease";
-const LEASE_SECONDS = 120;
+const LEASE_SECONDS = 300;
 const TICK_MS = 60_000;
 const INSTANCE = `${process.env.HOSTNAME ?? "local"}:${process.pid}`;
 
@@ -37,42 +37,58 @@ async function step<T>(name: string, fn: () => Promise<T>) {
 
 let busy = false;
 let lastScheduleFill = 0;
+let lastMetrics = 0;
 
+/** One pass of the studio. Every step renews the lease first, so a slow render can never let a second instance in. */
 export async function autopilotTick(now = new Date()) {
   if (busy) return;
   busy = true;
   try {
-    if (!(await acquireLease())) return;
+    const guarded = async <T>(name: string, fn: () => Promise<T>) => {
+      if (!(await acquireLease())) throw new LeaseLost();
+      return step(name, fn);
+    };
     const s = await getSettings();
-    // 1. Daily batch of scripts at the configured UTC hour (idempotent per day).
+    // 1. Daily script batch at the configured UTC hour (idempotent per day).
     if (s.automationEnabled && now.getUTCHours() >= s.automationHourUtc) {
-      await step("daily-automation", () => runDailyAutomation("schedule"));
+      await guarded("daily-automation", () => runDailyAutomation("schedule"));
     }
-    // 2. Turn ready scripts into reels, a few per tick so publishing never starves.
-    await step("enqueue", () => enqueueReadyScripts());
-    await step("render", () => drainQueue(3));
-    // 3. Keep the calendar full, at most every 30 minutes.
-    if (Date.now() - lastScheduleFill > 30 * 60_000) {
+    // 2. Turn ready scripts into reels, one render per guarded step.
+    await guarded("enqueue", () => enqueueReadyScripts());
+    for (let i = 0; i < 2; i++) {
+      const r = await guarded("render", () => drainQueue(1));
+      if (!r || r.done + r.failed === 0) break;
+    }
+    // 3. Keep the calendar full (only platforms with a connected account), at most every 30 minutes.
+    if (s.automationEnabled && Date.now() - lastScheduleFill > 30 * 60_000) {
       lastScheduleFill = Date.now();
-      await step("schedule", () =>
-        autoFillSchedule({ startDay: now.toISOString().slice(0, 10), days: 3, tzOffsetMinutes: 0, userId: null }),
+      await guarded("schedule", () =>
+        autoFillSchedule({ startDay: now.toISOString().slice(0, 10), days: 3, userId: null, onlyConnected: true }),
       );
     }
-    // 4. Publish what is due, pull premium clips and metrics.
-    const ig = await step("publish-ig", () => publishDueInstagramPosts(3));
-    const social = await step("publish-social", () => publishDueSocialPosts(3));
+    // 4. Publish what is due and alert on failures.
+    const ig = await guarded("publish-ig", () => publishDueInstagramPosts(3));
+    const social = await guarded("publish-social", () => publishDueSocialPosts(3));
     const errors = [...(ig?.errors ?? []), ...(social?.errors ?? [])];
     if (errors.length) {
       await step("notify-failed-posts", () =>
         notifyOwner({ title: `فشل نشر ${errors.length} منشور`, content: errors.slice(0, 8).join("\n") }),
       );
     }
-    await step("higgsfield", () => syncHiggsfieldClips());
-    if (now.getUTCMinutes() % 30 === 0) await step("metrics", () => syncPublishedMetrics());
+    // 5. Premium clips and metrics.
+    await guarded("higgsfield", () => syncHiggsfieldClips());
+    if (Date.now() - lastMetrics > 30 * 60_000) {
+      lastMetrics = Date.now();
+      await guarded("metrics", () => syncPublishedMetrics());
+    }
+  } catch (e) {
+    if (!(e instanceof LeaseLost)) throw e;
   } finally {
     busy = false;
   }
 }
+
+class LeaseLost extends Error {}
 
 export function startAutopilot() {
   if (process.env.AUTOPILOT_ENABLED !== "true") {

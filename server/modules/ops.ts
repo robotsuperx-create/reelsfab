@@ -173,7 +173,15 @@ const settingsPatch = z
     higgsfieldDefaultModel: z.string().max(120),
     scriptModel: z.string().max(80),
     reviewModel: z.string().max(80),
-    postingSlots: z.array(z.string().regex(/^\d{2}:\d{2}$/)).max(12),
+    postingSlots: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(12),
+    postingTimezone: z.string().max(64).refine(tz => {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Unknown time zone"),
     platforms: z.array(z.enum(["tiktok", "instagram", "youtube"])),
     accounts: z.record(z.string(), z.record(z.string(), z.string())),
     musicVolume: z.number().int().min(0).max(100),

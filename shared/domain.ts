@@ -244,6 +244,8 @@ export type AppSettings = {
   automationEnabled: boolean;
   automationHourUtc: number;
   postingSlots: string[];
+  /** IANA time zone the posting slots are expressed in (the audience's local time). */
+  postingTimezone: string;
   platforms: string[];
   accounts: Record<string, Record<string, string>>;
   musicVolume: number;
@@ -266,6 +268,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   automationEnabled: false,
   automationHourUtc: 5,
   postingSlots: ["09:00", "13:00", "18:00", "21:00"],
+  postingTimezone: "America/New_York",
   platforms: ["tiktok", "instagram", "youtube"],
   accounts: {},
   musicVolume: 18,
@@ -297,4 +300,28 @@ export function milliCentsFromUsd(usd: number) {
 
 export function formatUsd(usd: number) {
   return `$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Offset of `timeZone` at `date`, in Date.getTimezoneOffset() semantics (minutes to ADD to local time to get UTC;
+ * New York in winter = 300). Falls back to 0 for an unknown zone.
+ */
+export function tzOffsetMinutes(timeZone: string, date: Date) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).formatToParts(date);
+    const get = (t: string) => Number(parts.find(p => p.type === t)?.value);
+    const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    return Math.round((date.getTime() - asUtc) / 60000);
+  } catch {
+    return 0;
+  }
 }

@@ -82,3 +82,18 @@ describe("withDisclosure", () => {
     expect(withDisclosure("hello")).toBe("hello");
   });
 });
+
+import { tzOffsetMinutes } from "../shared/domain";
+
+describe("tzOffsetMinutes", () => {
+  it("follows daylight saving for the audience time zone", () => {
+    expect(tzOffsetMinutes("America/New_York", new Date("2026-01-15T12:00:00Z"))).toBe(300);
+    expect(tzOffsetMinutes("America/New_York", new Date("2026-07-15T12:00:00Z"))).toBe(240);
+    expect(tzOffsetMinutes("UTC", new Date())).toBe(0);
+    expect(tzOffsetMinutes("Not/AZone", new Date())).toBe(0);
+  });
+  it("puts a 09:00 New York slot at 13:00 UTC in summer", () => {
+    const day = "2026-07-15";
+    expect(slotDate(day, "09:00", tzOffsetMinutes("America/New_York", new Date(`${day}T12:00:00Z`))).toISOString()).toBe("2026-07-15T13:00:00.000Z");
+  });
+});

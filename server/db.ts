@@ -15,7 +15,9 @@ export async function getDb() {
   const databaseUrl = getDatabaseUrl();
   if (!_db && databaseUrl) {
     try {
-      _sqlClient = postgres(databaseUrl, { prepare: false, max: 10, ssl: "require" });
+      // TLS is mandatory for Supabase; a local Postgres (dev/e2e) can opt out with sslmode=disable or a loopback host.
+      const local = /@(localhost|127\.0\.0\.1)(:|\/)/.test(databaseUrl) || /sslmode=disable/.test(databaseUrl);
+      _sqlClient = postgres(databaseUrl, { prepare: false, max: 10, ssl: local ? false : "require" });
       _db = drizzle(_sqlClient);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);

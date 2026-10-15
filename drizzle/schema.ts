@@ -249,7 +249,7 @@ export const posts = pgTable(
     accountHandle: varchar("accountHandle", { length: 160 }),
     caption: text("caption"),
     scheduledAt: timestamp("scheduledAt").notNull(),
-    status: text("status").$type<"queued" | "published" | "failed" | "skipped">().default("queued").notNull(),
+    status: text("status").$type<"queued" | "publishing" | "published" | "failed" | "skipped">().default("queued").notNull(),
     postUrl: varchar("postUrl", { length: 1024 }),
     externalId: varchar("externalId", { length: 160 }),
     publishedAt: timestamp("publishedAt"),

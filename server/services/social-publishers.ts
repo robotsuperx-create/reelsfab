@@ -34,7 +34,7 @@ export async function publishTikTok(input: { account: SocialAccount; storageKey?
   throw new Error("TikTok publish timed out; the upload may still be processing");
 }
 
-async function youtubeAccessToken(account: SocialAccount) {
+export async function youtubeAccessToken(account: SocialAccount) {
   if (!account.encryptedAccessToken) throw new Error("YouTube access token is missing");
   const access = decryptSecret(account.encryptedAccessToken);
   if (!account.tokenExpiresAt || account.tokenExpiresAt.getTime() > Date.now() + 60_000) return access;
