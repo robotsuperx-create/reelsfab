@@ -219,7 +219,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     colors: { primary: "#2A9D8F", accent: "#FFD166", text: "#FFFFFF" },
     captionFont: "Fredoka",
     referenceImages: [],
-    needsDesignFile: false,
+    needsDesignFile: true,
     sortOrder: 9,
   },
   {

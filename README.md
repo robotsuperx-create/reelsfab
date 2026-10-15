@@ -22,7 +22,7 @@ guarded by a lease row in `settings` so only one instance works at a time:
 2. `render_jobs` queue (`FOR UPDATE SKIP LOCKED`, retries with backoff) renders economic scripts with ffmpeg: Ken Burns motion, Kokoro-82M voice, word-by-word ASS captions, hook, CTA card and the AI-character badge;
 3. QC → auto-schedule for the next 3 days → publish due posts → sync Higgsfield clips and metrics.
 
-Cost: economic reels cost only LLM tokens (voice and render are local). Character reference images must be uploaded in Supabase Storage (the ten character portraits ship in `assets/characters/` and are uploaded to Supabase Storage automatically on first start, including the original Shelly design in `shelly.svg` / `shelly.md`).
+Cost: economic reels cost only LLM tokens (voice and render are local). Character reference images must be uploaded in Supabase Storage (the nine Character Bible portraits ship in `assets/characters/` and are uploaded to Supabase Storage automatically on first start; Shelly's spec is in `shelly.md` and her image is added manually).
 Note: Kokoro downloads its model from Hugging Face on first use; this was not testable in the build sandbox (blocked), so the render tests use `TTS_PROVIDER=test`.
 
 ## Independence from Manus

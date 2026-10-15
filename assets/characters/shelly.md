@@ -1,6 +1,6 @@
 # Shelly: design file (v1)
 
-An original REELS/FAB cartoon character. `shelly.svg` is the master vector, and `shelly.jpg` (787×1400) is the reference used in production. Do not change her proportions or colors without updating this file.
+An original REELS/FAB cartoon character. The owner adds her reference image manually from the Characters page; until then she is marked "awaiting design file" and skipped by production.
 
 ## Identity
 - A friendly cartoon turtle, warm and playful, for family content and products tied to the store.
