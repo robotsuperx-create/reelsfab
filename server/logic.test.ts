@@ -97,3 +97,14 @@ describe("tzOffsetMinutes", () => {
     expect(slotDate(day, "09:00", tzOffsetMinutes("America/New_York", new Date(`${day}T12:00:00Z`))).toISOString()).toBe("2026-07-15T13:00:00.000Z");
   });
 });
+
+import { higgsfieldEndpoint } from "./services/higgsfield";
+
+describe("higgsfieldEndpoint", () => {
+  it("never turns a display label into an API path", () => {
+    expect(higgsfieldEndpoint("Seedance 2.5 · 8s · 1080p")).toBe("https://api.higgsfield.ai/kling-video/v3.0/std/text-to-video");
+    expect(higgsfieldEndpoint("bytedance/seedance/v2.5/text-to-video")).toBe("https://api.higgsfield.ai/bytedance/seedance/v2.5/text-to-video");
+    expect(higgsfieldEndpoint("https://evil.example.com/x")).toBe("https://api.higgsfield.ai/kling-video/v3.0/std/text-to-video");
+    expect(higgsfieldEndpoint(null)).toBe("https://api.higgsfield.ai/kling-video/v3.0/std/text-to-video");
+  });
+});

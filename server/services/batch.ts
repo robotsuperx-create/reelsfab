@@ -40,7 +40,7 @@ export function premiumAllowance(o: { requested: number; budgetUsd: number; spen
   return Math.min(o.requested, Math.floor(dailyUsd / o.perClipUsd));
 }
 
-async function monthSpentUsd() {
+export async function monthSpentUsd() {
   const db = await requireDb();
   const start = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
   const [row] = await db

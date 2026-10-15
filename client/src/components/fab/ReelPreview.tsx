@@ -112,10 +112,10 @@ export default function ReelPreview({ prepared }: { prepared: PreparedReel }) {
       </div>
       <audio ref={audioRef} src={audioUrl} preload="auto" onEnded={() => setPlaying(false)} />
       <div className="flex w-full max-w-[300px] items-center gap-2">
-        <Button size="icon-sm" onClick={toggle}>
+        <Button size="icon-sm" onClick={toggle} aria-label="تشغيل / إيقاف">
           {playing ? <Pause /> : <Play />}
         </Button>
-        <Button size="icon-sm" variant="ghost" onClick={() => seek(0)}>
+        <Button size="icon-sm" variant="ghost" onClick={() => seek(0)} aria-label="من البداية">
           <RotateCcw />
         </Button>
         <Slider value={[t]} min={0} max={prepared.spec.duration} step={1 / 30} onValueChange={v => seek(v[0])} className="flex-1" dir="ltr" />

@@ -19,8 +19,8 @@ import { memberProcedure } from "../procedures";
 import { generateDerivativeVariants, visualConsistencyCheck } from "../services/ai";
 import { storageGetSignedUrl, storageKeyFromUrl, storagePut } from "../storage";
 import { createRenderRecord } from "../services/render-records";
-import { cancelHiggsfield, getHiggsfieldStatus, submitHiggsfield } from "../services/higgsfield";
-import { randomUUID } from "node:crypto";
+import { monthSpentUsd } from "../services/batch";
+import { cancelHiggsfield, getHiggsfieldStatus, higgsfieldConfigured, submitHiggsfield } from "../services/higgsfield";
 
 async function absoluteUrl(url: string | null | undefined) {
   const key = storageKeyFromUrl(url);
@@ -66,7 +66,19 @@ export const premiumRouter = router({
     const db = await requireDb();
     const [row] = await db.select({ clip: premiumClips, script: scripts, character: characters }).from(premiumClips).innerJoin(scripts, eq(scripts.id, premiumClips.scriptId)).innerJoin(characters, eq(characters.id, premiumClips.characterId)).where(eq(premiumClips.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "اللقطة غير موجودة" });
-    const result = await submitHiggsfield({ model: input.model || row.clip.model, prompt: buildHiggsfieldPrompt(row.character, row.script), duration: 15, aspectRatio: "9:16", idempotencyKey: `premium-clip-${input.id}-${randomUUID()}` });
+    if (!(await higgsfieldConfigured())) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اربط Higgsfield من مركز التكاملات أولًا (apiKey و apiSecret)." });
+    // Paid call: never resubmit a clip that is already generating or delivered, and respect the monthly budget.
+    if (row.clip.status === "generating" || row.clip.status === "received") {
+      throw new TRPCError({ code: "CONFLICT", message: "هذه اللقطة قيد التوليد أو مستلمة بالفعل" });
+    }
+    {
+      const s = await getSettings();
+      const attemptUsd = s.higgsfieldCreditsPerAttempt * s.higgsfieldUsdPerCredit;
+      if ((await monthSpentUsd()) + attemptUsd > s.monthlyBudgetUsd) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `تجاوز ميزانية الشهر (${s.monthlyBudgetUsd}$). ارفع الميزانية من الإعدادات أو انتظر الشهر القادم.` });
+      }
+    }
+    const result = await submitHiggsfield({ model: input.model || row.clip.model, prompt: buildHiggsfieldPrompt(row.character, row.script), duration: 15, aspectRatio: "9:16", idempotencyKey: `premium-clip-${input.id}-attempt-${row.clip.attempts + 1}` });
     const settings = await getSettings();
     const credits = settings.higgsfieldCreditsPerAttempt;
     const usd = credits * settings.higgsfieldUsdPerCredit;

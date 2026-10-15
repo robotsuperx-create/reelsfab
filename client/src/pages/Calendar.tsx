@@ -195,16 +195,16 @@ export default function CalendarPage() {
           </>
         }
       />
-      <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <Button size="icon-sm" variant="outline" onClick={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86400000))}>
+            <Button size="icon-sm" variant="outline" aria-label="الأسبوع السابق" onClick={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86400000))}>
               <ChevronRight />
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setWeekStart(startOfDay(new Date()))}>
               اليوم
             </Button>
-            <Button size="icon-sm" variant="outline" onClick={() => setWeekStart(new Date(weekStart.getTime() + 7 * 86400000))}>
+            <Button size="icon-sm" variant="outline" aria-label="الأسبوع التالي" onClick={() => setWeekStart(new Date(weekStart.getTime() + 7 * 86400000))}>
               <ChevronLeft />
             </Button>
             <span className="timecode text-sm text-muted-foreground">
@@ -243,12 +243,12 @@ export default function CalendarPage() {
                             <StatusTally status={r.post.status} kind="post" />
                             <div className="flex items-center">
                               <CopyButton text={r.post.caption ?? ""} size="icon-sm" variant="ghost" />
-                              <Button size="icon-sm" variant="ghost" onClick={() => downloadUrl(r.render.videoUrl, `${c?.slug ?? "reel"}-${r.post.platform}-${r.post.id}.mp4`)}>
+                              <Button size="icon-sm" variant="ghost" aria-label="تنزيل الفيديو" onClick={() => downloadUrl(r.render.videoUrl, `${c?.slug ?? "reel"}-${r.post.platform}-${r.post.id}.mp4`)}>
                                 <Download />
                               </Button>
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                  <Button size="icon-sm" variant="ghost">
+                                  <Button size="icon-sm" variant="ghost" aria-label="خيارات المنشور">
                                     <MoreHorizontal />
                                   </Button>
                                 </DropdownMenuTrigger>

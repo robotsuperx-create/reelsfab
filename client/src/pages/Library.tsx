@@ -156,10 +156,10 @@ export default function Library() {
                   </div>
                   {isAudio && <audio src={a.url} controls preload="none" className="h-8 w-64" />}
                   <AssetCharacterSelect value={a.characterId} onChange={cid => updateAsset.mutate({ id: a.id, characterId: cid })} />
-                  <Button size="icon-sm" variant="ghost" onClick={() => downloadUrl(a.url, a.title || `asset-${a.id}`)}>
+                  <Button size="icon-sm" variant="ghost" aria-label="تنزيل" onClick={() => downloadUrl(a.url, a.title || `asset-${a.id}`)}>
                     <Download />
                   </Button>
-                  <Button size="icon-sm" variant="ghost" onClick={() => confirm("حذف الملف من المكتبة؟") && removeAsset.mutate({ id: a.id })}>
+                  <Button size="icon-sm" variant="ghost" aria-label="حذف الملف" onClick={() => confirm("حذف الملف من المكتبة؟") && removeAsset.mutate({ id: a.id })}>
                     <Trash2 />
                   </Button>
                 </div>
@@ -189,10 +189,10 @@ export default function Library() {
                       </Button>
                     )}
                     <AssetCharacterSelect compact value={a.characterId} onChange={cid => updateAsset.mutate({ id: a.id, characterId: cid })} />
-                    <Button size="icon-sm" variant="ghost" onClick={() => downloadUrl(a.url, `${a.title || `asset-${a.id}`}.${isVideo ? "mp4" : "png"}`)}>
+                    <Button size="icon-sm" variant="ghost" aria-label="تنزيل" onClick={() => downloadUrl(a.url, `${a.title || `asset-${a.id}`}.${isVideo ? "mp4" : "png"}`)}>
                       <Download />
                     </Button>
-                    <Button size="icon-sm" variant="ghost" onClick={() => confirm("حذف الملف من المكتبة؟") && removeAsset.mutate({ id: a.id })}>
+                    <Button size="icon-sm" variant="ghost" aria-label="حذف الملف" onClick={() => confirm("حذف الملف من المكتبة؟") && removeAsset.mutate({ id: a.id })}>
                       <Trash2 />
                     </Button>
                   </div>

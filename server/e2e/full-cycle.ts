@@ -9,97 +9,18 @@
 import assert from "node:assert/strict";
 import { eq, sql } from "drizzle-orm";
 import { characters, posts, renderJobs, renders, scripts, settings } from "../../drizzle/schema";
+import { FAKE_ENV, fakeState, installFakes } from "./fakes";
 
 const url = process.env.DATABASE_URL ?? "";
 if (!/@(localhost|127\.0\.0\.1)[:/]/.test(url)) {
   console.error("Refusing to run: DATABASE_URL must be a local throwaway database.");
   process.exit(1);
 }
-Object.assign(process.env, {
-  SUPABASE_URL: "https://supabase.test",
-  SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
-  ANTHROPIC_API_KEY: "test-anthropic-key",
-  INTEGRATION_ENCRYPTION_KEY: "e2e-encryption-key-not-secret",
-  TTS_PROVIDER: "test",
-  DISCLOSURE_TAGS: "#AIgenerated #ad",
-});
+for (const [k, v] of Object.entries(FAKE_ENV)) process.env[k] = v;
 delete process.env.TELEGRAM_BOT_TOKEN;
-
-// ---------------------------------------------------------------- network fakes
-const objects = new Map<string, Buffer>();
-const calls: Record<string, number> = {};
-const hit = (k: string) => (calls[k] = (calls[k] ?? 0) + 1);
-const published: { caption: string; videoUrl: string }[] = [];
-
-const SCRIPT_BANK = [
-  ["Your garden needs less water than you think", "Water deeply twice a week at sunrise instead of a little every evening. Roots chase moisture downward and the plants handle summer heat much better.", "Deeper roots mean tougher tomatoes", "Follow for weekly garden notes"],
-  ["Three ingredients make the best weeknight sauce", "Simmer crushed tomatoes with olive oil and a whole peeled onion for forty minutes. Remove the onion before serving and keep the sweetness.", "Simple food tastes like home", "Save this for Sunday dinner"],
-  ["Most beginners mix their paint far too early", "Lay the colors side by side and blend only at the edges with a dry brush. The canvas keeps its light and the shadows stay clean.", "Patience paints brighter pictures", "Comment brush if this helped"],
-  ["One budgeting rule beats every spreadsheet", "Move savings on payday before anything else gets spent. What remains is yours to enjoy without guilt or late night arithmetic.", "Discipline makes freedom feel lighter", "Follow for more money habits"],
-  ["Stop starting conversations with your phone", "Put it face down and ask one curious question about their day. People remember how attentive you felt far longer than your words.", "Presence is the rarest gift", "Share this with a friend"],
-  ["This automation saves my team every Monday", "A short script collects last week's orders, tags late ones and drafts polite follow ups. Someone reviews them in ten minutes over coffee.", "Systems give back your weekends", "Follow to learn the setup"],
-  ["Small business idea nobody talks about", "Local bakeries throw away perfectly good bread every evening. A tiny subscription that delivers it to cafes at a discount solves waste for both sides.", "Problems hide inside everyday routines", "Save this idea for later"],
-  ["Walk like the runway is yours", "Shoulders relaxed, chin level, and let your hips lead each step forward. Practice in the hallway for two minutes daily and confidence becomes muscle memory.", "Posture tells your story first", "Follow for day two tips"],
-  ["I made $5000 a month with this one trick", "Copy my exact method and you will earn the same money every single month without any effort or risk at all, guaranteed.", "Easy money is waiting", "Follow to get rich"],
-  ["Start your workout before motivation shows up", "Put on your shoes and do five gentle squats right now. Momentum arrives once your body moves, not while you wait on the couch.", "Action creates the energy", "Comment start to join me"],
-];
-let scriptCursor = 0;
-
-function fakeAnthropic(body: { messages: { content: { type: string; text?: string }[] }[] }) {
-  hit("anthropic");
-  const prompt = body.messages.map(m => m.content.map(c => c.text ?? "").join(" ")).join(" ");
-  const count = Number(/Write (\d+) different/.exec(prompt)?.[1] ?? 1);
-  const scriptsOut = Array.from({ length: count }, () => {
-    const [hook, b, payoff, cta] = SCRIPT_BANK[scriptCursor++ % SCRIPT_BANK.length];
-    return {
-      topic: hook.slice(0, 40), templateKey: "direct_tip", hookType: "secret", hook, body: b, payoff, cta,
-      onScreenText: hook.split(" ").slice(0, 5).join(" "), caption: `${hook}.`, hashtags: "#AIcharacter #tips #daily #learn",
-      higgsfieldPrompt: "Character speaks to camera in warm morning light, slow push-in, natural gestures, cozy home setting, vertical 9:16.",
-    };
-  });
-  return { content: [{ type: "text", text: JSON.stringify({ scripts: scriptsOut }) }], usage: { input_tokens: 1200, output_tokens: 900 } };
-}
-
-const realFetch = globalThis.fetch;
-globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-  const u = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
-  const method = (init?.method ?? "GET").toUpperCase();
-  const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
-
-  if (u.host === "supabase.test") {
-    const m = /^\/storage\/v1\/object\/(sign\/)?([^/]+)\/(.+)$/.exec(u.pathname);
-    if (m && method === "POST" && !m[1]) {
-      hit("storage.put");
-      objects.set(decodeURIComponent(m[3]), Buffer.from(await new Response(init?.body as BodyInit).arrayBuffer()));
-      return json({ Key: m[3] });
-    }
-    if (m && method === "POST" && m[1]) {
-      hit("storage.sign");
-      return json({ signedURL: `/object/sign/${m[2]}/${m[3]}?token=t` });
-    }
-    if (m && method === "GET" && m[1]) {
-      hit("storage.get");
-      const buf = objects.get(decodeURIComponent(m[3]));
-      return buf ? new Response(new Uint8Array(buf)) : json({ error: "not found" }, 404);
-    }
-    return json({ error: `unexpected ${method} ${u.pathname}` }, 500);
-  }
-  if (u.host === "api.anthropic.com") return json(fakeAnthropic(JSON.parse(String(init?.body))));
-  if (u.host === "graph.instagram.com") {
-    hit("instagram");
-    if (u.pathname.endsWith("/media") && method === "POST") {
-      const b = JSON.parse(String(init?.body));
-      published.push({ caption: b.caption, videoUrl: b.video_url });
-      return json({ id: `container-${published.length}` });
-    }
-    if (u.pathname.endsWith("/media_publish")) return json({ id: `ig-media-${Date.now()}` });
-    if (/\/container-\d+$/.test(u.pathname)) return json({ id: "c", status_code: "FINISHED" });
-    return json({ data: [] });
-  }
-  if (u.host === "127.0.0.1" || u.host === "localhost") return realFetch(input, init);
-  hit(`unexpected:${u.host}`);
-  return json({ error: "blocked in e2e" }, 503);
-}) as typeof fetch;
+installFakes();
+const { objects, calls } = fakeState;
+const published = fakeState.instagramPosts;
 
 // ---------------------------------------------------------------- run
 const step = (msg: string) => console.log(`\n▶ ${msg}`);
@@ -167,6 +88,7 @@ async function main() {
     assert.equal(r.height, 1920);
     assert.ok(r.durationMs >= 13000 && r.durationMs <= 15600, `duration ${r.durationMs}`);
     assert.ok(objects.has(r.storageKey!), "video stored");
+    assert.equal(objects.get(r.storageKey!)!.type, "video/mp4");
   }
   console.log(`  QC: ${JSON.stringify(countBy(rs.map(r => r.qcStatus)))}`);
   const jobsLeft = await db.select().from(renderJobs).where(eq(renderJobs.status, "queued"));

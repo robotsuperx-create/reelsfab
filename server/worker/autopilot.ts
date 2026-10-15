@@ -7,6 +7,7 @@ import { runDailyAutomation } from "../services/batch";
 import { syncHiggsfieldClips } from "../services/higgsfield-jobs";
 import { publishDueInstagramPosts, publishDueSocialPosts } from "../services/publishing";
 import { autoFillSchedule } from "../services/scheduler";
+import { refreshExpiringInstagramTokens } from "../services/social-accounts";
 import { drainQueue, enqueueReadyScripts } from "./jobs";
 
 const LEASE_KEY = "autopilot_lease";
@@ -38,6 +39,7 @@ async function step<T>(name: string, fn: () => Promise<T>) {
 let busy = false;
 let lastScheduleFill = 0;
 let lastMetrics = 0;
+let lastTokenRefresh = 0;
 
 /** One pass of the studio. Every step renews the lease first, so a slow render can never let a second instance in. */
 export async function autopilotTick(now = new Date()) {
@@ -77,6 +79,11 @@ export async function autopilotTick(now = new Date()) {
     }
     // 5. Premium clips and metrics.
     await guarded("higgsfield", () => syncHiggsfieldClips());
+    if (Date.now() - lastTokenRefresh > 12 * 3600_000) {
+      lastTokenRefresh = Date.now();
+      const r = await guarded("instagram-token-refresh", () => refreshExpiringInstagramTokens());
+      if (r?.errors.length) await step("notify-token", () => notifyOwner({ title: "تعذّر تجديد توكن Instagram", content: r.errors.join("\n") }));
+    }
     if (Date.now() - lastMetrics > 30 * 60_000) {
       lastMetrics = Date.now();
       await guarded("metrics", () => syncPublishedMetrics());

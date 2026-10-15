@@ -77,7 +77,7 @@ export default function Automation() {
         <Stat label="فشل" value={q.failed ?? 0} tone={q.failed ? "stop" : undefined} />
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_380px]">
+      <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="panel">
           <div className="flex items-center justify-between border-b p-4">
             <h2 className="text-sm font-semibold">طابور الرندر</h2>

@@ -10,8 +10,39 @@ export function securityHeaders(_req: Request, res: Response, next: NextFunction
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   if (process.env.NODE_ENV === "production") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    res.setHeader("Content-Security-Policy", contentSecurityPolicy());
   }
   next();
+}
+
+let cachedCsp: string | null = null;
+/** Strict CSP for the app shell: own scripts plus the few third parties the UI really uses (Supabase Auth, Google Fonts, Kokoro). */
+export function contentSecurityPolicy() {
+  if (cachedCsp) return cachedCsp;
+  let supabase = "";
+  try {
+    const u = new URL(process.env.SUPABASE_URL ?? "");
+    supabase = ` ${u.origin} wss://${u.host}`;
+  } catch {
+    /* no Supabase configured */
+  }
+  cachedCsp = [
+    "default-src 'self'",
+    // In-browser Kokoro voice (Studio) loads its module + ONNX wasm from jsDelivr.
+    "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' data: blob: https:",
+    // ...and its model weights from Hugging Face (which redirects to its CDNs).
+    `connect-src 'self'${supabase} https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co`,
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+  return cachedCsp;
 }
 
 /** Fixed-window in-memory limiter keyed by socket address (per instance). */

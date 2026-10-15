@@ -243,10 +243,10 @@ export default function Analytics() {
         <Stat label="المتابعات" value={nf.format(s?.totals.follows ?? 0)} />
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_380px]">
-        <div className="panel">
+      <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="panel min-w-0">
           <Tabs defaultValue="character">
-            <div className="border-b p-2">
+            <div className="overflow-x-auto border-b p-2">
               <TabsList>
                 <TabsTrigger value="character">الشخصية</TabsTrigger>
                 <TabsTrigger value="hook">نوع Hook</TabsTrigger>
