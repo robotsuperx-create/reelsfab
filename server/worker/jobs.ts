@@ -2,6 +2,7 @@ import { and, eq, inArray, notExists, sql } from "drizzle-orm";
 import { characters, renderJobs, renders, scripts } from "../../drizzle/schema";
 import { AI_DISCLOSURE, spokenText, TEMPLATES } from "../../shared/domain";
 import { requireDb } from "../db";
+import { notifyOwner } from "../services/notify";
 import { createRenderRecord } from "../services/render-records";
 import { storageDownload, storageKeyFromUrl, storagePut } from "../storage";
 import { renderReel } from "./renderer";
@@ -123,6 +124,9 @@ export async function processJob(job: { id: number; scriptId: number; attempts: 
         lockedBy: null,
       })
       .where(eq(renderJobs.id, job.id));
+    if (final) {
+      await notifyOwner({ title: `فشل رندر النص #${job.scriptId}`, content: msg.slice(0, 500) }).catch(() => false);
+    }
     return { ok: false as const, error: msg };
   }
 }

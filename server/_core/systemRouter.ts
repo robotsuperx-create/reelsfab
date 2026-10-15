@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { notifyOwner } from "./notification";
+import { notifyOwner } from "../services/notify";
 import { adminProcedure, publicProcedure, router } from "./trpc";
 
 export const systemRouter = router({

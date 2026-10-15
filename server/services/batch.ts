@@ -10,7 +10,7 @@ import {
   type InsertScript,
 } from "../../drizzle/schema";
 import { checkCompliance, countWords, similarity, spokenText, usdFromMilliCents } from "../../shared/domain";
-import { notifyOwner } from "../_core/notification";
+import { notifyOwner } from "./notify";
 import { ensureSeed, getSettings, requireDb } from "../db";
 import { generateScriptsForCharacter } from "./ai";
 

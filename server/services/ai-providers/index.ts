@@ -1,8 +1,7 @@
-import { ENV } from "../../_core/env";
 import { getIntegrationConfig } from "../integration-vault";
 
-export type ProviderName = "manus" | "openai" | "anthropic" | "gemini";
-export type ProviderRequest = { provider: ProviderName; model: string; system?: string; prompt: string; jsonSchema?: Record<string, unknown>; maxTokens?: number; timeoutMs?: number };
+export type ProviderName = "openai" | "anthropic" | "gemini";
+export type ProviderRequest = { provider: ProviderName; model: string; system?: string; prompt: string; /** image URLs or data: URLs for vision checks */ images?: string[]; jsonSchema?: Record<string, unknown>; maxTokens?: number; timeoutMs?: number };
 export type ProviderResult = { provider: ProviderName; model: string; text: string; usage?: { inputTokens?: number; outputTokens?: number } };
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -20,17 +19,24 @@ async function callOpenAI(r: ProviderRequest): Promise<ProviderResult> {
   const config = await getIntegrationConfig("openai");
   const key = config.apiKey || process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY is not configured");
-  const body: any = { model: r.model, input: [{ role: "user", content: [{ type: "input_text", text: `${r.system ? `SYSTEM:\n${r.system}\n\n` : ""}${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }], max_output_tokens: r.maxTokens ?? 1200 };
+  const body: any = { model: r.model, input: [{ role: "user", content: [{ type: "input_text", text: `${r.system ? `SYSTEM:\n${r.system}\n\n` : ""}${r.prompt}${jsonInstruction(r.jsonSchema)}` }, ...(r.images ?? []).map(u => ({ type: "input_image", image_url: u }))] }], max_output_tokens: r.maxTokens ?? 1200 };
   const res = await request("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }, r.timeoutMs ?? 45000);
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json(); return { provider: r.provider, model: r.model, text: textFromOpenAI(data), usage: { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens } };
+}
+
+function anthropicImage(url: string) {
+  const m = url.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+  return m
+    ? { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } }
+    : { type: "image", source: { type: "url", url } };
 }
 
 async function callAnthropic(r: ProviderRequest): Promise<ProviderResult> {
   const config = await getIntegrationConfig("anthropic");
   const key = config.apiKey || process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not configured");
-  const res = await request("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", ...((config.workspaceId || process.env.ANTHROPIC_WORKSPACE_ID) ? { "anthropic-workspace-id": config.workspaceId || process.env.ANTHROPIC_WORKSPACE_ID! } : {}) }, body: JSON.stringify({ model: r.model, max_tokens: r.maxTokens ?? 1200, system: r.system, messages: [{ role: "user", content: `${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }) }, r.timeoutMs ?? 45000);
+  const res = await request("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", ...((config.workspaceId || process.env.ANTHROPIC_WORKSPACE_ID) ? { "anthropic-workspace-id": config.workspaceId || process.env.ANTHROPIC_WORKSPACE_ID! } : {}) }, body: JSON.stringify({ model: r.model, max_tokens: r.maxTokens ?? 1200, system: r.system, messages: [{ role: "user", content: [...(r.images ?? []).map(anthropicImage), { type: "text", text: `${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }] }) }, r.timeoutMs ?? 45000);
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json(); return { provider: r.provider, model: r.model, text: data.content?.map((x: any) => x.text ?? "").join("") ?? "", usage: { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens } };
 }
@@ -52,7 +58,7 @@ export async function invokeProvider(r: ProviderRequest): Promise<ProviderResult
       if (r.provider === "openai") return await callOpenAI(r);
       if (r.provider === "anthropic") return await callAnthropic(r);
       if (r.provider === "gemini") return await callGemini(r);
-      throw new Error("Use the existing Manus invokeLLM adapter for provider=manus");
+      throw new Error(`Unknown AI provider: ${r.provider}`);
     } catch (e) { last = e; if (attempt === 0) await sleep(350); }
   }
   throw last instanceof Error ? last : new Error("AI provider request failed");
@@ -67,5 +73,5 @@ export async function providerConfigured(provider: ProviderName) {
   if (provider === "openai") return Boolean((await getIntegrationConfig("openai")).apiKey || process.env.OPENAI_API_KEY);
   if (provider === "anthropic") return Boolean((await getIntegrationConfig("anthropic")).apiKey || process.env.ANTHROPIC_API_KEY);
   if (provider === "gemini") return Boolean((await getIntegrationConfig("gemini")).apiKey || process.env.GEMINI_API_KEY);
-  return Boolean(ENV.forgeApiKey);
+  return false;
 }

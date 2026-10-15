@@ -264,7 +264,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   higgsfieldPlanUsd: 49,
   higgsfieldDefaultModel: "Seedance 2.5 · 8s · 1080p",
   scriptModel: "claude-sonnet-4-6",
-  reviewModel: "gemini-3.8-flash",
+  reviewModel: "claude-haiku-4-5",
   automationEnabled: false,
   automationHourUtc: 5,
   automationTaskUid: null,

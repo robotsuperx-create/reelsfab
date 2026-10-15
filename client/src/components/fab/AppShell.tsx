@@ -3,7 +3,6 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { getSupabaseClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -211,15 +210,7 @@ function Gate({ children }: { children: ReactNode }) {
           <div className="sprockets mx-auto my-6 w-48 opacity-70" />
           <h1 className="text-xl font-bold">نظام إنتاج داخلي للفريق</h1>
           <p className="mt-2 text-sm text-muted-foreground">سجّل الدخول للوصول إلى خط إنتاج الريلات، الشخصيات، والتقويم.</p>
-          <Button className="mt-6 w-full" onClick={() => startLogin()}>
-            تسجيل الدخول
-          </Button>
-          <div className="my-5 flex items-center gap-3 text-[11px] text-muted-foreground">
-            <span className="h-px flex-1 bg-border" />
-            <span>دخول مستقل عبر Supabase</span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
-          <form className="space-y-3 text-right" onSubmit={handleSupabaseAuth}>
+          <form className="mt-6 space-y-3 text-right" onSubmit={handleSupabaseAuth}>
             <label className="block text-xs text-muted-foreground" htmlFor="supabase-email">البريد الإلكتروني</label>
             <Input
               id="supabase-email"

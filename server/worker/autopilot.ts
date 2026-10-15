@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { settings } from "../../drizzle/schema";
 import { getSettings, requireDb } from "../db";
 import { syncPublishedMetrics } from "../services/analytics-sync";
+import { notifyOwner } from "../services/notify";
 import { runDailyAutomation } from "../services/batch";
 import { syncHiggsfieldClips } from "../services/higgsfield-jobs";
 import { publishDueInstagramPosts, publishDueSocialPosts } from "../services/publishing";
@@ -58,8 +59,14 @@ export async function autopilotTick(now = new Date()) {
       );
     }
     // 4. Publish what is due, pull premium clips and metrics.
-    await step("publish-ig", () => publishDueInstagramPosts(3));
-    await step("publish-social", () => publishDueSocialPosts(3));
+    const ig = await step("publish-ig", () => publishDueInstagramPosts(3));
+    const social = await step("publish-social", () => publishDueSocialPosts(3));
+    const errors = [...(ig?.errors ?? []), ...(social?.errors ?? [])];
+    if (errors.length) {
+      await step("notify-failed-posts", () =>
+        notifyOwner({ title: `فشل نشر ${errors.length} منشور`, content: errors.slice(0, 8).join("\n") }),
+      );
+    }
     await step("higgsfield", () => syncHiggsfieldClips());
     if (now.getUTCMinutes() % 30 === 0) await step("metrics", () => syncPublishedMetrics());
   } finally {

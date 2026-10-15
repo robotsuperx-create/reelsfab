@@ -13,7 +13,7 @@ import {
 import { milliCentsFromUsd, similarity, spokenText } from "../../shared/domain";
 import { buildHiggsfieldPrompt, evaluateQc } from "../../shared/production";
 import { router } from "../_core/trpc";
-import { transcribeAudio } from "../_core/voiceTranscription";
+import { transcribeAudio } from "../services/transcription";
 import { getSettings, requireDb } from "../db";
 import { memberProcedure } from "../procedures";
 import { generateDerivativeVariants, visualConsistencyCheck } from "../services/ai";

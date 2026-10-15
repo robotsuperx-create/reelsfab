@@ -1,8 +1,10 @@
 import { costEntries, type Character } from "../../drizzle/schema";
 import { HOOK_TYPE_KEYS, LLM_PRICE_PER_MTOK, TEMPLATES, TEMPLATE_KEYS } from "../../shared/domain";
-import { invokeLLM, type Message } from "../_core/llm";
 import { requireDb } from "../db";
 import { invokeProvider, providerConfigured, type ProviderName } from "./ai-providers";
+
+type Message = { role: "system" | "user" | "assistant"; content: string | ContentPart | ContentPart[] };
+type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail?: string } };
 
 type JsonSchemaObject = Record<string, unknown>;
 
@@ -13,25 +15,35 @@ function estimateMilliCents(model: string, tokensIn: number, tokensOut: number) 
 }
 
 function resolveProvider(model: string): { provider: ProviderName; model: string } {
-  const explicit = model.match(/^(manus|openai|anthropic|gemini):(.+)$/i);
+  const explicit = model.match(/^(openai|anthropic|gemini):(.+)$/i);
   if (explicit) return { provider: explicit[1].toLowerCase() as ProviderName, model: explicit[2] };
   if (/^gpt[-_]/i.test(model)) return { provider: "openai", model };
   if (/^claude[-_]/i.test(model)) return { provider: "anthropic", model };
   if (/^gemini[-_]/i.test(model)) return { provider: "gemini", model };
-  return { provider: "manus", model };
+  return { provider: "anthropic", model };
 }
 
-function textOnlyMessages(messages: Message[]) {
-  const text = (content: Message["content"]): string | null => {
-    const parts = Array.isArray(content) ? content : [content];
-    if (parts.some(part => typeof part !== "string" && part.type !== "text")) return null;
-    return parts.map(part => typeof part === "string" ? part : part.type === "text" ? part.text : "").join("\n");
-  };
-  const values = messages.map(message => ({ role: message.role, text: text(message.content) }));
-  return values.some(value => value.text === null) ? null : values as { role: Message["role"]; text: string }[];
+function flattenMessages(messages: Message[]) {
+  const images: string[] = [];
+  const lines = messages.map(m => {
+    const parts = Array.isArray(m.content) ? m.content : [m.content];
+    const text = parts
+      .map(part => {
+        if (typeof part === "string") return part;
+        if (part.type === "image_url") {
+          images.push(part.image_url.url);
+          return "";
+        }
+        return part.text;
+      })
+      .filter(Boolean)
+      .join("\n");
+    return { role: m.role, text };
+  });
+  return { lines, images };
 }
 
-/** Uses the configured external provider when its model/key is available; otherwise keeps Manus as a safe fallback. */
+/** Calls the configured provider (Claude by default) and returns parsed JSON; logs the cost. */
 export async function callJson<T>(opts: {
   model: string;
   messages: Message[];
@@ -44,55 +56,38 @@ export async function callJson<T>(opts: {
   userId?: number;
 }): Promise<T> {
   const target = resolveProvider(opts.model);
-  const textMessages = textOnlyMessages(opts.messages);
-  let text = "";
-  let tokensIn = 0;
-  let tokensOut = 0;
-  let billedModel = opts.model;
-
-  if (target.provider !== "manus" && textMessages && await providerConfigured(target.provider)) {
-    const system = textMessages.filter(message => message.role === "system").map(message => message.text).join("\n\n");
-    const prompt = textMessages.filter(message => message.role !== "system").map(message => `${message.role.toUpperCase()}:\n${message.text}`).join("\n\n");
-    let result: Awaited<ReturnType<typeof invokeProvider>>;
-    try {
-      result = await invokeProvider({
-        provider: target.provider,
-        model: target.model,
-        system: system || undefined,
-        prompt,
-        jsonSchema: opts.schema,
-        maxTokens: opts.maxTokens ?? 8000,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (target.provider === "anthropic" && /credit balance|insufficient_quota|billing/i.test(message)) {
-        throw new Error("Claude رفض الطلب لأن رصيد Anthropic غير كافٍ. أضف رصيدًا من Plans & Billing في Anthropic، أو غيّر نموذج النصوص إلى manus أو مزود آخر. مفتاح Higgsfield لا يولّد النصوص؛ هو مخصص لفيديو Premium.");
-      }
-      if (target.provider === "gemini" && /404|no longer available|not found/i.test(message)) {
-        throw new Error("نموذج Gemini المختار لم يعد متاحًا للحسابات الجديدة. استخدم gemini-3.8-flash؛ تم تحديث الإعداد تلقائيًا من النماذج القديمة.");
-      }
-      throw new Error(`${target.provider} لم يتمكن من توليد النص: ${message.slice(0, 500)}`);
-    }
-    text = result.text;
-    tokensIn = result.usage?.inputTokens ?? 0;
-    tokensOut = result.usage?.outputTokens ?? 0;
-    billedModel = target.model;
-  } else {
-    const result = await invokeLLM({
-      model: opts.model,
-      messages: opts.messages,
-      maxTokens: opts.maxTokens ?? 8000,
-      outputSchema: { name: opts.schemaName, schema: opts.schema, strict: true },
-    });
-    const raw = result.choices?.[0]?.message?.content;
-    text = typeof raw === "string"
-      ? raw
-      : Array.isArray(raw)
-        ? raw.map(p => (p.type === "text" ? p.text : "")).join("")
-        : "";
-    tokensIn = result.usage?.prompt_tokens ?? 0;
-    tokensOut = result.usage?.completion_tokens ?? 0;
+  if (!(await providerConfigured(target.provider))) {
+    throw new Error(`مفتاح ${target.provider} غير مضبوط. أضفه من مركز التكاملات أو عبر متغير البيئة ${target.provider.toUpperCase()}_API_KEY.`);
   }
+  const { lines, images } = flattenMessages(opts.messages);
+  const system = lines.filter(l => l.role === "system").map(l => l.text).join("\n\n");
+  const prompt = lines.filter(l => l.role !== "system").map(l => `${l.role.toUpperCase()}:\n${l.text}`).join("\n\n");
+  let result: Awaited<ReturnType<typeof invokeProvider>>;
+  try {
+    result = await invokeProvider({
+      provider: target.provider,
+      model: target.model,
+      system: system || undefined,
+      prompt,
+      images: images.length ? images : undefined,
+      jsonSchema: opts.schema,
+      maxTokens: opts.maxTokens ?? 8000,
+      timeoutMs: 120_000,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (target.provider === "anthropic" && /credit balance|insufficient_quota|billing/i.test(message)) {
+      throw new Error("Claude رفض الطلب لأن رصيد Anthropic غير كافٍ. أضف رصيدًا من Plans & Billing في Anthropic أو غيّر نموذج النصوص إلى مزوّد آخر.");
+    }
+    if (target.provider === "gemini" && /404|no longer available|not found/i.test(message)) {
+      throw new Error("نموذج Gemini المختار لم يعد متاحًا. استخدم gemini-3.8-flash.");
+    }
+    throw new Error(`${target.provider} لم يتمكن من توليد النص: ${message.slice(0, 500)}`);
+  }
+  const text = result.text;
+  const tokensIn = result.usage?.inputTokens ?? 0;
+  const tokensOut = result.usage?.outputTokens ?? 0;
+  const billedModel = target.model;
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
   let parsed: T;
   try {

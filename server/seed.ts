@@ -2,12 +2,14 @@ import type { InsertCharacter } from "../drizzle/schema";
 
 // Seed data transcribed from the Character Bible v1 (ملف الشخصيات العشر).
 // Kokoro voices are only starting suggestions; the final Voice ID is set after voice tests.
+const BRAND_RULE = "شخصية علامة تجارية خيالية بوسم AI؛ لا نتائج مالية/صحية مزعومة ولا قصص تُستعمل دليلًا على المنتج؛ إفصاح #ad عند الترويج لمتجر المالك";
+
 export const CHARACTER_SEED: InsertCharacter[] = [
   {
     slug: "walt",
     name: "Walt Brooks",
     nameAr: "والت بروكس",
-    age: "112 سنة ويبدو في الثمانين",
+    age: "شخصية خيالية تبدو في الثمانين",
     origin: "أمريكي من الريف",
     niche: "صحة، رياضة، زراعة ذاتية",
     appearancePrompt:
@@ -17,8 +19,8 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     style: "أبوي، هادئ، حكيم",
     catchphrase: "Plant it, lift it, live it.",
     contentTemplates: ["جولة في حديقة الخضار", "تمرين الفجر في الجيم", "رسالة إلى أولادي"],
-    product: 'كتاب "112 Years Young" عن الزراعة والرياضة وتجارب الحياة',
-    rules: "نصائح عافية عامة فقط، دون وعود طبية",
+    product: "منتجات متجرك المرتبطة بالزراعة المنزلية والعافية العامة (حدّد المتجر ورابط التتبّع من صفحة الشخصية)",
+    rules: "نصائح عافية عامة فقط، دون وعود طبية ودون ادعاء عمر أو نتائج صحية حقيقية",
     loraKeyword: "chr_walt",
     ttsVoice: "am_michael",
     ttsSpeed: 90,
@@ -185,7 +187,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     style: "ذكي وجريء ومباشر",
     catchphrase: "Honey, money loves discipline.",
     contentTemplates: ["قواعد مالية", "ميزانية", '"قاعدة تعلمتها"'],
-    product: "مذكرات تُوسم كسيرة خيالية",
+    product: "منتجات متجرك المرتبطة بالثقافة المالية العامة (حدّد المتجر ورابط التتبّع من صفحة الشخصية)",
     rules: "لا تدخين أمام الكاميرا (قيود المنصات)، وكأس نبيذ عرضي فقط؛ محتوى تعليمي عام لا توصيات استثمار",
     loraKeyword: "chr_vivienne",
     ttsVoice: "af_kore",
@@ -242,4 +244,4 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     referenceImages: ["/manus-storage/async-images/ofPpTQUmEkQI6YvTNTNfs1/image-4.webp"],
     sortOrder: 10,
   },
-];
+].map(c => ({ ...c, rules: [c.rules, BRAND_RULE].filter(Boolean).join(" · ") }));

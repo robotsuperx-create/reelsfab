@@ -1,17 +1,13 @@
-import { COOKIE_NAME } from "@shared/const";
+import { getSupabaseClient } from "./supabase";
 
-/** Same auth headers the tRPC client sends (cookie first, Bearer fallback for iframe Preview). */
-export function authHeaders(): Record<string, string> {
+/** Same auth headers the tRPC client sends: Supabase access token when signed in (cookie auth otherwise). */
+export async function authHeaders(): Promise<Record<string, string>> {
   try {
-    const raw = sessionStorage.getItem("manus-cookie");
-    if (raw) {
-      const prefix = `${COOKIE_NAME}=`;
-      const pair = raw.split(";").find(s => s.trim().startsWith(prefix));
-      const token = pair?.trim().slice(prefix.length);
-      if (token) return { Authorization: `Bearer ${token}` };
-    }
+    const supabase = getSupabaseClient();
+    const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+    if (data.session?.access_token) return { Authorization: `Bearer ${data.session.access_token}` };
   } catch {
-    // sessionStorage unavailable
+    // no session
   }
   return {};
 }
@@ -50,7 +46,7 @@ export async function uploadBlob(
     method: "POST",
     body: blob,
     credentials: "include",
-    headers: { "Content-Type": blob.type || "application/octet-stream", ...authHeaders() },
+    headers: { "Content-Type": blob.type || "application/octet-stream", ...(await authHeaders()) },
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");

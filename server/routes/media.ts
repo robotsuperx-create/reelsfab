@@ -1,6 +1,4 @@
 import express, { type Express, type Request, type Response } from "express";
-import { jwtVerify } from "jose";
-import { parse as parseCookieHeader } from "cookie";
 import { assets } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 import { sdk } from "../_core/sdk";
@@ -42,38 +40,11 @@ function safeName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-80) || "file";
 }
 
-async function requireScheduledTask(req: Request, res: Response, expectedTaskUid: string | null) {
+/** Scheduler callbacks authenticate with the shared CRON_SECRET (Authorization: Bearer ...). */
+async function requireScheduledTask(req: Request, res: Response) {
   if (hasValidCronSecret(req)) return "cron-secret";
-  try {
-    const token = parseCookieHeader(req.headers.cookie ?? "")["app_session_id"];
-    if (!token || !expectedTaskUid) {
-      res.status(401).json({ error: "missing scheduler ticket" });
-      return null;
-    }
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(ENV.cookieSecret), { algorithms: ["HS256"] });
-    if (payload.appId !== ENV.appId || typeof payload.openId !== "string" || !payload.openId.startsWith("cron_")) {
-      res.status(403).json({ error: "invalid scheduler ticket" });
-      return null;
-    }
-    const infoResp = await fetch(`${ENV.oAuthServerUrl.replace(/\/$/, "")}/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jwt_token: token, project_id: ENV.appId }),
-    });
-    if (!infoResp.ok) {
-      res.status(403).json({ error: "identity lookup failed" });
-      return null;
-    }
-    const info = (await infoResp.json()) as { taskUid?: string };
-    if (info.taskUid !== expectedTaskUid) {
-      res.status(403).json({ error: "unknown schedule" });
-      return null;
-    }
-    return token;
-  } catch {
-    res.status(403).json({ error: "invalid scheduler ticket" });
-    return null;
-  }
+  res.status(401).json({ error: "missing or invalid cron secret" });
+  return null;
 }
 
 export function registerMediaRoutes(app: Express) {
@@ -172,7 +143,7 @@ export function registerMediaRoutes(app: Express) {
   app.post("/api/scheduled/daily-batch", async (req: Request, res: Response) => {
     try {
       const settings = await getSettings();
-      const ticket = await requireScheduledTask(req, res, settings.automationTaskUid);
+      const ticket = await requireScheduledTask(req, res);
       if (!ticket) return;
       if (!settings.automationEnabled) {
         res.json({ ok: true, skipped: "automation disabled" });
@@ -190,7 +161,7 @@ export function registerMediaRoutes(app: Express) {
   app.post("/api/scheduled/publish-due", async (req: Request, res: Response) => {
     try {
       const settings = await getSettings();
-      const ticket = await requireScheduledTask(req, res, settings.publishingTaskUid);
+      const ticket = await requireScheduledTask(req, res);
       if (!ticket) return;
       if (!settings.automationEnabled) {
         res.json({ ok: true, skipped: "automation disabled" });
