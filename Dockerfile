@@ -19,6 +19,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
 RUN CI=1 pnpm install --frozen-lockfile --prod
 COPY --from=build /app/dist ./dist
+COPY assets ./assets
 # Kokoro TTS model cache lives in a writable, persistent-able location.
 ENV NODE_ENV=production PORT=3000 HF_HOME=/app/.cache/hf AUTOPILOT_ENABLED=true
 RUN mkdir -p /app/.cache/hf && chown -R node:node /app

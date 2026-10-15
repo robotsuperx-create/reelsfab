@@ -26,7 +26,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 90,
     colors: { primary: "#2F4F2A", accent: "#F2C14E", text: "#FFFFFF" },
     captionFont: "Montserrat",
-    referenceImages: ["/manus-storage/async-images/3mP29ujyrGC3B92CSRri1y/image-1.webp"],
+    referenceImages: [],
     sortOrder: 1,
   },
   {
@@ -50,7 +50,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 108,
     colors: { primary: "#0F1E3D", accent: "#C9A227", text: "#FFFFFF" },
     captionFont: "Montserrat",
-    referenceImages: ["/manus-storage/async-images/3mP29ujyrGC3B92CSRri1y/image-2.webp"],
+    referenceImages: [],
     sortOrder: 2,
   },
   {
@@ -74,7 +74,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 95,
     colors: { primary: "#3A2A20", accent: "#E8A15A", text: "#FFFFFF" },
     captionFont: "Montserrat",
-    referenceImages: ["/manus-storage/async-images/3mP29ujyrGC3B92CSRri1y/image-3.webp"],
+    referenceImages: [],
     sortOrder: 3,
   },
   {
@@ -98,7 +98,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 95,
     colors: { primary: "#24303A", accent: "#7FB3D5", text: "#FFFFFF" },
     captionFont: "Montserrat",
-    referenceImages: ["/manus-storage/async-images/3mP29ujyrGC3B92CSRri1y/image-4.webp"],
+    referenceImages: [],
     sortOrder: 4,
   },
   {
@@ -122,7 +122,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 88,
     colors: { primary: "#2B3A67", accent: "#E4572E", text: "#FFFFFF" },
     captionFont: "Playfair Display",
-    referenceImages: ["/manus-storage/async-images/3mP29ujyrGC3B92CSRri1y/image-5.webp"],
+    referenceImages: [],
     sortOrder: 5,
   },
   {
@@ -146,7 +146,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 100,
     colors: { primary: "#2E5E4E", accent: "#F28C6B", text: "#FFFFFF" },
     captionFont: "Montserrat",
-    referenceImages: ["/manus-storage/async-images/ofPpTQUmEkQI6YvTNTNfs1/image-1.webp"],
+    referenceImages: [],
     sortOrder: 6,
   },
   {
@@ -170,7 +170,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 105,
     colors: { primary: "#151515", accent: "#E9C46A", text: "#FFFFFF" },
     captionFont: "Playfair Display",
-    referenceImages: ["/manus-storage/async-images/ofPpTQUmEkQI6YvTNTNfs1/image-2.webp"],
+    referenceImages: [],
     sortOrder: 7,
   },
   {
@@ -194,7 +194,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 95,
     colors: { primary: "#141414", accent: "#B3001B", text: "#FFFFFF" },
     captionFont: "Playfair Display",
-    referenceImages: ["/manus-storage/async-images/ofPpTQUmEkQI6YvTNTNfs1/image-3.webp"],
+    referenceImages: [],
     sortOrder: 8,
   },
   {
@@ -204,21 +204,22 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     age: "سلحفاة كرتونية",
     origin: "شخصية كرتونية",
     niche: "محتوى عائلي ومنتجات Etsy",
-    appearancePrompt: "Use the existing Shelly design file unchanged (cartoon turtle).",
-    wardrobe: "حسب ملف تصميم Shelly الحالي",
+    appearancePrompt:
+      "original flat 2D cartoon turtle Shelly: big round green head, large oval eyes with two white highlights, pink cheeks, open smile, yellow five-petal flower with coral center on her head, coral knotted scarf, teal oval shell with lighter hexagon scutes, yellow segmented belly plate, short green arms, thick dark outlines, soft pastel background",
+    wardrobe: "زهرة صفراء على الرأس ووشاح مرجاني دائمًا (انظر assets/characters/shelly.md)",
     voiceDescription: "لعوب ودافئ",
     style: "مرح وعائلي",
-    catchphrase: "",
+    catchphrase: "Slow and steady, let's make something!",
     contentTemplates: ["شورتس قصيرة", "كواليس صناعة المنتجات", "يوميات Shelly"],
     product: "متجر Etsy بمنتجات مرتبطة بها",
-    rules: "المظهر يعتمد على ملف تصميم Shelly الحالي دون تغيير",
+    rules: "المظهر يلتزم بملف التصميم assets/characters/shelly.md دون تغيير؛ محتوى عائلي مناسب للأطفال",
     loraKeyword: "chr_shelly",
     ttsVoice: "af_sky",
     ttsSpeed: 108,
     colors: { primary: "#2A9D8F", accent: "#FFD166", text: "#FFFFFF" },
     captionFont: "Fredoka",
     referenceImages: [],
-    needsDesignFile: true,
+    needsDesignFile: false,
     sortOrder: 9,
   },
   {
@@ -241,7 +242,7 @@ export const CHARACTER_SEED: InsertCharacter[] = [
     ttsSpeed: 95,
     colors: { primary: "#8C2F1B", accent: "#F4E1C1", text: "#FFFFFF" },
     captionFont: "Montserrat",
-    referenceImages: ["/manus-storage/async-images/ofPpTQUmEkQI6YvTNTNfs1/image-4.webp"],
+    referenceImages: [],
     sortOrder: 10,
   },
 ].map(c => ({ ...c, rules: [c.rules, BRAND_RULE].filter(Boolean).join(" · ") }));

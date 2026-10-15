@@ -159,5 +159,11 @@ export async function ensureSeed() {
   const have = new Set(existing.map(r => r.slug));
   const missing = CHARACTER_SEED.filter(c => !have.has(c.slug));
   if (missing.length) await db.insert(characters).values(missing);
+  try {
+    const { syncBundledCharacterImages } = await import("./services/character-images");
+    await syncBundledCharacterImages();
+  } catch (e) {
+    console.warn("[seed] reference images not synced:", e instanceof Error ? e.message : e);
+  }
   seeded = true;
 }
