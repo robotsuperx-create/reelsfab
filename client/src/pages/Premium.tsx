@@ -87,7 +87,7 @@ function ClipCard({ row, defaultCredits, derivativesDefault }: { row: Row; defau
     onSuccess: r => {
       utils.premium.list.invalidate();
       utils.scripts.list.invalidate();
-      toast.success(`تم إنشاء ${r.created} نسخ مشتقة — جاهزة في الرندر الجماعي`);
+      toast.success(`تم إنشاء ${r.created} نسخ مشتقة — يرندرها الاستوديو الآلي تلقائيًا (أو من الرندر الجماعي)`);
     },
     onError: e => toast.error(e.message),
   });

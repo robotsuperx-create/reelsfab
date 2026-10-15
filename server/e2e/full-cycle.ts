@@ -17,6 +17,14 @@ if (!/@(localhost|127\.0\.0\.1)[:/]/.test(url)) {
   process.exit(1);
 }
 for (const [k, v] of Object.entries(FAKE_ENV)) process.env[k] = v;
+// The fake Higgsfield CDN serves this clip (8s, 9:16, with speech-like audio).
+if (!process.env.E2E_SAMPLE_MP4) {
+  const { execFileSync } = await import("node:child_process");
+  const file = `/tmp/reelsfab-e2e-premium-${process.pid}.mp4`;
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-loop", "1", "-i", "assets/characters/oliver.jpg", "-f", "lavfi", "-i", "sine=frequency=330:duration=8",
+    "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p", "-t", "8", "-r", "30", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", file]);
+  process.env.E2E_SAMPLE_MP4 = file;
+}
 delete process.env.TELEGRAM_BOT_TOKEN;
 installFakes();
 const { objects, calls } = fakeState;
@@ -128,6 +136,38 @@ async function main() {
   assert.equal(manual.attempted, 0, "unconnected platform is not attempted");
   const [tt] = await db.select().from(posts).where(eq(posts.platform, "tiktok"));
   assert.equal(tt.status, "queued", "left queued for manual posting");
+
+  step("premium path: Higgsfield delivers -> transcribe -> derivatives -> server render from video");
+  const { integrations, premiumClips } = await import("../../drizzle/schema");
+  const { encryptSecret } = await import("../services/integration-vault");
+  const { syncHiggsfieldClips } = await import("../services/higgsfield-jobs");
+  const { processReceivedClips } = await import("../services/premium-pipeline");
+  await db.insert(integrations).values({ provider: "higgsfield", label: "Higgsfield", capabilities: ["video"], configKeys: ["apiKey", "apiSecret"], encryptedConfig: encryptSecret(JSON.stringify({ apiKey: "k", apiSecret: "s" })) });
+  const [clip] = await db.select().from(premiumClips).limit(1);
+  assert.ok(clip, "a premium clip was planned by the batch");
+  await db.update(premiumClips).set({ status: "generating", providerStatusUrl: "https://api.higgsfield.ai/requests/hf-req-1/status" }).where(eq(premiumClips.id, clip.id));
+  const synced = await syncHiggsfieldClips();
+  assert.equal(synced.completed, 1, "clip downloaded from Higgsfield");
+  const prepared = await processReceivedClips();
+  assert.deepEqual(prepared.errors, []);
+  assert.equal(prepared.transcribed, 1, "clip transcribed");
+  assert.equal(prepared.derived, 3, "3 derivative scripts created");
+  assert.equal((await processReceivedClips()).checked, 0, "derivatives are created only once");
+  const queuedPremium = await enqueueReadyScripts();
+  assert.equal(queuedPremium, 4, "premium original + 3 derivatives queued");
+  for (;;) {
+    const r = await drainQueue(1);
+    if (!r.done && !r.failed) break;
+    assert.equal(r.failed, 0, "no premium render failed");
+  }
+  const videoRenders = (await db.select().from(renders)).filter(r => r.kind !== "economic");
+  assert.equal(videoRenders.length, 4);
+  for (const r of videoRenders) {
+    assert.equal(r.width, 1080);
+    assert.ok(r.hasCaptions, "captions from the transcript");
+    assert.ok(r.durationMs >= 8000 && r.durationMs <= 15600, `premium duration ${r.durationMs}`);
+  }
+  console.log(`  ${videoRenders.length} premium/derivative reels, QC: ${JSON.stringify(countBy(videoRenders.map(r => r.qcStatus)))}`);
 
   step("autopilot tick (lease + full loop, nothing left to do)");
   await autopilotTick(new Date());

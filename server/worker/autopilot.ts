@@ -5,6 +5,7 @@ import { syncPublishedMetrics } from "../services/analytics-sync";
 import { notifyOwner } from "../services/notify";
 import { runDailyAutomation } from "../services/batch";
 import { syncHiggsfieldClips } from "../services/higgsfield-jobs";
+import { processReceivedClips } from "../services/premium-pipeline";
 import { publishDueInstagramPosts, publishDueSocialPosts } from "../services/publishing";
 import { autoFillSchedule } from "../services/scheduler";
 import { refreshExpiringInstagramTokens } from "../services/social-accounts";
@@ -79,6 +80,9 @@ export async function autopilotTick(now = new Date()) {
     }
     // 5. Premium clips and metrics.
     await guarded("higgsfield", () => syncHiggsfieldClips());
+    // Received premium clips: transcribe + derivative scripts (rendered by the queue on the next pass).
+    const pc = await guarded("premium-derivatives", () => processReceivedClips());
+    if (pc?.errors.length) await step("notify-premium", () => notifyOwner({ title: "تعذّر تجهيز لقطة Premium", content: pc.errors.join("\n") }));
     if (Date.now() - lastTokenRefresh > 12 * 3600_000) {
       lastTokenRefresh = Date.now();
       const r = await guarded("instagram-token-refresh", () => refreshExpiringInstagramTokens());

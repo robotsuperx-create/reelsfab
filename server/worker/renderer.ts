@@ -134,3 +134,79 @@ export async function renderReel(req: RenderRequest): Promise<RenderResult> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+export type VideoRenderRequest = {
+  video: Buffer;
+  /** Word timings of the clip's own speech (from the transcript); empty = no captions. */
+  words: { word: string; start: number; end: number }[];
+  hook: string | null;
+  cta: string | null;
+  font: string;
+  colors: { primary: string; accent: string; text: string };
+};
+
+const CLIP_MAX_SECONDS = 12.8;
+const CTA_TAIL_SECONDS = 2.6;
+
+async function hasAudioStream(path: string) {
+  const { stdout } = await run("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", path]);
+  return stdout.trim().length > 0;
+}
+
+/**
+ * Premium / derivative reel from a generated video: original footage + audio (max 12.8s), hook title,
+ * word captions from the transcript, AI badge, and a CTA card over a 2.6s freeze of the last frame.
+ */
+export async function renderFromVideo(req: VideoRenderRequest): Promise<RenderResult> {
+  const dir = await mkdtemp(join(tmpdir(), "reelv-"));
+  try {
+    const input = join(dir, "clip.mp4");
+    await writeFile(input, req.video);
+    const srcDur = await probeDuration(input);
+    if (srcDur < 2) throw new Error("فيديو Premium قصير جدًا أو تالف");
+    const clipDur = Math.min(CLIP_MAX_SECONDS, srcDur);
+    const total = clipDur + (req.cta ? CTA_TAIL_SECONDS : 0.4);
+    const words = req.words.filter(w => w.start < clipDur).map(w => ({ ...w, end: Math.min(w.end, clipDur) }));
+    await writeFile(
+      join(dir, "reel.ass"),
+      buildAss({ words, hook: req.hook, cta: req.cta, disclosure: AI_DISCLOSURE, durationSec: total, font: req.font, colors: req.colors }),
+    );
+    const withAudio = await hasAudioStream(input);
+    const audioIn = withAudio ? "[0:a]" : "[1:a]";
+    const filter =
+      `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=${FPS},` +
+      `trim=0:${clipDur.toFixed(2)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${(total - clipDur).toFixed(2)},` +
+      `format=yuv420p,ass=reel.ass[v];` +
+      `${audioIn}atrim=0:${clipDur.toFixed(2)},asetpts=PTS-STARTPTS,loudnorm=I=-16:TP=-1.5:LRA=11,apad=pad_dur=${total.toFixed(2)},atrim=0:${total.toFixed(2)}[a]`;
+    const out = join(dir, "reel.mp4");
+    await run(
+      "ffmpeg",
+      [
+        "-y", "-hide_banner", "-loglevel", "error",
+        "-i", input,
+        ...(withAudio ? [] : ["-f", "lavfi", "-t", total.toFixed(2), "-i", "anullsrc=r=44100:cl=stereo"]),
+        "-filter_complex", filter,
+        "-map", "[v]", "-map", "[a]",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-r", String(FPS),
+        "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+        "-movflags", "+faststart", "-t", total.toFixed(2),
+        out,
+      ],
+      { cwd: dir, maxBuffer: 16 * 1024 * 1024 },
+    );
+    const thumbPath = join(dir, "thumb.jpg");
+    await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-ss", "1.2", "-i", out, "-frames:v", "1", "-q:v", "3", thumbPath]);
+    const video = await readFile(out);
+    return {
+      video,
+      thumbnail: await readFile(thumbPath),
+      durationMs: Math.round((await probeDuration(out)) * 1000),
+      width: 1080,
+      height: 1920,
+      hasAudio: true,
+      fileSize: video.length,
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}

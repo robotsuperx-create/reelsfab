@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { assColor, assTime, buildAss, wordTimings } from "./ass";
-import { motionExpr, planDuration, renderReel } from "./renderer";
+import { motionExpr, planDuration, renderFromVideo, renderReel } from "./renderer";
 
 const hasFfmpeg = (() => {
   try { execFileSync("ffmpeg", ["-version"], { stdio: "ignore" }); return true; } catch { return false; }
@@ -73,5 +73,44 @@ describe.skipIf(!hasFfmpeg)("server render (ffmpeg)", () => {
     expect(out.durationMs).toBeLessThan(15600);
     expect(out.fileSize).toBeGreaterThan(50_000);
     expect(out.thumbnail.length).toBeGreaterThan(1000);
+  }, 120_000);
+
+  const probe = (buf: Buffer) => {
+    const file = `/tmp/reel-probe-${Date.now()}.mp4`;
+    execFileSync("bash", ["-c", `cat > ${file}`], { input: buf });
+    const out = execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "csv=p=0", file]).toString();
+    return out;
+  };
+  const makeClip = (withAudio: boolean, seconds: number) =>
+    execFileSync("ffmpeg", [
+      "-v", "error", "-f", "lavfi", "-i", `testsrc2=size=720x1280:rate=30:duration=${seconds}`,
+      ...(withAudio ? ["-f", "lavfi", "-i", `sine=frequency=300:duration=${seconds}`] : []),
+      "-c:v", "libx264", "-preset", "ultrafast", ...(withAudio ? ["-c:a", "aac", "-shortest"] : []),
+      "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "-",
+    ], { maxBuffer: 50 * 1024 * 1024 });
+
+  it("renders a premium/derivative reel from source video (captions + CTA tail)", async () => {
+    const out = await renderFromVideo({
+      video: makeClip(true, 8),
+      words: [{ word: "Water", start: 0.2, end: 0.6 }, { word: "deeply", start: 0.6, end: 1.1 }, { word: "today", start: 1.1, end: 1.6 }],
+      hook: "Watch this before you water",
+      cta: "Follow for garden notes",
+      font: "DejaVu Sans",
+      colors: { primary: "#2F4F2A", accent: "#F2C14E", text: "#FFFFFF" },
+    });
+    expect(out.width).toBe(1080);
+    expect(out.height).toBe(1920);
+    expect(out.durationMs).toBeGreaterThan(10_300);
+    expect(out.durationMs).toBeLessThan(10_900);
+    const streams = probe(out.video);
+    expect(streams).toContain("1080,1920");
+    expect(streams).toContain("audio");
+  }, 120_000);
+
+  it("caps long clips at 12.8s + CTA and survives a clip without audio", async () => {
+    const out = await renderFromVideo({ video: makeClip(false, 16), words: [], hook: null, cta: "Follow", font: "DejaVu Sans", colors: { primary: "#000000", accent: "#DFFF00", text: "#FFFFFF" } });
+    expect(out.durationMs).toBeGreaterThan(15_000);
+    expect(out.durationMs).toBeLessThan(15_600);
+    expect(probe(out.video)).toContain("audio");
   }, 120_000);
 });

@@ -1,16 +1,19 @@
-import { and, eq, inArray, notExists, sql } from "drizzle-orm";
-import { characters, renderJobs, renders, scripts } from "../../drizzle/schema";
+import { and, eq, inArray, isNotNull, notExists, or, sql } from "drizzle-orm";
+import { characters, premiumClips, renderJobs, renders, scripts } from "../../drizzle/schema";
 import { AI_DISCLOSURE, spokenText, TEMPLATES } from "../../shared/domain";
 import { requireDb } from "../db";
 import { notifyOwner } from "../services/notify";
 import { createRenderRecord } from "../services/render-records";
 import { storageDownload, storageKeyFromUrl, storagePut } from "../storage";
-import { renderReel } from "./renderer";
+import { renderFromVideo, renderReel, type RenderResult } from "./renderer";
 
 const WORKER_ID = `${process.env.HOSTNAME ?? "local"}:${process.pid}`;
 const STALE_LOCK_MINUTES = 20;
 
-/** Queues every economic script that is ready and has neither a render nor a job. */
+/**
+ * Queues every renderable script that has neither a render nor a job:
+ * economic scripts (still image + voice), derivative scripts and premium originals whose clip has arrived.
+ */
 export async function enqueueReadyScripts(limit = 60) {
   const db = await requireDb();
   const rows = await db
@@ -18,8 +21,11 @@ export async function enqueueReadyScripts(limit = 60) {
     .from(scripts)
     .where(
       and(
-        eq(scripts.status, "script_ready"),
-        eq(scripts.track, "economic"),
+        or(
+          and(eq(scripts.track, "economic"), eq(scripts.status, "script_ready")),
+          and(eq(scripts.track, "derivative"), eq(scripts.status, "script_ready"), isNotNull(scripts.premiumClipId)),
+          and(eq(scripts.track, "premium"), eq(scripts.status, "premium_uploaded"), isNotNull(scripts.premiumClipId)),
+        ),
         notExists(db.select({ x: renderJobs.id }).from(renderJobs).where(eq(renderJobs.scriptId, scripts.id))),
         notExists(db.select({ x: renders.id }).from(renders).where(eq(renders.scriptId, scripts.id))),
       ),
@@ -73,7 +79,8 @@ export async function processJob(job: { id: number; scriptId: number; attempts: 
     if (!script) throw new Error("Script not found");
     // Idempotency: a crash after the render was stored must not produce a second render on retry.
     const [existing] = await db.select({ id: renders.id }).from(renders).where(eq(renders.scriptId, script.id)).limit(1);
-    if (existing || script.status !== "script_ready") {
+    const renderable = script.track === "premium" ? script.status === "premium_uploaded" : script.status === "script_ready";
+    if (existing || !renderable) {
       await db
         .update(renderJobs)
         .set({ status: "done", renderId: existing?.id ?? null, error: existing ? null : `skipped: script is ${script.status}`, lockedAt: null, lockedBy: null })
@@ -82,27 +89,46 @@ export async function processJob(job: { id: number; scriptId: number; attempts: 
     }
     const [ch] = await db.select().from(characters).where(eq(characters.id, script.characterId));
     if (!ch) throw new Error("Character not found");
-    const img = await loadReferenceImage(ch.referenceImages);
+    const colors = ch.colors ?? { primary: "#0A0A0A", accent: "#DFFF00", text: "#FFFFFF" };
     const motion = TEMPLATES.find(t => t.key === script.templateKey)?.motion ?? "slow_push";
-    const out = await renderReel({
-      image: img.buf,
-      imageExt: img.ext,
-      spokenText: spokenText(script),
-      hook: script.onScreenText ?? script.hook,
-      cta: script.cta,
-      voice: ch.ttsVoice,
-      speed: (Number(ch.ttsSpeed) || 100) / 100,
-      font: ch.captionFont,
-      colors: ch.colors ?? { primary: "#0A0A0A", accent: "#DFFF00", text: "#FFFFFF" },
-      motion,
-    });
+    let out: RenderResult;
+    let hasCaptions = true;
+    if (script.track === "economic") {
+      const img = await loadReferenceImage(ch.referenceImages);
+      out = await renderReel({
+        image: img.buf,
+        imageExt: img.ext,
+        spokenText: spokenText(script),
+        hook: script.onScreenText ?? script.hook,
+        cta: script.cta,
+        voice: ch.ttsVoice,
+        speed: (Number(ch.ttsSpeed) || 100) / 100,
+        font: ch.captionFont,
+        colors,
+        motion,
+      });
+    } else {
+      const [clip] = script.premiumClipId ? await db.select().from(premiumClips).where(eq(premiumClips.id, script.premiumClipId)) : [];
+      const key = storageKeyFromUrl(clip?.videoUrl);
+      if (!clip || !key) throw new Error("فيديو Premium غير موجود لهذا النص");
+      const words = clip.transcriptWords ?? [];
+      hasCaptions = words.length > 0;
+      out = await renderFromVideo({
+        video: await storageDownload(key),
+        words,
+        hook: script.onScreenText ?? script.hook,
+        cta: script.cta,
+        font: ch.captionFont,
+        colors,
+      });
+    }
     const base = `renders/${script.characterId}/s${script.id}`;
     const video = await storagePut(`${base}.mp4`, out.video, "video/mp4");
     const thumb = await storagePut(`${base}.jpg`, out.thumbnail, "image/jpeg");
     const rec = await createRenderRecord(
       {
         scriptId: script.id,
-        kind: "economic",
+        kind: script.track === "economic" ? "economic" : script.track === "premium" ? "premium" : "derivative",
         videoUrl: video.url,
         storageKey: video.key,
         thumbnailUrl: thumb.url,
@@ -110,10 +136,10 @@ export async function processJob(job: { id: number; scriptId: number; attempts: 
         width: out.width,
         height: out.height,
         hasAudio: out.hasAudio,
-        hasCaptions: true,
+        hasCaptions,
         hasDisclosure: true,
         fileSize: out.fileSize,
-        settings: { engine: "server-ffmpeg", disclosure: AI_DISCLOSURE, motion },
+        settings: { engine: "server-ffmpeg", disclosure: AI_DISCLOSURE, motion: script.track === "economic" ? motion : "source-video" },
       },
       null,
     );
@@ -122,7 +148,7 @@ export async function processJob(job: { id: number; scriptId: number; attempts: 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     // Retrying cannot fix a missing reference image or an over-long script; fail fast so the owner is told now.
-    const permanent = /اختصر النص|لا توجد صورة مرجعية|Script not found|Character not found/.test(msg);
+    const permanent = /اختصر النص|لا توجد صورة مرجعية|فيديو Premium|Script not found|Character not found/.test(msg);
     const final = permanent || job.attempts >= job.maxAttempts;
     const backoffMin = 2 ** job.attempts; // 2, 4, 8 minutes
     await db
