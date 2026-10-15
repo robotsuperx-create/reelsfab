@@ -1,4 +1,4 @@
-import { and, asc, eq, lte, ne } from "drizzle-orm";
+import { and, asc, eq, lte, ne, sql } from "drizzle-orm";
 import { posts, renders, scripts, socialAccounts } from "../../drizzle/schema";
 import { requireDb } from "../db";
 import { decryptSecret } from "./social-accounts";
@@ -57,6 +57,8 @@ function dueQuery(platform: "instagram" | "other", limit: number) {
         and(
           platform === "instagram" ? eq(posts.platform, "instagram") : ne(posts.platform, "instagram"),
           eq(posts.status, "queued"),
+          // Posts for a platform with no connected account are for manual posting (download + CSV): leave them alone.
+          sql`exists (select 1 from social_accounts sa where sa."characterId" = ${posts.characterId} and sa.platform = ${posts.platform} and sa.status = 'connected')`,
           lte(posts.scheduledAt, new Date()),
           eq(renders.qcStatus, "approved"),
         ),

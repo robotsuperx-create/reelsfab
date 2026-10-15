@@ -18,10 +18,13 @@ export const charactersRouter = router({
   }),
   create: memberProcedure.input(z.object({
     name: z.string().min(1).max(120), nameAr: z.string().max(120).nullable(), age: z.string().max(120), origin: z.string().max(160), niche: z.string().max(240), appearancePrompt: z.string(), wardrobe: z.string(), voiceDescription: z.string(), style: z.string().max(240), catchphrase: z.string().max(240), contentTemplates: z.array(z.string()), product: z.string(), rules: z.string(), loraKeyword: z.string().max(80), ttsVoice: z.string().max(40), ttsSpeed: z.number().int().min(60).max(150), colors: colorsSchema, dailyQuota: z.number().int().min(0).max(50)
-  })).mutation(async ({ input, ctx }) => {
+  })).mutation(async ({ input }) => {
     const db = await requireDb();
     const base = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || `character-${Date.now()}`;
-    const slug = `${base}-${ctx.user.id}`;
+    // Slugs are unique: a second character with the same name gets -2, -3, ...
+    const taken = new Set((await db.select({ slug: characters.slug }).from(characters)).map(r => r.slug));
+    let slug = base.slice(0, 36);
+    for (let i = 2; taken.has(slug); i++) slug = `${base.slice(0, 34)}-${i}`;
     const [created] = await db.insert(characters).values({ ...input, slug, nameAr: input.nameAr, referenceImages: [], needsDesignFile: true, isActive: true, captionFont: "Montserrat", externalVoiceId: null, sortOrder: 0 }).returning({ id: characters.id });
     const [c] = await db.select().from(characters).where(eq(characters.id, created.id));
     return c;

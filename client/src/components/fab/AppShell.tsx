@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -114,7 +114,7 @@ function TopNav() {
             )}
           >
             <Icon className="size-3.5" />
-            <span className="hidden xl:inline">{it.label}</span>
+            <span className="hidden 2xl:inline">{it.label}</span>
             {active && <span className="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-tally shadow-[0_0_12px_var(--tally)]" />}
           </Link>
         );
@@ -335,6 +335,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="right" className="w-[280px] bg-sidebar p-0">
+                  <SheetTitle className="sr-only">القائمة</SheetTitle>
+                  <SheetDescription className="sr-only">التنقل بين أقسام المصنع</SheetDescription>
                   <SidebarBody />
                 </SheetContent>
               </Sheet>

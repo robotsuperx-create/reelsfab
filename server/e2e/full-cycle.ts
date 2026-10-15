@@ -121,6 +121,14 @@ async function main() {
   assert.ok(after.every(p => p.status === "published"));
   console.log(`  ${published.length} published, captions carry disclosure`);
 
+  step("manual post for an unconnected platform stays queued (no failure, no alert)");
+  const first = after[0];
+  await db.insert(posts).values({ renderId: first.renderId, scriptId: first.scriptId, characterId: first.characterId, platform: "tiktok", caption: "manual", scheduledAt: new Date(Date.now() - 60_000) });
+  const manual = await publishDueSocialPosts(50);
+  assert.equal(manual.attempted, 0, "unconnected platform is not attempted");
+  const [tt] = await db.select().from(posts).where(eq(posts.platform, "tiktok"));
+  assert.equal(tt.status, "queued", "left queued for manual posting");
+
   step("autopilot tick (lease + full loop, nothing left to do)");
   await autopilotTick(new Date());
   const [lease] = await db.select().from(settings).where(eq(settings.key, "autopilot_lease"));

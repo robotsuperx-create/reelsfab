@@ -181,7 +181,7 @@ const settingsPatch = z
       } catch {
         return false;
       }
-    }, "Unknown time zone"),
+    }, "منطقة زمنية غير معروفة (مثال صحيح: America/New_York)"),
     platforms: z.array(z.enum(["tiktok", "instagram", "youtube"])),
     accounts: z.record(z.string(), z.record(z.string(), z.string())),
     musicVolume: z.number().int().min(0).max(100),

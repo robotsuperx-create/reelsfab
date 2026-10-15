@@ -66,12 +66,16 @@ export async function buildDailyPlan(opts?: { target?: number; premiumSharePerce
   );
   const requestedPremium = Math.round((target * share) / 100);
   const perClipUsd = s.higgsfieldCreditsPerAttempt * s.higgsfieldAttemptsPerClip * s.higgsfieldUsdPerCredit;
-  const premiumTotal = premiumAllowance({
-    requested: requestedPremium,
-    budgetUsd: s.monthlyBudgetUsd,
-    spentUsd: await monthSpentUsd(),
-    perClipUsd,
-  });
+  // Clips already planned today count against today's share, so running the batch twice cannot double the spend.
+  const dayStart = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
+  const [{ n: plannedToday }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(premiumClips)
+    .where(gte(premiumClips.createdAt, dayStart));
+  const premiumTotal = Math.max(
+    0,
+    premiumAllowance({ requested: requestedPremium, budgetUsd: s.monthlyBudgetUsd, spentUsd: await monthSpentUsd(), perClipUsd }) - Number(plannedToday),
+  );
   // Premium needs an on-camera character with an identity reference; Shelly-type entries waiting for a design file are skipped.
   const premiumWeights = roster.map((c, i) => (c.needsDesignFile ? 0 : counts[i]));
   const premium = allocate(premiumTotal, premiumWeights.some(w => w > 0) ? premiumWeights : counts);

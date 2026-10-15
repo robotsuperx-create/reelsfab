@@ -66,9 +66,9 @@ export const TRACK_LABELS: Record<string, string> = {
 
 export const QC_LABELS: Record<string, string> = {
   pending: "بانتظار الفحص",
-  approved: "Approved",
-  needs_review: "Needs Review",
-  rejected: "Reject",
+  approved: "معتمد",
+  needs_review: "يحتاج مراجعة",
+  rejected: "مرفوض",
 };
 
 export const PLATFORM_LABELS: Record<string, string> = {

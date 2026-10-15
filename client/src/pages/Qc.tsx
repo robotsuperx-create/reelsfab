@@ -85,13 +85,13 @@ function RenderCard({ row }: { row: Row }) {
         <Textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="ملاحظات المراجعة (اختياري)" className="text-xs" />
         <div className="mt-auto flex flex-wrap gap-2">
           <Button size="sm" className="bg-go text-black hover:bg-go/90" onClick={() => review.mutate({ id: r.id, qcStatus: "approved", notes: notes || null })}>
-            <Check /> Approved
+            <Check /> اعتماد
           </Button>
           <Button size="sm" variant="outline" className="border-hold/50 text-hold" onClick={() => review.mutate({ id: r.id, qcStatus: "needs_review", notes: notes || null })}>
-            <AlertTriangle /> Needs Review
+            <AlertTriangle /> يحتاج مراجعة
           </Button>
           <Button size="sm" variant="outline" className="border-stop/50 text-stop" onClick={() => review.mutate({ id: r.id, qcStatus: "rejected", notes: notes || null })}>
-            <X /> Reject
+            <X /> رفض
           </Button>
           <Button size="sm" variant="ghost" onClick={() => visual.mutate({ id: r.id })} disabled={visual.isPending}>
             <Eye /> {visual.isPending ? "جارٍ الفحص…" : "فحص بصري"}
@@ -131,9 +131,9 @@ export default function QcPage() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <Tabs value={tab} onValueChange={v => setTab(v as QcTab)}>
           <TabsList>
-            <TabsTrigger value="needs_review">Needs Review</TabsTrigger>
-            <TabsTrigger value="approved">Approved</TabsTrigger>
-            <TabsTrigger value="rejected">Reject</TabsTrigger>
+            <TabsTrigger value="needs_review">يحتاج مراجعة</TabsTrigger>
+            <TabsTrigger value="approved">معتمد</TabsTrigger>
+            <TabsTrigger value="rejected">مرفوض</TabsTrigger>
             <TabsTrigger value="all">الكل</TabsTrigger>
           </TabsList>
         </Tabs>

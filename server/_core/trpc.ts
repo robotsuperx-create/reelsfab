@@ -5,6 +5,16 @@ import type { TrpcContext } from "./context";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  // Validation failures reach the UI as one readable sentence instead of raw zod JSON.
+  errorFormatter({ shape, error }) {
+    const cause = error.cause as { issues?: { path: (string | number)[]; message: string }[] } | undefined;
+    if (error.code === "BAD_REQUEST" && Array.isArray(cause?.issues) && cause.issues.length) {
+      const first = cause.issues[0];
+      const field = first.path.join(".");
+      return { ...shape, message: field ? `قيمة غير صالحة في "${field}": ${first.message}` : first.message };
+    }
+    return shape;
+  },
 });
 
 export const router = t.router;
