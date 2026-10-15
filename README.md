@@ -25,6 +25,6 @@ guarded by a lease row in `settings` so only one instance works at a time:
 Cost: economic reels cost only LLM tokens (voice and render are local). Character reference images must be uploaded in Supabase Storage (the nine Character Bible portraits ship in `assets/characters/` and are uploaded to Supabase Storage automatically on first start; Shelly's spec is in `shelly.md` and her image is added manually).
 Note: Kokoro downloads its model from Hugging Face on first use; this was not testable in the build sandbox (blocked), so the render tests use `TTS_PROVIDER=test`.
 
-## Independence from Manus
+## Runtime services
 
-No `MANUS_*` variable is needed any more. Text generation uses Claude by default (Anthropic/OpenAI/Gemini keys), transcription calls OpenAI Whisper directly, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin. `SESSION_SECRET` replaces `MANUS_JWT_SECRET` (the old name still works as a fallback).
+Text generation uses Claude by default (Anthropic/OpenAI/Gemini keys), transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).

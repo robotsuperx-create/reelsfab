@@ -243,8 +243,6 @@ export type AppSettings = {
   reviewModel: string;
   automationEnabled: boolean;
   automationHourUtc: number;
-  automationTaskUid: string | null;
-  publishingTaskUid: string | null;
   postingSlots: string[];
   platforms: string[];
   accounts: Record<string, Record<string, string>>;
@@ -267,8 +265,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   reviewModel: "claude-haiku-4-5",
   automationEnabled: false,
   automationHourUtc: 5,
-  automationTaskUid: null,
-  publishingTaskUid: null,
   postingSlots: ["09:00", "13:00", "18:00", "21:00"],
   platforms: ["tiktok", "instagram", "youtube"],
   accounts: {},

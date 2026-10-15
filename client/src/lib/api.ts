@@ -55,10 +55,9 @@ export async function uploadBlob(
   return (await res.json()) as UploadResult;
 }
 
-/** Converts a stored `/manus-storage/<key>` URL into the same-origin byte proxy (safe for canvas/WebCodecs). */
+/** Returns a same-origin URL for stored media (safe for canvas/WebCodecs). */
 export function proxied(url: string | null | undefined) {
   if (!url) return "";
-  if (url.startsWith("/manus-storage/")) return `/api/media/${url.slice("/manus-storage/".length)}`;
   return url;
 }
 

@@ -15,7 +15,7 @@ export function buildCharacterPrompt(description: string) {
   return `Create a complete AI influencer character bible from this description:\n${description}\n\nThe content language is English and each reel is 15 seconds. Keep claims honest: no guaranteed income, medical results, investment advice, fake statistics, or impersonation. Choose one Kokoro voice id from af_heart, af_bella, af_sarah, am_michael, am_onyx, bm_george, bm_lewis, bf_emma, bf_isabella. Return only the requested JSON.`;
 }
 
-export async function generateCharacterFromDescription(input: { description: string; provider: Exclude<ProviderName, "manus">; model: string; maxTokens?: number }) {
+export async function generateCharacterFromDescription(input: { description: string; provider: ProviderName; model: string; maxTokens?: number }) {
   if (input.description.trim().length < 20) throw new Error("Character description must be at least 20 characters");
   const result = await invokeProvider({ provider: input.provider, model: input.model, prompt: buildCharacterPrompt(input.description), jsonSchema: schema, maxTokens: input.maxTokens ?? 1800 });
   const character = parseJson<GeneratedCharacter>(result.text);

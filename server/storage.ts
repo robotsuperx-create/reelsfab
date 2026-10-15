@@ -92,6 +92,6 @@ export async function storageDownload(relKey: string): Promise<Buffer> {
 /** Maps an app media URL (/api/media/<key>) back to its storage key. */
 export function storageKeyFromUrl(url: string | null | undefined) {
   if (!url) return null;
-  const m = url.match(/^(?:\/api\/media|\/manus-storage)\/(.+)$/);
+  const m = url.match(/^\/api\/media\/(.+)$/);
   return m ? m[1] : null;
 }

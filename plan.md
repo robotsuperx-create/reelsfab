@@ -7,9 +7,9 @@
 | الطبقة | التنفيذ |
 | --- | --- |
 | الواجهة | React 19 + Tailwind 4 + shadcn/ui، توجيه wouter، RTL كامل |
-| الخادم | Express + tRPC (قالب web-db-user)، تسجيل دخول Manus، أدوار: user (بانتظار الموافقة) / member / admin |
+| الخادم | Express + tRPC ، تسجيل دخول Supabase أو مدير محلي، أدوار: user (بانتظار الموافقة) / member / admin |
 | البيانات | MySQL عبر Drizzle: characters, assets, batches, scripts, premium_clips, renders, posts, post_metrics, cost_entries, settings, automation_runs, insights |
-| الملفات | تخزين Manus (`storagePut`) — رفع عبر `/api/upload` وقراءة نفس الأصل عبر `/api/media/:key` حتى لا يتلوث الـCanvas |
+| الملفات | تخزين Supabase (`storagePut`) — رفع عبر `/api/upload` وقراءة نفس الأصل عبر `/api/media/:key` حتى لا يتلوث الـCanvas |
 | النصوص | LLM المدمج (`invokeLLM`) بمخرجات JSON Schema لتوليد دفعات النصوص، برومبتات Higgsfield، النسخ المشتقة، المراجعة، والتحليلات |
 | الصوت المجاني | Kokoro-82M داخل المتصفح (Web Worker، kokoro.web.js من CDN) — تكلفة صفرية |
 | الرندر المجاني | Canvas 2D + WebCodecs عبر mediabunny (H.264 + AAC، 1080×1920، 30fps، ≤15s) داخل متصفح الفريق — لا خوادم رندر |

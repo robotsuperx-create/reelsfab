@@ -10,7 +10,7 @@ describe("character seed", () => {
       expect(existsSync(file), c.slug).toBe(!c.needsDesignFile);
     }
   });
-  it("has no legacy Manus storage paths and no age/result claims", () => {
+  it("has no legacy storage paths and no age/result claims", () => {
     for (const c of CHARACTER_SEED) {
       expect(c.referenceImages ?? []).toEqual([]);
       expect(c.age ?? "").not.toMatch(/112/);

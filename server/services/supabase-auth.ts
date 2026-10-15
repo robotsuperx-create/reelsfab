@@ -7,7 +7,7 @@ export type SupabaseIdentity = {
   name: string | null;
 };
 
-/** Verifies a Supabase access token without depending on the Manus OAuth service. */
+/** Verifies a Supabase access token. */
 export async function getSupabaseIdentity(accessToken: string): Promise<SupabaseIdentity | null> {
   const url = ENV.supabaseUrl;
   const key = ENV.supabaseAnonKey || ENV.supabaseServiceRoleKey;

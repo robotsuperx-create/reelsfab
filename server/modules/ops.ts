@@ -173,8 +173,6 @@ const settingsPatch = z
     higgsfieldDefaultModel: z.string().max(120),
     scriptModel: z.string().max(80),
     reviewModel: z.string().max(80),
-    automationTaskUid: z.string().nullable(),
-    publishingTaskUid: z.string().nullable(),
     postingSlots: z.array(z.string().regex(/^\d{2}:\d{2}$/)).max(12),
     platforms: z.array(z.enum(["tiktok", "instagram", "youtube"])),
     accounts: z.record(z.string(), z.record(z.string(), z.string())),
