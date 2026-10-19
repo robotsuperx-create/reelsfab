@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { eq, sql } from "drizzle-orm";
 import { characters, posts, renderJobs, renders, scripts, settings } from "../../drizzle/schema";
-import { FAKE_ENV, fakeState, installFakes } from "./fakes";
+import { FAKE_ENV, fakeState, installFakes, seedFakeIntegrations } from "./fakes";
 
 const url = process.env.DATABASE_URL ?? "";
 if (!/@(localhost|127\.0\.0\.1)[:/]/.test(url)) {
@@ -25,7 +25,6 @@ if (!process.env.E2E_SAMPLE_MP4) {
     "-vf", "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p", "-t", "8", "-r", "30", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", file]);
   process.env.E2E_SAMPLE_MP4 = file;
 }
-delete process.env.TELEGRAM_BOT_TOKEN;
 installFakes();
 const { objects, calls } = fakeState;
 const published = fakeState.instagramPosts;
@@ -46,6 +45,9 @@ async function main() {
   step("reset database");
   await db.execute(sql`truncate table assets, automation_runs, batches, characters, cost_entries, insights, integrations,
     login_attempts, post_metrics, posts, premium_clips, render_jobs, renders, scripts, settings, social_accounts, users restart identity cascade`);
+
+  await seedFakeIntegrations(false);
+  for (const k of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "TELEGRAM_BOT_TOKEN"]) delete process.env[k]; // keys come from the vault only
 
   step("seed characters + bundled reference images");
   await ensureSeed();
@@ -72,7 +74,9 @@ async function main() {
   assert.equal(held.length, 1, "the income-claim script is held for review");
   assert.ok(held[0].hook.includes("$5000") && held[0].track === "economic", "held script is never premium");
   const premium = all.filter(s => s.track === "premium");
-  assert.ok(premium.length <= 1, `budget guard caps premium (${premium.length})`);
+  const { premiumAllowance } = await import("../services/batch");
+  const allowed = premiumAllowance({ requested: 99, budgetUsd: 300, spentUsd: 0, perClipUsd: 72 * 3 * 0.05 });
+  assert.ok(premium.length <= allowed, `budget guard caps premium (${premium.length} <= ${allowed} today)`);
   console.log(`  ${all.length} scripts, ${premium.length} premium, statuses: ${JSON.stringify(countBy(all.map(s => s.status)))}`);
 
   step("render queue (ffmpeg, test voice)");

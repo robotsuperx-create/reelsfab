@@ -8,8 +8,8 @@ const MAX_BYTES = 25 * 1024 * 1024; // OpenAI limit
 /** Speech-to-text via OpenAI Whisper directly (no intermediary). */
 export async function transcribeAudio(opts: { audioUrl: string; language?: string; prompt?: string }): Promise<Transcription | TranscriptionError> {
   try {
-    const key = (await getIntegrationConfig("openai")).apiKey || process.env.OPENAI_API_KEY;
-    if (!key) return { error: "مفتاح OpenAI غير مضبوط للتفريغ الصوتي", code: "SERVICE_ERROR", details: "OPENAI_API_KEY" };
+    const key = (await getIntegrationConfig("openai")).apiKey;
+    if (!key) return { error: "أضف مفتاح OpenAI من مركز التكاملات للتفريغ الصوتي", code: "SERVICE_ERROR", details: "openai" };
     const src = await fetch(opts.audioUrl);
     if (!src.ok) return { error: "تعذر تنزيل الملف", code: "INVALID_FORMAT", details: `HTTP ${src.status}` };
     const buf = Buffer.from(await src.arrayBuffer());

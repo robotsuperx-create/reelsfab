@@ -7,7 +7,7 @@ import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 
 const CAPABILITIES = ["text", "review", "image", "video", "voice", "transcription", "social_publish", "analytics", "storage"] as const;
-const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "custom"] as const;
+const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "custom"] as const;
 
 async function getRow(id: number) {
   const db = await requireDb();
@@ -18,6 +18,17 @@ async function getRow(id: number) {
 
 async function probe(provider: string, config: Record<string, string>) {
   const key = config.apiKey || config.accessToken || config.token;
+  if (provider === "telegram") {
+    const token = config.botToken || config.apiKey;
+    if (!token || !config.chatId) throw new Error("Telegram يحتاج botToken و chatId");
+    const r = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    if (!r.ok) throw new Error(`Telegram رفض التوكن (${r.status})`);
+    return { checked: true };
+  }
+  if (provider === "instagram" && (config.appId || config.clientId)) {
+    if (!(config.appSecret || config.clientSecret)) throw new Error("Instagram يحتاج appId و appSecret من تطبيق Meta");
+    return { checked: false, note: "بيانات تطبيق Meta محفوظة؛ اربط حساب كل شخصية من صفحتها." };
+  }
   if (!key && provider !== "custom" && provider !== "higgsfield" && provider !== "youtube") throw new Error("أدخل apiKey أو accessToken أولاً");
   if (provider === "openai") {
     const r = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` } });

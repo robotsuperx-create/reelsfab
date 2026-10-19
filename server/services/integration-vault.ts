@@ -4,7 +4,7 @@ import { integrations } from "../../drizzle/schema";
 import { requireDb } from "../db";
 
 function encryptionKey() {
-  const raw = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.META_TOKEN_ENCRYPTION_KEY;
+  const raw = process.env.INTEGRATION_ENCRYPTION_KEY;
   if (!raw) throw new Error("INTEGRATION_ENCRYPTION_KEY is not configured");
   return crypto.createHash("sha256").update(raw).digest();
 }

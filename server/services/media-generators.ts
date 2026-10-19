@@ -13,7 +13,7 @@ export async function generateElevenLabsSpeech(input: { text: string; voiceId: s
 
 export async function generateImage(input: { provider: "openai" | "gemini"; prompt: string; size?: string }) {
   if (input.provider === "openai") {
-    const config = await getIntegrationConfig("openai"); const key = config.apiKey || process.env.OPENAI_API_KEY;
+    const config = await getIntegrationConfig("openai"); const key = config.apiKey;
     if (!key) throw new Error("OpenAI apiKey is not configured");
     const response = await fetch("https://api.openai.com/v1/images/generations", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-image-1", prompt: input.prompt.slice(0, 4000), size: input.size ?? "1024x1536", quality: "medium", output_format: "png" }) });
     const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(`OpenAI Images ${response.status}: ${JSON.stringify(body).slice(0, 300)}`);
@@ -21,7 +21,7 @@ export async function generateImage(input: { provider: "openai" | "gemini"; prom
     if (item?.url) { const file = await fetch(item.url); return storagePut("images/generated.png", Buffer.from(await file.arrayBuffer()), "image/png"); }
     throw new Error("OpenAI returned no image");
   }
-  const config = await getIntegrationConfig("gemini"); const key = config.apiKey || process.env.GEMINI_API_KEY;
+  const config = await getIntegrationConfig("gemini"); const key = config.apiKey;
   if (!key) throw new Error("Gemini apiKey is not configured");
   const model = config.imageModel || "gemini-2.5-flash-image";
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: input.prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"] } }) });

@@ -16,3 +16,5 @@ process.env.APP_ADMIN_IDENTIFIER ??= "0600000000";
 process.env.APP_ADMIN_PASSWORD ??= "local-test-password";
 installFakes();
 await import("../_core/index");
+const { seedFakeIntegrations } = await import("./fakes");
+await seedFakeIntegrations().catch(e => console.warn("[e2e] could not seed integrations", e));

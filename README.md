@@ -27,7 +27,7 @@ Note: Kokoro downloads its model from Hugging Face on first use; this was not te
 
 ## Runtime services
 
-Text generation uses Claude by default (Anthropic/OpenAI/Gemini keys), transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
+Every service key (Claude, OpenAI, Gemini, Higgsfield, ElevenLabs, Instagram/Meta, TikTok, YouTube, Telegram) is entered in the Integrations page and stored encrypted with `INTEGRATION_ENCRYPTION_KEY` — `.env` holds infrastructure only. Text generation uses Claude by default, transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
 
 ## Full-cycle test
 
@@ -52,5 +52,5 @@ pnpm dev                       # http://localhost:3000
 ```
 
 Minimum `.env` for local use: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`,
-`SESSION_SECRET`, `INTEGRATION_ENCRYPTION_KEY`, and `APP_ADMIN_IDENTIFIER` + `APP_ADMIN_PASSWORD` for the local admin login.
+`SESSION_SECRET`, `INTEGRATION_ENCRYPTION_KEY`, and `APP_ADMIN_IDENTIFIER` + `APP_ADMIN_PASSWORD` for the local admin login. Then add your service keys in the Integrations page.
 Keep `AUTOPILOT_ENABLED=false` locally unless you want this machine to render and publish.

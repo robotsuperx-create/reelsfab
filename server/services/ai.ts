@@ -57,7 +57,7 @@ export async function callJson<T>(opts: {
 }): Promise<T> {
   const target = resolveProvider(opts.model);
   if (!(await providerConfigured(target.provider))) {
-    throw new Error(`مفتاح ${target.provider} غير مضبوط. أضفه من مركز التكاملات أو عبر متغير البيئة ${target.provider.toUpperCase()}_API_KEY.`);
+    throw new Error(`مفتاح ${target.provider} غير مضبوط. أضفه من مركز التكاملات.`);
   }
   const { lines, images } = flattenMessages(opts.messages);
   const system = lines.filter(l => l.role === "system").map(l => l.text).join("\n\n");

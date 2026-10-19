@@ -1,11 +1,20 @@
+import { getIntegrationConfig } from "./integration-vault";
+
 /**
- * Owner notifications over Telegram (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID).
- * Without them the message is only logged. Never throws: notifications must not break the pipeline.
+ * Owner notifications over Telegram, configured in the Integrations page (provider "telegram": botToken + chatId).
+ * Without it the message is only logged. Never throws: notifications must not break the pipeline.
  */
 export async function notifyOwner(msg: { title: string; content: string }): Promise<boolean> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chat = process.env.TELEGRAM_CHAT_ID;
   const text = `${msg.title}\n\n${msg.content}`.slice(0, 3900);
+  let token = "";
+  let chat = "";
+  try {
+    const c = await getIntegrationConfig("telegram");
+    token = c.botToken || c.apiKey || "";
+    chat = c.chatId || "";
+  } catch {
+    /* vault unavailable */
+  }
   if (!token || !chat) {
     console.log(`[notify] ${msg.title} — ${msg.content.slice(0, 200)}`);
     return false;

@@ -216,13 +216,27 @@ export function installFakes() {
 export const FAKE_ENV = {
   SUPABASE_URL: "https://supabase.test",
   SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
-  ANTHROPIC_API_KEY: "test-anthropic-key",
-  OPENAI_API_KEY: "test-openai-key",
   INTEGRATION_ENCRYPTION_KEY: "e2e-encryption-key-not-secret",
   SESSION_SECRET: "e2e-session-secret-0123456789abcdef",
   CRON_SECRET: "e2e-cron-secret-0123456789abcdef0123",
   TTS_PROVIDER: "test",
   DISCLOSURE_TAGS: "#AIgenerated #ad",
-  TELEGRAM_BOT_TOKEN: "e2e-telegram",
-  TELEGRAM_CHAT_ID: "1",
 };
+
+/** Service keys live in the encrypted vault (Integrations page), never in env: seed fake ones there. */
+export async function seedFakeIntegrations(withTelegram = true) {
+  const { integrations } = await import("../../drizzle/schema");
+  const { encryptSecret } = await import("../services/integration-vault");
+  const { requireDb } = await import("../db");
+  const db = await requireDb();
+  const rows: [string, string, string[], Record<string, string>][] = [
+    ["anthropic", "Claude", ["text", "review"], { apiKey: "test-anthropic-key" }],
+    ["openai", "OpenAI", ["transcription"], { apiKey: "test-openai-key" }],
+  ];
+  if (withTelegram) rows.push(["telegram", "Telegram", ["analytics"], { botToken: "e2e-telegram", chatId: "1" }]);
+  for (const [provider, label, capabilities, config] of rows) {
+    const existing = await db.select({ id: integrations.id }).from(integrations).where((await import("drizzle-orm")).eq(integrations.provider, provider));
+    if (existing.length) continue;
+    await db.insert(integrations).values({ provider, label, capabilities, configKeys: Object.keys(config), encryptedConfig: encryptSecret(JSON.stringify(config)) });
+  }
+}
