@@ -37,3 +37,20 @@ Text generation uses Claude by default (Anthropic/OpenAI/Gemini keys), transcrip
 createdb reelsfab_e2e && psql reelsfab_e2e -f drizzle/supabase/0000_*.sql -f drizzle/supabase/0001_*.sql
 DATABASE_URL=postgres://postgres@127.0.0.1:5432/reelsfab_e2e pnpm e2e
 ```
+
+## Run locally (Windows / macOS / Linux)
+
+Needs Node 22+, Git and (for server-side rendering) ffmpeg — on Windows: `winget install Gyan.FFmpeg`.
+
+```
+git clone https://github.com/robotsuperx-create/reelsfab.git
+cd reelsfab
+corepack enable
+pnpm install
+copy .env.example .env        # macOS/Linux: cp .env.example .env
+pnpm dev                       # http://localhost:3000
+```
+
+Minimum `.env` for local use: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`,
+`SESSION_SECRET`, `INTEGRATION_ENCRYPTION_KEY`, and `APP_ADMIN_IDENTIFIER` + `APP_ADMIN_PASSWORD` for the local admin login.
+Keep `AUTOPILOT_ENABLED=false` locally unless you want this machine to render and publish.
