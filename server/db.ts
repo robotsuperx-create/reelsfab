@@ -10,6 +10,15 @@ import { CHARACTER_SEED } from "./seed";
 let _db: ReturnType<typeof drizzle> | null = null;
 let _sqlClient: ReturnType<typeof postgres> | null = null;
 
+/** Drops the current connection so the next getDb() uses fresh settings (after /setup rewrites .env). */
+export async function resetDb() {
+  const client = _sqlClient;
+  _db = null;
+  _sqlClient = null;
+  seeded = false;
+  await client?.end({ timeout: 2 }).catch(() => {});
+}
+
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   const databaseUrl = getDatabaseUrl();

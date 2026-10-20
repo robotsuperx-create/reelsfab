@@ -40,6 +40,8 @@ DATABASE_URL=postgres://postgres@127.0.0.1:5432/reelsfab_e2e pnpm e2e
 
 ## Run locally (Windows / macOS / Linux)
 
+On first start open http://localhost:3000/setup (works only from this computer): enter the Supabase service key, the database password (the pooler URL is built and tested for you) and the admin login; secrets are generated. Then add service keys in the Integrations page.
+
 Needs Node 22+, Git and (for server-side rendering) ffmpeg — on Windows: `winget install Gyan.FFmpeg`.
 
 ```

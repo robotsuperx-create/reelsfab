@@ -10,6 +10,7 @@ import { registerMediaRoutes } from "../routes/media";
 import { registerMetaRoutes } from "../routes/meta";
 import { rateLimit, securityHeaders } from "./security";
 import { startAutopilot } from "../worker/autopilot";
+import { registerSetupRoutes } from "./setup";
 import { describeDbError, ensureSeed } from "../db";
 
 async function startServer() {
@@ -26,6 +27,7 @@ async function startServer() {
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
+  registerSetupRoutes(app);
   registerMediaRoutes(app);
   registerMetaRoutes(app);
   // tRPC API
