@@ -3,10 +3,11 @@ import { Progress } from "@/components/ui/progress";
 import { tzOffset } from "@/lib/api";
 import { trpc } from "@/lib/trpc";
 import { formatUsd } from "@shared/domain";
-import { ArrowLeft, Clapperboard, Layers, ShieldCheck, Sparkles, Timer } from "lucide-react";
+import { ArrowLeft, Clapperboard, ShieldCheck, Sparkles, Timer } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "wouter";
-import { CharacterAvatar, PageHeader, Stat, StatusTally, Tally, useCharacterMap } from "@/components/fab/common";
+import { CharacterAvatar, Stat, StatusTally, Tally, useCharacterMap } from "@/components/fab/common";
+import { ReelWall } from "@/components/fab/ReelWall";
 
 const STAGES: { key: string; label: string; statuses: string[]; href: string }[] = [
   { key: "script", label: "نصوص جاهزة", statuses: ["script_ready", "idea"], href: "/scripts" },
@@ -20,8 +21,7 @@ const STAGES: { key: string; label: string; statuses: string[]; href: string }[]
 
 export default function Dashboard() {
   const q = trpc.dashboard.overview.useQuery({ tzOffsetMinutes: tzOffset() }, { refetchInterval: 15000 });
-  const ap = trpc.automation.status.useQuery(undefined, { refetchInterval: 15000 });
-  const { map } = useCharacterMap();
+  const { map, list } = useCharacterMap();
   const d = q.data;
 
   const stageCounts = useMemo(() => {
@@ -41,45 +41,49 @@ export default function Dashboard() {
 
   return (
     <div>
-      <PageHeader
-        kicker={`ON AIR · ${new Date().toISOString().slice(0, 10)}`}
-        title="غرفة التحكم"
-        subtitle={`${today} — هدف اليوم ${target} ريل: ${d?.premiumSharePercent ?? 30}% Premium من Higgsfield و${100 - (d?.premiumSharePercent ?? 30)}% اقتصادي من الاستوديو.`}
-        actions={
-          <>
-            <Button asChild variant="outline">
+      <section className="relative mb-8 grid items-end gap-8 overflow-hidden lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+        <div className="relative z-10">
+          <p className="text-[15px] text-muted-foreground">{today}</p>
+          <h1 className="display-xl mt-3 text-[64px] md:text-[96px]">
+            <span className="num">{approvedToday}</span>
+            <span className="text-muted-foreground/60"> / </span>
+            <span className="num text-muted-foreground/60">{target}</span>
+          </h1>
+          <p className="mt-3 max-w-[40ch] text-[17px] leading-8 text-foreground/85">
+            {approvedToday >= target
+              ? "اكتمل هدف اليوم. الريلات المعتمدة في طريقها إلى التقويم."
+              : `ريل معتمد اليوم من هدف ${target}. ${d?.premiumSharePercent ?? 30}% منها Premium من Higgsfield والباقي من الاستوديو.`}
+          </p>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <Button asChild size="lg">
               <Link href="/automation">
-                <Timer /> دفعة اليوم
+                <Timer /> الاستوديو الآلي
               </Link>
             </Button>
-            <Button asChild>
-              <Link href="/render">
-                <Layers /> الرندر الجماعي
+            <Button asChild size="lg" variant="outline">
+              <Link href="/qc">
+                <ShieldCheck /> مراجعة الجودة
               </Link>
             </Button>
-          </>
-        }
-      />
-
-      {/* Autopilot strip */}
-      <Link href="/automation" className="panel mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-tally/20 px-4 py-3 text-sm">
-        <Tally
-          tone={!ap.data?.workerEnabled ? "stop" : ap.data.workerAlive ? "go" : "hold"}
-          live={Boolean(ap.data?.workerAlive)}
-          label={!ap.data?.workerEnabled ? "الاستوديو الآلي متوقف" : ap.data.workerAlive ? "الاستوديو الآلي يعمل" : "الاستوديو الآلي يبدأ…"}
-        />
-        <span className="timecode text-xs text-muted-foreground">
-          طابور {ap.data?.queue.queued ?? 0} · يُرندر {ap.data?.queue.running ?? 0} · تم {ap.data?.queue.done ?? 0} · فشل {ap.data?.queue.failed ?? 0}
-        </span>
-        <span className="mr-auto text-xs text-tally">فتح لوحة الاستوديو الآلي ←</span>
-      </Link>
+          </div>
+        </div>
+        <div className="relative -mx-4 lg:mx-0">
+          <ReelWall
+            height={360}
+            items={list
+              .filter(c => c.isActive)
+              .sort((a, b) => Number(!!b.referenceImages?.[0]) - Number(!!a.referenceImages?.[0]))
+              .map(c => ({ key: c.id, src: c.referenceImages?.[0], name: c.name, caption: c.niche ?? undefined, href: `/characters/${c.id}`, color: c.colors?.primary }))}
+          />
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-background to-transparent" />
+        </div>
+      </section>
 
       {/* Creative pipeline cards */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-          {STAGES.map((st, i) => (
-            <Link key={st.key} href={st.href} className="panel group relative overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:border-tally/35">
-              <div className="timecode text-[10px] text-muted-foreground/70">{String(i + 1).padStart(2, "0")}</div>
-              <div className="timecode mt-2 text-3xl font-bold tracking-[-0.06em] group-hover:text-tally">{stageCounts[st.key] ?? 0}</div>
+      <div className="-mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:px-0 lg:grid-cols-7">
+          {STAGES.map(st => (
+            <Link key={st.key} href={st.href} className="panel group relative min-w-[132px] shrink-0 snap-start overflow-hidden p-4 transition-colors hover:border-tally/35">
+              <div className="num text-3xl font-bold group-hover:text-tally">{stageCounts[st.key] ?? 0}</div>
               <div className="mt-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">{st.label}</div>
               <div className="absolute inset-x-0 bottom-0 h-0.5 origin-right scale-x-0 bg-tally transition-transform duration-300 group-hover:scale-x-100" />
             </Link>
@@ -90,11 +94,8 @@ export default function Dashboard() {
         <div className="panel p-5 lg:col-span-2">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-muted-foreground">تقدم هدف اليوم (ريلات معتمدة)</div>
-              <div className="timecode mt-1 text-4xl font-semibold">
-                {approvedToday}
-                <span className="text-xl text-muted-foreground"> / {target}</span>
-              </div>
+              <div className="text-base font-semibold">إنتاج اليوم</div>
+              <div className="mt-0.5 text-sm text-muted-foreground">{Math.max(0, target - approvedToday)} ريل متبقٍ للوصول إلى الهدف</div>
             </div>
             <Tally tone={approvedToday >= target ? "go" : "hold"} live={approvedToday < target} label={approvedToday >= target ? "الهدف مكتمل" : "قيد الإنتاج"} />
           </div>
@@ -108,7 +109,7 @@ export default function Dashboard() {
         </div>
         <div className="panel p-5">
           <div className="text-sm text-muted-foreground">تكلفة الشهر مقابل الميزانية</div>
-          <div className="timecode mt-1 text-3xl font-semibold">{formatUsd(d?.monthCostUsd ?? 0)}</div>
+          <div className="num mt-1 text-3xl font-bold">{formatUsd(d?.monthCostUsd ?? 0)}</div>
           <div className="text-xs text-muted-foreground">من {formatUsd(d?.monthlyBudgetUsd ?? 0)}</div>
           <Progress value={budgetPct} className="mt-4 h-2" />
           <div className="mt-4 flex flex-col gap-2">

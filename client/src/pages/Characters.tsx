@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { KOKORO_VOICES } from "@shared/domain";
 import { Link } from "wouter";
 import { PageHeader, Tally, useCharacterMap } from "@/components/fab/common";
@@ -9,45 +8,38 @@ export default function Characters() {
   return (
     <div>
       <PageHeader
-        kicker="CHARACTER BIBLE · v1"
         title="الشخصيات"
-        subtitle="عشر شخصيات من ملف الشخصيات. كل شخصية تُعلَن كشخصية AI، ولكل منها هوية ألوان، خط ترجمة، صوت مجاني للاختبار، وحصة يومية."
+        subtitle="كل شخصية تُعلَن بوضوح كشخصية AI، ولها لونها وخطها وصوتها وحصتها اليومية. افتح أي شخصية لتعديلها أو ربط حساباتها."
         actions={<CharacterGeneratorDialog />}
       />
       {isLoading ? (
         <div className="text-sm text-muted-foreground">جارٍ التحميل…</div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 sm:gap-4">
           {list.map(c => {
             const img = c.referenceImages?.[0];
             const voice = KOKORO_VOICES.find(v => v.id === c.ttsVoice);
             return (
-              <Link key={c.id} href={`/characters/${c.id}`} className="group panel overflow-hidden transition-transform hover:-translate-y-0.5">
-                <div className="relative aspect-[9/16] overflow-hidden" style={{ background: c.colors?.primary }}>
+              <Link key={c.id} href={`/characters/${c.id}`} className="group block rounded-[22px] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-tally">
+                <div className={`reel aspect-[9/16] ${c.isActive && img ? "" : "opacity-80"}`} style={{ background: c.colors?.primary ?? undefined }}>
                   {img ? (
-                    <img src={img} alt={c.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
+                    <img src={img} alt={c.name} className="transition-transform duration-700 group-hover:scale-[1.04]" loading="lazy" />
                   ) : (
-                    <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-sm text-white/80">
-                      <div className="font-display text-3xl font-bold">{c.name.slice(0, 1)}</div>
-                      {c.needsDesignFile ? "ارفع ملف التصميم الحالي" : "لا توجد صورة مرجعية"}
+                    <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
+                      <div className="display-xl text-6xl text-white/85">{c.name.slice(0, 1)}</div>
+                      <div className="text-[13px] text-white/75">{c.needsDesignFile ? "بانتظار صورة الشخصية" : "لا توجد صورة مرجعية"}</div>
                     </div>
                   )}
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 pt-10">
-                    <div className="font-display text-base font-bold text-white ltr" dir="ltr">
-                      {c.name}
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black via-black/55 to-transparent" />
+                  <span className="absolute left-3 top-3 rounded-md bg-black/55 px-2 py-0.5 text-[10.5px] text-white/85 backdrop-blur" dir="ltr">AI character</span>
+                  <div className="absolute inset-x-4 bottom-4">
+                    <div className="display-xl text-[26px] text-white" dir="ltr">{c.name}</div>
+                    <div className="mt-1.5 line-clamp-1 text-[12.5px] text-white/70">{c.niche}</div>
+                    <div className="mt-3 flex items-center justify-between gap-2 text-[12px] text-white/80">
+                      <Tally tone={!c.isActive ? "idle" : img ? "go" : "hold"} label={!c.isActive ? "متوقفة" : `${c.dailyQuota} يوميًا`} />
+                      <span className="truncate">{voice?.label.split(" — ")[0] ?? c.ttsVoice}</span>
                     </div>
-                    <div className="text-xs text-white/75">{c.niche}</div>
                   </div>
-                  <div className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white ltr" dir="ltr">
-                    AI character
-                  </div>
-                  <span className="absolute right-2 top-2 h-3 w-3 rounded-full border border-white/40" style={{ background: c.colors?.accent }} />
-                </div>
-                <div className="flex items-center justify-between gap-2 p-3">
-                  <Tally tone={!c.isActive ? "idle" : img ? "go" : "hold"} label={!c.isActive ? "متوقفة" : `${c.dailyQuota} يوميًا`} />
-                  <Badge variant="secondary" className="max-w-[110px] truncate text-[10px]">
-                    {voice?.label.split(" — ")[0] ?? c.ttsVoice}
-                  </Badge>
                 </div>
               </Link>
             );

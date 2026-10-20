@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import path from "node:path";
 import { createServer } from "http";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { publicPlatformScript } from "./publicConfig";
@@ -27,6 +28,8 @@ async function startServer() {
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
+  // Character portraits for the sign-in screen (public persona images, nothing private).
+  app.use("/brand/characters", (req, res, next) => (/^\/[a-z]+\.jpg$/.test(req.path) ? next() : res.status(404).end()), express.static(path.join(process.cwd(), "assets", "characters"), { maxAge: "7d", index: false, extensions: ["jpg"] }));
   registerSetupRoutes(app);
   registerMediaRoutes(app);
   registerMetaRoutes(app);

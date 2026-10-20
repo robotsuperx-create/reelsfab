@@ -87,7 +87,7 @@ const real = (v?: string) => Boolean(v && !/your-project|your-supabase|\[PASSWOR
 export function setupStatus() {
   const e = process.env;
   return {
-    supabaseUrl: real(e.SUPABASE_URL) && Boolean(projectRef(e.SUPABASE_URL ?? "")),
+    supabaseUrl: real(e.SUPABASE_URL) && /^https:\/\/[^/\s]+/.test(e.SUPABASE_URL ?? ""),
     anonKey: real(e.SUPABASE_ANON_KEY),
     serviceKey: real(e.SUPABASE_SERVICE_ROLE_KEY),
     dbUrl: real(e.SUPABASE_DB_URL) || real(e.DATABASE_URL),
@@ -95,14 +95,18 @@ export function setupStatus() {
     secrets: real(e.SESSION_SECRET) && real(e.CRON_SECRET) && real(e.INTEGRATION_ENCRYPTION_KEY),
   };
 }
-export const setupComplete = () => Object.values(setupStatus()).every(Boolean);
+/** The public anon key only enables Supabase sign-in; the local admin login works without it. */
+export const setupComplete = () => {
+  const { anonKey: _optional, ...required } = setupStatus();
+  return Object.values(required).every(Boolean);
+};
 
 function page(opts: { message?: string; error?: string; dbOk?: boolean | null }) {
   const st = setupStatus();
   const e = process.env;
   const row = (ok: boolean, label: string) => `<li class="${ok ? "ok" : "no"}">${ok ? "✓" : "✗"} ${label}</li>`;
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>REELS/FAB — الإعداد الأول</title><style>
+<title>ReellllLocaL — الإعداد الأول</title><style>
 :root{--bg:#0b0b0a;--card:#151513;--line:#2a2a26;--fg:#f2f2ee;--mut:#9a9a90;--lime:#DFFF00;--red:#ff6b6b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.7 system-ui,"Segoe UI",Tahoma,sans-serif}
 .wrap{max-width:760px;margin:0 auto;padding:32px 16px 64px}h1{margin:0 0 4px;font-size:30px}.k{color:var(--lime);font:600 11px monospace;letter-spacing:.15em}
@@ -119,7 +123,7 @@ a{color:var(--lime)}code{background:#222;padding:1px 6px;border-radius:6px}
 <p style="color:var(--mut)">هذه الصفحة تعمل على جهازك فقط ولا يمكن فتحها من الإنترنت. القيم السرية تُحفظ في ملف <code>.env</code> على جهازك ولا تُعرض مرة أخرى. مفاتيح الخدمات (Claude، Higgsfield…) تضيفها بعد الدخول من <b>مركز التكاملات</b>.</p>
 ${opts.message ? `<div class="msg good">${esc(opts.message)}</div>` : ""}${opts.error ? `<div class="msg bad">${esc(opts.error)}</div>` : ""}
 <div class="card"><h2>الحالة</h2><ul>
-${row(st.supabaseUrl && st.anonKey, "مشروع Supabase")}${row(st.serviceKey, "مفتاح service_role")}
+${row(st.supabaseUrl, "مشروع Supabase")}${row(st.serviceKey, "مفتاح service_role")}
 ${row(st.dbUrl && opts.dbOk !== false, "قاعدة البيانات")}${row(st.admin, "دخول المدير")}
 ${row(st.secrets, "الأسرار والخزنة")}${row(setupComplete() && opts.dbOk !== false, "جاهز للتشغيل")}
 </ul></div>

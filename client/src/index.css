@@ -4,8 +4,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: "IBM Plex Sans Arabic", "Readex Pro", system-ui, sans-serif;
-  --font-display: "Readex Pro", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-display: "Alexandria", "IBM Plex Sans Arabic", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -49,48 +49,49 @@
   --color-stop: var(--stop);
 }
 
-/* REELS/FAB visual system: cinematic black, electric lime, editorial cards. */
+/* ReellllLocaL — "stage" system: true-black stage, bone type, Electric Lime reserved for live + primary action. */
 :root,
 .dark {
-  --tally: oklch(0.92 0.24 112); /* ownable electric lime */
-  --go: oklch(0.82 0.19 145);
-  --hold: oklch(0.92 0.24 112);
-  --stop: oklch(0.68 0.22 25);
-  --surface-glass: oklch(1 0 0 / 3.5%);
-  --surface-raised: oklch(0.17 0.014 115);
+  --tally: #dfff00;
+  --go: #8fe36b;
+  --hold: #ffc53d;
+  --stop: #ff453a;
+  --stage: #000000;
+  --surface-glass: rgb(255 255 255 / 4%);
+  --surface-raised: #151513;
   --primary: var(--tally);
-  --primary-foreground: oklch(0.12 0.01 110);
+  --primary-foreground: #0a0a0a;
   --sidebar-primary: var(--tally);
-  --sidebar-primary-foreground: oklch(0.12 0.01 110);
-  --radius: 0.85rem;
-  --background: oklch(0.105 0.008 115);
-  --foreground: oklch(0.96 0.006 110);
-  --card: oklch(0.145 0.01 115);
-  --card-foreground: oklch(0.96 0.006 110);
-  --popover: oklch(0.17 0.012 115);
-  --popover-foreground: oklch(0.96 0.006 110);
-  --secondary: oklch(0.19 0.012 115);
-  --secondary-foreground: oklch(0.9 0.006 110);
-  --muted: oklch(0.2 0.012 115);
-  --muted-foreground: oklch(0.68 0.018 110);
-  --accent: oklch(0.25 0.025 112);
-  --accent-foreground: oklch(0.98 0.006 110);
-  --destructive: oklch(0.62 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.92 0.24 112 / 65%);
-  --chart-1: oklch(0.92 0.24 112);
-  --chart-2: oklch(0.82 0.19 145);
-  --chart-3: oklch(0.74 0.15 225);
-  --chart-4: oklch(0.72 0.2 330);
-  --chart-5: oklch(0.68 0.22 25);
-  --sidebar: oklch(0.075 0.007 115);
-  --sidebar-foreground: oklch(0.88 0.008 110);
-  --sidebar-accent: oklch(0.16 0.018 112);
-  --sidebar-accent-foreground: oklch(0.98 0.006 110);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.92 0.24 112 / 65%);
+  --sidebar-primary-foreground: #0a0a0a;
+  --radius: 0.75rem;
+  --background: #000000;
+  --foreground: #f1f0ea;
+  --card: #0f0f0e;
+  --card-foreground: #f1f0ea;
+  --popover: #141413;
+  --popover-foreground: #f1f0ea;
+  --secondary: #1a1a18;
+  --secondary-foreground: #e6e5de;
+  --muted: #1a1a18;
+  --muted-foreground: #8c8b83;
+  --accent: #1f1f1c;
+  --accent-foreground: #f1f0ea;
+  --destructive: #ff453a;
+  --destructive-foreground: #ffffff;
+  --border: rgb(255 255 255 / 8%);
+  --input: rgb(255 255 255 / 12%);
+  --ring: rgb(223 255 0 / 70%);
+  --chart-1: #dfff00;
+  --chart-2: #8fe36b;
+  --chart-3: #6cb8ff;
+  --chart-4: #c58bff;
+  --chart-5: #ff453a;
+  --sidebar: #000000;
+  --sidebar-foreground: #c9c8c0;
+  --sidebar-accent: #161614;
+  --sidebar-accent-foreground: #f1f0ea;
+  --sidebar-border: rgb(255 255 255 / 7%);
+  --sidebar-ring: rgb(223 255 0 / 70%);
 }
 
 @layer base {
@@ -101,15 +102,11 @@
     font-family: var(--font-sans);
     background: var(--background);
     color-scheme: dark;
-    scrollbar-color: oklch(0.92 0.24 112 / 35%) transparent;
+    scrollbar-color: rgb(255 255 255 / 18%) transparent;
     scrollbar-width: thin;
   }
   body {
     @apply bg-background text-foreground antialiased;
-    background-image:
-      linear-gradient(115deg, transparent 0 48%, oklch(0.92 0.24 112 / 2.5%) 48.1%, transparent 48.3%),
-      radial-gradient(circle at 82% -10%, oklch(0.92 0.24 112 / 10%), transparent 32rem),
-      radial-gradient(circle at 8% 110%, oklch(0.35 0.08 145 / 9%), transparent 28rem);
     min-height: 100vh;
   }
   h1,
@@ -117,7 +114,7 @@
   h3,
   h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.025em;
+    letter-spacing: -0.02em;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
@@ -194,15 +191,61 @@
   }
 
   .panel {
-    @apply rounded-2xl border bg-card;
-    background-image: linear-gradient(145deg, oklch(1 0 0 / 3%), transparent 42%);
-    box-shadow: 0 18px 55px oklch(0 0 0 / 18%), inset 0 1px 0 oklch(1 0 0 / 3%);
-    transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+    @apply border bg-card;
+    border-radius: 16px;
+    transition: border-color 160ms ease;
   }
 
-  .panel:hover {
-    border-color: oklch(0.92 0.24 112 / 28%);
-    box-shadow: 0 22px 65px oklch(0 0 0 / 22%), inset 0 1px 0 oklch(1 0 0 / 5%);
+  a.panel:hover,
+  button.panel:hover {
+    border-color: rgb(255 255 255 / 18%);
+  }
+
+  /* The reel: a 9:16 frame — the one element allowed to be loud. */
+  .reel {
+    position: relative;
+    overflow: hidden;
+    border-radius: 22px;
+    background: #0f0f0e;
+    isolation: isolate;
+  }
+  .reel img,
+  .reel video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+  }
+  .reel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%);
+    pointer-events: none;
+  }
+  .reel.is-live::after {
+    box-shadow: inset 0 0 0 2px var(--tally);
+  }
+  .kenburns {
+    animation: kenburns 18s ease-in-out infinite alternate;
+    transform-origin: 50% 30%;
+  }
+  .kenburns-alt {
+    animation: kenburns-alt 22s ease-in-out infinite alternate;
+    transform-origin: 40% 25%;
+  }
+  .display-xl {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 0.95;
+  }
+  .num {
+    font-family: var(--font-display);
+    font-feature-settings: "tnum" 1;
+    direction: ltr;
+    unicode-bidi: isolate;
   }
 
   .glass {
@@ -215,6 +258,18 @@
     background: var(--tally);
     color: oklch(0.12 0.01 110);
   }
+}
+
+@keyframes kenburns {
+  from { transform: scale(1.02) translate3d(0, 0, 0); }
+  to { transform: scale(1.14) translate3d(0, -2%, 0); }
+}
+@keyframes kenburns-alt {
+  from { transform: scale(1.12) translate3d(1.5%, -1%, 0); }
+  to { transform: scale(1.02) translate3d(0, 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kenburns, .kenburns-alt, .tally-live { animation: none !important; }
 }
 
 @keyframes tally-pulse {

@@ -28,6 +28,14 @@ import type { FormEvent, ReactNode } from "react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Logo } from "./common";
+import { BRAND_PORTRAITS, ReelWall } from "./ReelWall";
+
+/** Short names for the vertical rail (the full names stay in the mobile menu). */
+const RAIL_LABEL: Record<string, string> = {
+  "/": "التحكم", "/characters": "الشخصيات", "/scripts": "النصوص", "/premium": "Premium", "/studio": "الاستوديو",
+  "/render": "الرندر", "/qc": "الجودة", "/calendar": "التقويم", "/analytics": "التحليلات", "/library": "المكتبة",
+  "/costs": "التكلفة", "/automation": "الآلي", "/settings": "الإعدادات", "/integrations": "التكاملات",
+};
 
 const NAV: { group: string; items: { href: string; label: string; icon: typeof Gauge }[] }[] = [
   {
@@ -95,31 +103,56 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function TopNav() {
+function Rail() {
   const [loc] = useLocation();
-  const items = NAV.flatMap(group => group.items);
   return (
-    <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 overflow-x-auto lg:flex" aria-label="التنقل الرئيسي">
-      {items.map(it => {
-        const active = it.href === "/" ? loc === "/" : loc.startsWith(it.href);
-        const Icon = it.icon;
-        return (
-          <Link
-            key={it.href}
-            href={it.href}
-            title={it.label}
-            className={cn(
-              "relative flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-all duration-200",
-              active ? "bg-tally/12 text-tally" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
-            )}
-          >
-            <Icon className="size-3.5" />
-            <span className="hidden 2xl:inline">{it.label}</span>
-            {active && <span className="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-tally shadow-[0_0_12px_var(--tally)]" />}
-          </Link>
-        );
-      })}
-    </nav>
+    <aside className="fixed inset-y-0 right-0 z-40 hidden w-[88px] flex-col items-center border-l border-sidebar-border bg-sidebar py-4 lg:flex">
+      <Link href="/" aria-label="غرفة التحكم">
+        <Logo compact />
+      </Link>
+      <nav className="mt-6 flex w-full flex-1 flex-col items-center gap-4 overflow-y-auto px-2 pb-4" aria-label="التنقل الرئيسي">
+        {NAV.map((g, gi) => (
+          <div key={g.group} className={cn("flex w-full flex-col items-center gap-1", gi > 0 && "border-t border-sidebar-border pt-4")}>
+            {g.items.map(it => {
+              const active = it.href === "/" ? loc === "/" : loc.startsWith(it.href);
+              const Icon = it.icon;
+              return (
+                <Link
+                  key={it.href}
+                  href={it.href}
+                  title={it.label}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "group flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10.5px] leading-none transition-colors focus-visible:outline-2 focus-visible:outline-tally",
+                    active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                  )}
+                >
+                  <Icon className={cn("size-[19px]", active && "text-tally")} strokeWidth={active ? 2.2 : 1.8} />
+                  <span className="max-w-full truncate">{RAIL_LABEL[it.href] ?? it.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
+function AutopilotPill() {
+  const st = trpc.automation.status.useQuery(undefined, { refetchInterval: 30000, retry: false });
+  const d = st.data;
+  const live = Boolean(d?.workerEnabled && d.workerAlive);
+  const queued = (d?.queue.queued ?? 0) + (d?.queue.running ?? 0);
+  return (
+    <Link
+      href="/automation"
+      className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] py-1.5 pl-3.5 pr-3 text-[12.5px] transition-colors hover:border-white/20"
+    >
+      <span className={cn("tally-dot", live ? "text-tally tally-live" : d?.workerEnabled ? "text-hold" : "text-muted-foreground")} style={{ width: 7, height: 7 }} />
+      <span className="text-foreground/90">{live ? "الاستوديو يعمل" : d?.workerEnabled ? "الاستوديو يبدأ" : "الاستوديو متوقف"}</span>
+      {queued > 0 && <span className="num text-muted-foreground">{queued} في الطابور</span>}
+    </Link>
   );
 }
 
@@ -129,9 +162,8 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex h-full flex-col">
       <div className="px-4 pb-4 pt-5">
         <Logo />
-        <div className="mt-1.5 text-[11px] text-muted-foreground">مصنع ريلات شخصيات AI · 15s</div>
+        <div className="mt-2 text-[12px] text-muted-foreground">مصنع ريلات شخصيات AI</div>
       </div>
-      <div className="sprockets mx-4 mb-4 opacity-60" />
       <div className="flex-1 overflow-y-auto px-2 pb-4">
         <NavList onNavigate={onNavigate} />
       </div>
@@ -202,14 +234,12 @@ function Gate({ children }: { children: ReactNode }) {
   }
   if (!user) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-6">
-        <div className="panel w-full max-w-md p-8 text-center">
-          <div className="flex justify-center">
-            <Logo />
-          </div>
-          <div className="sprockets mx-auto my-6 w-48 opacity-70" />
-          <h1 className="text-xl font-bold">نظام إنتاج داخلي للفريق</h1>
-          <p className="mt-2 text-sm text-muted-foreground">سجّل الدخول للوصول إلى خط إنتاج الريلات، الشخصيات، والتقويم.</p>
+      <div className="grid min-h-screen lg:grid-cols-[minmax(400px,480px)_1fr]">
+        <div className="flex items-center justify-center px-6 py-10 sm:px-10">
+        <div className="w-full max-w-sm">
+          <Logo />
+          <h1 className="display-xl mt-12 text-[44px]">مصنع الريلات</h1>
+          <p className="mt-3 text-[15px] leading-7 text-muted-foreground">عشر شخصيات، ريلات جديدة كل يوم. سجّل الدخول لإدارة الإنتاج والنشر.</p>
           <form className="mt-6 space-y-3 text-right" onSubmit={handleSupabaseAuth}>
             <label className="block text-xs text-muted-foreground" htmlFor="supabase-email">البريد الإلكتروني</label>
             <Input
@@ -284,8 +314,14 @@ function Gate({ children }: { children: ReactNode }) {
               {localLogin.isPending ? "جارٍ التحقق…" : "دخول محلي"}
             </Button>
             {localLogin.error && <p className="text-center text-xs text-red-400">بيانات الدخول غير صحيحة أو تم تجاوز عدد المحاولات.</p>}
-            <p className="text-center text-[10px] leading-5 text-muted-foreground/70">تُرسل البيانات إلى الخادم عبر HTTPS ولا تُخزَّن في المتصفح أو الكود.</p>
+            <p className="text-center text-[11px] leading-5 text-muted-foreground/70">تُرسل البيانات إلى الخادم عبر HTTPS ولا تُخزَّن في المتصفح.</p>
           </form>
+        </div>
+        </div>
+        <div className="relative hidden items-center overflow-hidden lg:flex" aria-hidden="true">
+          <ReelWall items={BRAND_PORTRAITS} height={640} className="-mr-16" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-40 bg-gradient-to-l from-background to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-56 bg-gradient-to-r from-background to-transparent" />
         </div>
       </div>
     );
@@ -316,34 +352,39 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <Gate>
       <div className="min-h-screen">
-        <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-background/80 backdrop-blur-xl">
-          <div className="container flex h-[68px] items-center gap-3">
-            <Logo />
-            <TopNav />
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              <div className="hidden items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.035] py-1.5 pl-3 pr-1.5 sm:flex">
-                <span className="grid size-6 place-items-center rounded-full bg-tally text-[9px] font-black text-black">{user?.name?.slice(0, 2) || "RF"}</span>
-                <span className="max-w-24 truncate text-[11px] text-muted-foreground">{user?.name || "عضو الفريق"}</span>
-                <Button size="icon-sm" variant="ghost" onClick={() => logout()} title="تسجيل الخروج">
-                  <LogOut />
-                </Button>
+        <Rail />
+        <div className="lg:pr-[88px]">
+          <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-background/85 backdrop-blur-xl">
+            <div className="container flex h-16 items-center gap-3">
+              <div className="lg:hidden">
+                <Logo />
               </div>
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button size="icon-sm" variant="ghost" className="lg:hidden">
-                    <Menu />
+              <AutopilotPill />
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <div className="hidden items-center gap-2 sm:flex">
+                  <span className="grid size-8 place-items-center rounded-full bg-secondary font-display text-[11px] font-bold text-foreground">{user?.name?.slice(0, 2) || "RL"}</span>
+                  <span className="max-w-32 truncate text-[13px] text-muted-foreground">{user?.name || "عضو الفريق"}</span>
+                  <Button size="icon-sm" variant="ghost" onClick={() => logout()} title="تسجيل الخروج" aria-label="تسجيل الخروج">
+                    <LogOut />
                   </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-[280px] bg-sidebar p-0">
-                  <SheetTitle className="sr-only">القائمة</SheetTitle>
-                  <SheetDescription className="sr-only">التنقل بين أقسام المصنع</SheetDescription>
-                  <SidebarBody />
-                </SheetContent>
-              </Sheet>
+                </div>
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button size="icon-sm" variant="ghost" className="lg:hidden" aria-label="القائمة">
+                      <Menu />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="w-[280px] bg-sidebar p-0">
+                    <SheetTitle className="sr-only">القائمة</SheetTitle>
+                    <SheetDescription className="sr-only">التنقل بين أقسام المصنع</SheetDescription>
+                    <SidebarBody />
+                  </SheetContent>
+                </Sheet>
+              </div>
             </div>
-          </div>
-        </header>
-        <main className="container flex-1 py-8 md:py-10">{children}</main>
+          </header>
+          <main className="container flex-1 py-8 md:py-10">{children}</main>
+        </div>
       </div>
     </Gate>
   );

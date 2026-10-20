@@ -17,34 +17,25 @@ export type ScriptRow = RouterOutputs["scripts"]["list"][number];
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5 ltr" dir="ltr">
-      <div className="relative grid h-8 w-8 place-items-center overflow-hidden rounded-[10px] border border-tally/80 bg-tally text-[10px] font-black tracking-[-0.08em] text-black shadow-[0_0_22px_oklch(0.92_0.24_112_/_35%)]">
-        <span className="relative z-10">RF</span>
-        <span className="absolute -bottom-3 -left-2 h-7 w-7 rounded-full bg-white/45 blur-md" />
-      </div>
+    <div className="flex items-center gap-2.5" dir="ltr">
+      <div className="grid h-9 w-9 place-items-center rounded-[11px] bg-tally font-display text-[13px] font-black tracking-[-0.06em] text-black">RL</div>
       {!compact && (
-        <span className="font-display text-[17px] font-extrabold tracking-[-0.04em]">
-          REELS<span className="text-tally">/</span><span className="text-foreground">FAB</span>
+        <span className="font-display text-[17px] font-extrabold tracking-[0.01em] text-foreground">
+          ReellllLocaL
         </span>
       )}
     </div>
   );
 }
 
-export function PageHeader({ title, subtitle, actions, kicker }: { title: string; subtitle?: ReactNode; actions?: ReactNode; kicker?: string }) {
+export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode; kicker?: string }) {
   return (
-    <div className="relative mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-      <div className="relative">
-        {kicker && (
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-tally/25 bg-tally/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-tally">
-            <span className="tally-dot tally-live" style={{ width: 5, height: 5 }} />
-            <span className="timecode">{kicker}</span>
-          </div>
-        )}
-        <h1 className="max-w-3xl text-3xl font-extrabold leading-[1.08] tracking-[-0.045em] md:text-5xl">{title}</h1>
-        {subtitle && <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">{subtitle}</p>}
+    <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+      <div className="min-w-0">
+        <h1 className="display-xl text-[34px] md:text-[52px]">{title}</h1>
+        {subtitle && <p className="mt-3 max-w-[62ch] text-[15px] leading-7 text-muted-foreground">{subtitle}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -165,7 +156,7 @@ export function Stat({ label, value, hint, tone }: { label: string; value: React
         {tone && <span className={cn("tally-dot", toneClass[tone])} />}
         {label}
       </div>
-      <div className="timecode mt-2 text-2xl font-semibold text-foreground">{value}</div>
+      <div className="num mt-2 text-2xl font-bold text-foreground">{value}</div>
       {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
     </div>
   );
