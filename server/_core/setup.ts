@@ -81,15 +81,18 @@ async function resolvePoolerUrl(ref: string, password: string, region: string) {
   return { url: null, error: errors.join("\n") };
 }
 
+/** Template values copied from .env.example count as missing. */
+const real = (v?: string) => Boolean(v && !/your-project|your-supabase|\[PASSWORD\]|\[YOUR-PASSWORD\]|you@example\.com|generate-a-long/i.test(v));
+
 export function setupStatus() {
   const e = process.env;
   return {
-    supabaseUrl: Boolean(e.SUPABASE_URL),
-    anonKey: Boolean(e.SUPABASE_ANON_KEY),
-    serviceKey: Boolean(e.SUPABASE_SERVICE_ROLE_KEY),
-    dbUrl: Boolean(e.SUPABASE_DB_URL || e.DATABASE_URL),
-    admin: Boolean(e.APP_ADMIN_IDENTIFIER && e.APP_ADMIN_PASSWORD),
-    secrets: Boolean(e.SESSION_SECRET && e.CRON_SECRET && e.INTEGRATION_ENCRYPTION_KEY),
+    supabaseUrl: real(e.SUPABASE_URL) && Boolean(projectRef(e.SUPABASE_URL ?? "")),
+    anonKey: real(e.SUPABASE_ANON_KEY),
+    serviceKey: real(e.SUPABASE_SERVICE_ROLE_KEY),
+    dbUrl: real(e.SUPABASE_DB_URL) || real(e.DATABASE_URL),
+    admin: real(e.APP_ADMIN_IDENTIFIER) && real(e.APP_ADMIN_PASSWORD),
+    secrets: real(e.SESSION_SECRET) && real(e.CRON_SECRET) && real(e.INTEGRATION_ENCRYPTION_KEY),
   };
 }
 export const setupComplete = () => Object.values(setupStatus()).every(Boolean);
@@ -122,18 +125,18 @@ ${row(st.secrets, "الأسرار والخزنة")}${row(setupComplete() && opts
 </ul></div>
 <form method="post" action="/setup" autocomplete="off">
 <div class="card"><h2>Supabase</h2>
-<label>رابط المشروع</label><input name="SUPABASE_URL" value="${esc(e.SUPABASE_URL ?? "")}" placeholder="https://xxxx.supabase.co">
-<label>المفتاح العام anon</label><input name="SUPABASE_ANON_KEY" value="${esc(e.SUPABASE_ANON_KEY ?? "")}">
-<label>مفتاح service_role ${e.SUPABASE_SERVICE_ROLE_KEY ? "(محفوظ — اتركه فارغًا لعدم تغييره)" : ""}</label>
-<input type="password" name="SUPABASE_SERVICE_ROLE_KEY" placeholder="${e.SUPABASE_SERVICE_ROLE_KEY ? "••••••••" : "Project Settings › API Keys › service_role"}">
-<label>كلمة مرور قاعدة البيانات ${e.SUPABASE_DB_URL ? "(الرابط محفوظ — اكتبها فقط لتغييره)" : ""}</label>
+<label>رابط المشروع</label><input name="SUPABASE_URL" value="${esc(real(e.SUPABASE_URL) ? e.SUPABASE_URL! : "")}" placeholder="https://xxxx.supabase.co">
+<label>المفتاح العام anon</label><input name="SUPABASE_ANON_KEY" value="${esc(real(e.SUPABASE_ANON_KEY) ? e.SUPABASE_ANON_KEY! : "")}">
+<label>مفتاح service_role ${real(e.SUPABASE_SERVICE_ROLE_KEY) ? "(محفوظ — اتركه فارغًا لعدم تغييره)" : ""}</label>
+<input type="password" name="SUPABASE_SERVICE_ROLE_KEY" placeholder="${real(e.SUPABASE_SERVICE_ROLE_KEY) ? "••••••••" : "Project Settings › API Keys › service_role"}">
+<label>كلمة مرور قاعدة البيانات ${real(e.SUPABASE_DB_URL) ? "(الرابط محفوظ — اكتبها فقط لتغييره)" : ""}</label>
 <input type="password" name="DB_PASSWORD" placeholder="كلمة مرور القاعدة (ليست كلمة مرور حسابك)">
 <div class="hint">النظام يبني رابط Session pooler ويختبره تلقائيًا، ويُرمّز الرموز الخاصة بنفسه. نسيتها؟ Project Settings › Database › Reset database password.</div>
 <label>المنطقة</label><input name="SUPABASE_DB_POOLER_REGION" value="${esc(e.SUPABASE_DB_POOLER_REGION ?? "eu-west-1")}">
 </div>
 <div class="card"><h2>دخول المدير</h2>
 <label>المعرّف</label><input name="APP_ADMIN_IDENTIFIER" value="${esc(e.APP_ADMIN_IDENTIFIER ?? "")}" placeholder="مثال: oussama">
-<label>كلمة المرور ${e.APP_ADMIN_PASSWORD ? "(محفوظة — اتركها فارغة لعدم تغييرها)" : ""}</label>
+<label>كلمة المرور ${real(e.APP_ADMIN_PASSWORD) ? "(محفوظة — اتركها فارغة لعدم تغييرها)" : ""}</label>
 <input type="password" name="APP_ADMIN_PASSWORD" minlength="10" placeholder="10 أحرف على الأقل">
 </div>
 <div class="card"><h2>الأسرار</h2><p class="hint" style="margin:0">تُولَّد تلقائيًا إن لم تكن موجودة: SESSION_SECRET و CRON_SECRET و INTEGRATION_ENCRYPTION_KEY.
@@ -181,7 +184,7 @@ export function registerSetupRoutes(app: Express) {
       return res.type("html").send(page({ error: "كلمة مرور المدير قصيرة: 10 أحرف على الأقل.", dbOk: null }));
     }
     set("APP_ADMIN_PASSWORD", b.APP_ADMIN_PASSWORD);
-    for (const k of ["SESSION_SECRET", "CRON_SECRET", "INTEGRATION_ENCRYPTION_KEY"]) if (!current[k] && !process.env[k]) updates[k] = secret();
+    for (const k of ["SESSION_SECRET", "CRON_SECRET", "INTEGRATION_ENCRYPTION_KEY"]) if (!real(current[k]) && !real(process.env[k])) updates[k] = secret();
     if (!current.SUPABASE_STORAGE_BUCKET && !process.env.SUPABASE_STORAGE_BUCKET) updates.SUPABASE_STORAGE_BUCKET = "reelsfab";
 
     if (b.DB_PASSWORD) {

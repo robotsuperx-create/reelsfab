@@ -166,11 +166,12 @@ export function describeDbError(e: unknown): string {
   const cause = err?.cause?.message ? ` — ${err.cause.message}${err.cause.code ? ` (${err.cause.code})` : ""}` : "";
   const msg = `${(err?.message ?? String(e)).split("\n")[0]}${cause}`;
   const hints: [RegExp, string][] = [
-    [/password authentication failed|28P01/i, "كلمة مرور القاعدة في SUPABASE_DB_URL خاطئة"],
-    [/Tenant or user not found|XX000/i, "اسم المستخدم أو المنطقة في رابط الـ pooler خاطئ: انسخ رابط Session pooler كما هو من Supabase"],
-    [/ENOTFOUND|EAI_AGAIN|getaddrinfo/i, "اسم الخادم في SUPABASE_DB_URL غير صحيح أو لا يوجد إنترنت"],
-    [/ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|connect timeout/i, "تعذر الوصول للخادم: استعمل رابط Session pooler بدل الرابط المباشر"],
-    [/Invalid URL|ERR_INVALID_URL/i, "الرابط غير صالح: إن كانت كلمة المرور تحوي رموزًا مثل @ # / فاستبدلها برموزها (%40 %23 %2F)"],
+    [/your-project|\[PASSWORD\]/i, "SUPABASE_DB_URL is still the .env.example template. Open http://localhost:3000/setup to configure it."],
+    [/password authentication failed|28P01/i, "Wrong database password in SUPABASE_DB_URL. Fix it at http://localhost:3000/setup"],
+    [/Tenant or user not found|XX000/i, "Wrong pooler user/region. Use the Session pooler URL from Supabase, or http://localhost:3000/setup"],
+    [/ENOTFOUND|EAI_AGAIN|getaddrinfo/i, "Database host not found (wrong URL or no internet)."],
+    [/ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|connect timeout/i, "Database unreachable: use the Session pooler URL instead of the direct one."],
+    [/Invalid URL|ERR_INVALID_URL/i, "Invalid URL: URL-encode special characters in the password (@ -> %40, # -> %23, / -> %2F)."],
   ];
   const hint = hints.find(([re]) => re.test(msg))?.[1];
   return hint ? `${msg}\n  ↳ ${hint}` : msg;
