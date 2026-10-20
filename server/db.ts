@@ -151,6 +151,22 @@ export async function saveSettings(patch: Partial<AppSettings>) {
   return getSettings();
 }
 
+/** Human-readable reason for a DB failure: drizzle hides the driver error in `cause`. */
+export function describeDbError(e: unknown): string {
+  const err = e as { message?: string; cause?: { message?: string; code?: string } };
+  const cause = err?.cause?.message ? ` — ${err.cause.message}${err.cause.code ? ` (${err.cause.code})` : ""}` : "";
+  const msg = `${(err?.message ?? String(e)).split("\n")[0]}${cause}`;
+  const hints: [RegExp, string][] = [
+    [/password authentication failed|28P01/i, "كلمة مرور القاعدة في SUPABASE_DB_URL خاطئة"],
+    [/Tenant or user not found|XX000/i, "اسم المستخدم أو المنطقة في رابط الـ pooler خاطئ: انسخ رابط Session pooler كما هو من Supabase"],
+    [/ENOTFOUND|EAI_AGAIN|getaddrinfo/i, "اسم الخادم في SUPABASE_DB_URL غير صحيح أو لا يوجد إنترنت"],
+    [/ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|connect timeout/i, "تعذر الوصول للخادم: استعمل رابط Session pooler بدل الرابط المباشر"],
+    [/Invalid URL|ERR_INVALID_URL/i, "الرابط غير صالح: إن كانت كلمة المرور تحوي رموزًا مثل @ # / فاستبدلها برموزها (%40 %23 %2F)"],
+  ];
+  const hint = hints.find(([re]) => re.test(msg))?.[1];
+  return hint ? `${msg}\n  ↳ ${hint}` : msg;
+}
+
 let seeded = false;
 /** Inserts the Character Bible roster once (idempotent by slug). */
 export async function ensureSeed() {

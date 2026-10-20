@@ -10,7 +10,7 @@ import { registerMediaRoutes } from "../routes/media";
 import { registerMetaRoutes } from "../routes/meta";
 import { rateLimit, securityHeaders } from "./security";
 import { startAutopilot } from "../worker/autopilot";
-import { ensureSeed } from "../db";
+import { describeDbError, ensureSeed } from "../db";
 
 async function startServer() {
   const app = express();
@@ -47,7 +47,7 @@ async function startServer() {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT");
   server.on("error", error => { console.error("Server failed:", error.message); process.exit(1); });
   server.listen(port, "0.0.0.0", () => { console.log(`Server listening on port ${port}`);
-    void ensureSeed().catch(e => console.warn("[seed]", e instanceof Error ? e.message : e));
+    void ensureSeed().catch(e => console.warn("[database]", describeDbError(e)));
     startAutopilot(); });
 }
 
