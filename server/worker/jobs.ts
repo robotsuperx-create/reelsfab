@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNotNull, notExists, or, sql } from "drizzle-orm";
-import { characters, premiumClips, renderJobs, renders, scripts } from "../../drizzle/schema";
+import { and, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
+import { characters, montages, premiumClips, renderJobs, renders, scripts } from "../../drizzle/schema";
 import { AI_DISCLOSURE, spokenText, TEMPLATES } from "../../shared/domain";
 import { requireDb } from "../db";
 import { notifyOwner } from "../services/notify";
+import { finishMontageRender } from "../services/montages";
 import { createRenderRecord } from "../services/render-records";
 import { storageDownload, storageKeyFromUrl, storagePut } from "../storage";
 import { renderFromVideo, renderReel, type RenderResult } from "./renderer";
@@ -26,7 +27,7 @@ export async function enqueueReadyScripts(limit = 60) {
           and(eq(scripts.track, "derivative"), eq(scripts.status, "script_ready"), isNotNull(scripts.premiumClipId)),
           and(eq(scripts.track, "premium"), eq(scripts.status, "premium_uploaded"), isNotNull(scripts.premiumClipId)),
         ),
-        notExists(db.select({ x: renderJobs.id }).from(renderJobs).where(eq(renderJobs.scriptId, scripts.id))),
+        notExists(db.select({ x: renderJobs.id }).from(renderJobs).where(and(eq(renderJobs.scriptId, scripts.id), isNull(renderJobs.montageId)))),
         notExists(db.select({ x: renders.id }).from(renders).where(eq(renders.scriptId, scripts.id))),
       ),
     )
@@ -55,9 +56,68 @@ export async function claimJob() {
       select id from render_jobs
       where status='queued' and "runAfter" <= now()
       order by id for update skip locked limit 1
-    ) returning id, "scriptId", attempts, "maxAttempts"`);
-  const row = (res as unknown as { id: number; scriptId: number; attempts: number; maxAttempts: number }[])[0];
+    ) returning id, "scriptId", "montageId", attempts, "maxAttempts"`);
+  const row = (res as unknown as { id: number; scriptId: number; montageId: number | null; attempts: number; maxAttempts: number }[])[0];
   return row ?? null;
+}
+
+/** Claims one specific queued job (used to run a user-requested render ahead of the batch queue). */
+export async function claimJobById(id: number) {
+  const db = await requireDb();
+  const res = await db.execute(sql`
+    update render_jobs set status='running', "lockedAt"=now(), "lockedBy"=${WORKER_ID},
+      attempts=attempts+1, "updatedAt"=now()
+    where id=${id} and status='queued'
+    returning id, "scriptId", "montageId", attempts, "maxAttempts"`);
+  const row = (res as unknown as { id: number; scriptId: number; montageId: number | null; attempts: number; maxAttempts: number }[])[0];
+  return row ?? null;
+}
+
+/** Runs a queued job right now (no-op when a worker already holds it). */
+export async function runJobNow(id: number) {
+  const job = await claimJobById(id);
+  return job ? processJob(job) : null;
+}
+
+/** Queues a final render of a montage project (one live job per montage) and marks it rendering. */
+export async function enqueueMontage(montageId: number) {
+  const db = await requireDb();
+  const [m] = await db.select().from(montages).where(eq(montages.id, montageId));
+  if (!m) throw new Error("Montage not found");
+  const [live] = await db
+    .select({ id: renderJobs.id, status: renderJobs.status })
+    .from(renderJobs)
+    .where(eq(renderJobs.montageId, montageId));
+  if (live && (live.status === "queued" || live.status === "running")) return { jobId: live.id, already: true as const };
+  if (live) await db.delete(renderJobs).where(eq(renderJobs.id, live.id));
+  const [job] = await db.insert(renderJobs).values({ scriptId: m.scriptId, montageId }).returning({ id: renderJobs.id });
+  await db.update(montages).set({ status: "rendering", error: null, updatedAt: new Date() }).where(eq(montages.id, montageId));
+  return { jobId: job.id, already: false as const };
+}
+
+async function processMontageJob(job: { id: number; montageId: number; attempts: number; maxAttempts: number }) {
+  const db = await requireDb();
+  try {
+    const [m] = await db.select().from(montages).where(eq(montages.id, job.montageId));
+    if (!m) throw new Error("Montage not found");
+    const r = await finishMontageRender(job.montageId, m.createdBy);
+    await db.update(renderJobs).set({ status: "done", renderId: r.renderId, error: null, lockedAt: null, lockedBy: null }).where(eq(renderJobs.id, job.id));
+    return { ok: true as const, renderId: r.renderId };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const permanent = /اختصر النص|مصدر غير صالح|Montage not found|Script not found|Character not found|لا يوجد نص|بعد نهاية الفيديو/.test(msg);
+    const final = permanent || job.attempts >= job.maxAttempts;
+    await db
+      .update(renderJobs)
+      .set({ status: final ? "failed" : "queued", error: msg.slice(0, 1000), runAfter: new Date(Date.now() + 2 ** job.attempts * 60_000), lockedAt: null, lockedBy: null })
+      .where(eq(renderJobs.id, job.id));
+    await db
+      .update(montages)
+      .set({ status: final ? "failed" : "rendering", error: msg.slice(0, 1000), updatedAt: new Date() })
+      .where(eq(montages.id, job.montageId));
+    if (final) await notifyOwner({ title: `فشل رندر المونتاج #${job.montageId}`, content: msg.slice(0, 500) }).catch(() => false);
+    return { ok: false as const, error: msg };
+  }
 }
 
 async function loadReferenceImage(refs: string[] | null) {
@@ -72,7 +132,8 @@ async function loadReferenceImage(refs: string[] | null) {
   throw new Error("لا توجد صورة مرجعية صالحة للشخصية — ارفع صورة من صفحة الشخصيات");
 }
 
-export async function processJob(job: { id: number; scriptId: number; attempts: number; maxAttempts: number }) {
+export async function processJob(job: { id: number; scriptId: number; montageId?: number | null; attempts: number; maxAttempts: number }) {
+  if (job.montageId) return processMontageJob({ ...job, montageId: job.montageId });
   const db = await requireDb();
   try {
     const [script] = await db.select().from(scripts).where(eq(scripts.id, job.scriptId));

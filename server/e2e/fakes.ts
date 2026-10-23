@@ -200,6 +200,28 @@ export function installFakes() {
         return json({ id: `yt-${fakeState.youtubePosts.length}` });
       case "oauth2.googleapis.com":
         return json({ access_token: "fresh-youtube-token", expires_in: 3600 });
+      case "api.pexels.com": {
+        hit("pexels");
+        if (!new Headers(init?.headers).get("authorization")) return json({ error: "Unauthorized" }, 401);
+        const q = u.searchParams.get("query") ?? "";
+        const mk = (id: number, w: number, h: number, d: number) => ({
+          id, width: w, height: h, duration: d, url: `https://www.pexels.com/video/${id}/`, image: `https://images.pexels.com/videos/${id}/thumb.jpg`,
+          user: { name: `Creator ${id}`, url: `https://www.pexels.com/@creator${id}` },
+          video_files: [
+            { id: id * 10 + 1, quality: "hd", file_type: "video/mp4", width: 1080, height: 1920, fps: 30, link: `https://videos.pexels.com/video-files/${id}/hd.mp4` },
+            { id: id * 10 + 2, quality: "sd", file_type: "video/mp4", width: 360, height: 640, fps: 30, link: `https://videos.pexels.com/video-files/${id}/sd.mp4` },
+          ],
+        });
+        return json({ page: 1, per_page: 24, total_results: 2, videos: q ? [mk(1001, 1080, 1920, 8), mk(1002, 1080, 1920, 15)] : [] });
+      }
+      case "videos.pexels.com": {
+        hit("pexels.cdn");
+        const { readFile } = await import("node:fs/promises");
+        const file = process.env.E2E_SAMPLE_MP4;
+        return new Response(new Uint8Array(file ? await readFile(file) : Buffer.alloc(4096)), { headers: { "content-type": "video/mp4" } });
+      }
+      case "images.pexels.com":
+        return new Response(new Uint8Array(PNG), { headers: { "content-type": "image/png" } });
       case "api.telegram.org":
         fakeState.telegram.push(JSON.parse(await bodyText()).text);
         return json({ ok: true });
@@ -232,6 +254,7 @@ export async function seedFakeIntegrations(withTelegram = true) {
   const rows: [string, string, string[], Record<string, string>][] = [
     ["anthropic", "Claude", ["text", "review"], { apiKey: "test-anthropic-key" }],
     ["openai", "OpenAI", ["transcription"], { apiKey: "test-openai-key" }],
+    ["pexels", "Pexels", ["storage"], { apiKey: "test-pexels-key" }],
   ];
   if (withTelegram) rows.push(["telegram", "Telegram", ["analytics"], { botToken: "e2e-telegram", chatId: "1" }]);
   for (const [provider, label, capabilities, config] of rows) {

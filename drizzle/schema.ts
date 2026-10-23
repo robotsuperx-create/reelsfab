@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -6,8 +7,10 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { MontageSpec } from "../shared/montage";
 
 /**
  * Users. role semantics for this internal tool:
@@ -79,7 +82,7 @@ export const assets = pgTable(
   "assets",
   {
     id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
-    kind: text("kind").$type<"character_image" | "background" | "music" | "premium_video" | "render" | "thumbnail" | "voice" | "other">().notNull(),
+    kind: text("kind").$type<"character_image" | "background" | "music" | "premium_video" | "render" | "thumbnail" | "voice" | "broll" | "other">().notNull(),
     characterId: integer("characterId"),
     title: varchar("title", { length: 255 }),
     url: varchar("url", { length: 1024 }).notNull(),
@@ -90,12 +93,15 @@ export const assets = pgTable(
     width: integer("width"),
     height: integer("height"),
     tags: jsonb("tags").$type<string[]>(),
+    /** Provenance for imported stock media: { source, sourceUrl, credit, query }. */
+    meta: jsonb("meta").$type<AssetMeta>(),
     createdBy: integer("createdBy"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   t => [index("assets_kind_idx").on(t.kind), index("assets_char_idx").on(t.characterId)],
 );
 export type Asset = typeof assets.$inferSelect;
+export type AssetMeta = { source?: string; sourceId?: string; sourceUrl?: string; credit?: string; query?: string };
 
 export const batches = pgTable("batches", {
   id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
@@ -208,7 +214,7 @@ export const renders = pgTable(
     id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
     scriptId: integer("scriptId").notNull(),
     characterId: integer("characterId").notNull(),
-    kind: text("kind").$type<"economic" | "derivative" | "premium">().default("economic").notNull(),
+    kind: text("kind").$type<"economic" | "derivative" | "premium" | "montage">().default("economic").notNull(),
     variantLabel: varchar("variantLabel", { length: 120 }),
     videoUrl: varchar("videoUrl", { length: 1024 }).notNull(),
     storageKey: varchar("storageKey", { length: 512 }),
@@ -377,7 +383,9 @@ export const renderJobs = pgTable(
   "render_jobs",
   {
     id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
-    scriptId: integer("scriptId").notNull().unique(),
+    scriptId: integer("scriptId").notNull(),
+    /** Set for montage renders; the automatic script render keeps montageId null (one such job per script). */
+    montageId: integer("montageId"),
     status: text("status").$type<"queued" | "running" | "done" | "failed">().default("queued").notNull(),
     attempts: integer("attempts").default(0).notNull(),
     maxAttempts: integer("maxAttempts").default(3).notNull(),
@@ -389,6 +397,32 @@ export const renderJobs = pgTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   },
-  t => [index("render_jobs_claim_idx").on(t.status, t.runAfter)],
+  t => [
+    index("render_jobs_claim_idx").on(t.status, t.runAfter),
+    uniqueIndex("render_jobs_script_auto_idx").on(t.scriptId).where(sql`"montageId" is null`),
+    uniqueIndex("render_jobs_montage_idx").on(t.montageId).where(sql`"montageId" is not null`),
+  ],
 );
 export type RenderJob = typeof renderJobs.$inferSelect;
+
+/** Montage projects: an editable spec rendered into a reel (kind "montage") that supersedes the script's automatic render. */
+export const montages = pgTable(
+  "montages",
+  {
+    id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+    scriptId: integer("scriptId").notNull(),
+    characterId: integer("characterId").notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    status: text("status").$type<"draft" | "rendering" | "rendered" | "failed">().default("draft").notNull(),
+    spec: jsonb("spec").$type<MontageSpec>().notNull(),
+    previewUrl: varchar("previewUrl", { length: 1024 }),
+    previewKey: varchar("previewKey", { length: 512 }),
+    renderId: integer("renderId"),
+    error: text("error"),
+    createdBy: integer("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  t => [index("montages_script_idx").on(t.scriptId), index("montages_status_idx").on(t.status)],
+);
+export type Montage = typeof montages.$inferSelect;

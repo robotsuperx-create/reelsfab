@@ -62,6 +62,7 @@ export const TRACK_LABELS: Record<string, string> = {
   economic: "اقتصادي",
   premium: "Premium",
   derivative: "مشتق من Premium",
+  montage: "مونتاج",
 };
 
 export const QC_LABELS: Record<string, string> = {

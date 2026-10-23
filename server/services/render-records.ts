@@ -6,7 +6,7 @@ import { requireDb } from "../db";
 
 export type RenderRecordInput = {
   scriptId: number;
-  kind: "economic" | "derivative" | "premium";
+  kind: "economic" | "derivative" | "premium" | "montage";
   variantLabel?: string | null;
   videoUrl: string;
   storageKey?: string | null;

@@ -101,6 +101,7 @@ export function TrackBadge({ track }: { track: string }) {
         track === "premium" && "border-tally/40 bg-tally/10 text-tally",
         track === "derivative" && "border-chart-3/40 bg-chart-3/10 text-chart-3",
         track === "economic" && "border-border bg-secondary text-muted-foreground",
+        track === "montage" && "border-foreground/30 bg-foreground/10 text-foreground",
       )}
     >
       {TRACK_LABELS[track] ?? track}

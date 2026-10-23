@@ -7,7 +7,7 @@ import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 
 const CAPABILITIES = ["text", "review", "image", "video", "voice", "transcription", "social_publish", "analytics", "storage"] as const;
-const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "custom"] as const;
+const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "custom"] as const;
 
 async function getRow(id: number) {
   const db = await requireDb();
@@ -48,6 +48,9 @@ async function probe(provider: string, config: Record<string, string>) {
   } else if (provider === "youtube") {
     if (!config.clientId || !config.clientSecret) throw new Error("YouTube يحتاج clientId و clientSecret بالإضافة إلى OAuth token للحساب");
     return { checked: false, note: "بيانات OAuth مسجلة؛ اختبار الرفع يتم عند نشر أول فيديو." };
+  } else if (provider === "pexels") {
+    const r = await fetch("https://api.pexels.com/v1/videos/search?query=nature&per_page=1", { headers: { Authorization: key! } });
+    if (!r.ok) throw new Error(`Pexels رفض المفتاح (${r.status})`);
   } else if (provider === "custom") {
     if (!config.testUrl) throw new Error("أضف testUrl لاختبار الموصل المخصص");
     const r = await fetch(config.testUrl, { headers: key ? { Authorization: `Bearer ${key}` } : undefined });

@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { eq, sql } from "drizzle-orm";
-import { characters, posts, renderJobs, renders, scripts, settings } from "../../drizzle/schema";
+import { assets, characters, montages, posts, renderJobs, renders, scripts, settings } from "../../drizzle/schema";
 import { FAKE_ENV, fakeState, installFakes, seedFakeIntegrations } from "./fakes";
 
 const url = process.env.DATABASE_URL ?? "";
@@ -44,7 +44,7 @@ async function main() {
 
   step("reset database");
   await db.execute(sql`truncate table assets, automation_runs, batches, characters, cost_entries, insights, integrations,
-    login_attempts, post_metrics, posts, premium_clips, render_jobs, renders, scripts, settings, social_accounts, users restart identity cascade`);
+    login_attempts, montages, post_metrics, posts, premium_clips, render_jobs, renders, scripts, settings, social_accounts, users restart identity cascade`);
 
   await seedFakeIntegrations(false);
   for (const k of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "TELEGRAM_BOT_TOKEN"]) delete process.env[k]; // keys come from the vault only
@@ -172,6 +172,57 @@ async function main() {
     assert.ok(r.durationMs >= 8000 && r.durationMs <= 15600, `premium duration ${r.durationMs}`);
   }
   console.log(`  ${videoRenders.length} premium/derivative reels, QC: ${JSON.stringify(countBy(videoRenders.map(r => r.qcStatus)))}`);
+
+  step("montage: premium clip + free B-roll (fake Pexels) -> preview -> queued final render supersedes the automatic reel");
+  const { buildDefaultSpec, renderMontageProject, savePreview } = await import("../services/montages");
+  const { searchStockVideos, importStockVideo } = await import("../services/stock");
+  const { enqueueMontage } = await import("../worker/jobs");
+  const premiumScript = all.find(s => s.id === clip.scriptId)!;
+  const [premiumChar] = await db.select().from(characters).where(eq(characters.id, premiumScript.characterId));
+  const [freshScript] = await db.select().from(scripts).where(eq(scripts.id, premiumScript.id));
+  const spec = await buildDefaultSpec(freshScript, premiumChar);
+  assert.equal(spec.segments.length, 1, "default montage starts from the premium clip");
+  assert.equal(spec.voice.source, "segments");
+  assert.ok((spec.segments[0] as { words?: unknown[] }).words?.length, "clip transcript carried into the spec");
+  const stock = await searchStockVideos("garden sunrise");
+  assert.equal(stock.items.length, 2, "fake Pexels returns portrait clips");
+  assert.ok(stock.items[0].credit.startsWith("Video by"), "credit line kept for attribution");
+  const imported = await importStockVideo(stock.items[0], { characterId: premiumScript.characterId, query: "garden sunrise", userId: null });
+  assert.equal(imported.asset.kind, "broll");
+  assert.equal(imported.asset.meta?.source, "pexels");
+  assert.equal((await importStockVideo(stock.items[0], { characterId: null, query: "garden sunrise", userId: null })).reused, true, "same stock clip is not downloaded twice");
+  spec.segments.push({ id: "broll1", kind: "video", src: imported.asset.url, assetId: imported.asset.id, label: "B-roll", credit: imported.asset.meta?.credit, in: 0, out: 3, muted: true });
+  spec.transition = { type: "fade", duration: 0.4 };
+  spec.captions = { style: "boxed", position: "bottom" };
+  const [mrow] = await db.insert(montages).values({ scriptId: premiumScript.id, characterId: premiumScript.characterId, title: "مونتاج تجريبي", spec }).returning({ id: montages.id });
+  const preview = await renderMontageProject(mrow.id, { preview: true });
+  assert.equal(preview.out.width, 540, "preview is rendered at half size");
+  assert.ok(preview.out.hasCaptions, "captions come from the clip transcript");
+  const saved = await savePreview(mrow.id, preview.out);
+  assert.ok(objects.has(saved.key), "preview stored");
+  const premiumRenderBefore = videoRenders.find(r => r.scriptId === premiumScript.id)!;
+  assert.ok(premiumRenderBefore, "the automatic premium render exists before the montage");
+  const q = await enqueueMontage(mrow.id);
+  assert.equal(q.already, false);
+  assert.equal((await enqueueMontage(mrow.id)).already, true, "a live montage job is not duplicated");
+  assert.equal(await enqueueReadyScripts(), 0, "montage jobs do not block or duplicate automatic renders");
+  const mr = await drainQueue(1);
+  assert.equal(mr.failed, 0, "montage render succeeded");
+  assert.equal(mr.done, 1);
+  const [mdone] = await db.select().from(montages).where(eq(montages.id, mrow.id));
+  assert.equal(mdone.status, "rendered");
+  const [mrender] = await db.select().from(renders).where(eq(renders.id, mdone.renderId!));
+  assert.equal(mrender.kind, "montage");
+  assert.equal(mrender.width, 1080);
+  // 8s clip (real length probed) + 3s b-roll - 0.4s overlap + 2.6s CTA tail
+  assert.ok(mrender.durationMs >= 12500 && mrender.durationMs <= 14000, `montage duration ${mrender.durationMs}`);
+  assert.equal((mrender.settings as { clips?: number }).clips, 2, "settings describe the edit");
+  const [oldRender] = await db.select().from(renders).where(eq(renders.id, premiumRenderBefore.id));
+  assert.equal(oldRender.qcStatus, "rejected", "the automatic reel is superseded by the montage");
+  assert.ok(oldRender.reviewNotes?.includes("المونتاج"));
+  const brollAssets = await db.select().from(assets).where(eq(assets.kind, "broll"));
+  assert.equal(brollAssets.length, 1);
+  console.log(`  montage #${mrow.id}: ${spec.segments.length} segments, render #${mrender.id} (${mrender.qcStatus}, ${(mrender.durationMs / 1000).toFixed(1)}s), superseded render #${oldRender.id}`);
 
   step("autopilot tick (lease + full loop, nothing left to do)");
   await autopilotTick(new Date());

@@ -20,6 +20,7 @@ export type UploadKind =
   | "render"
   | "thumbnail"
   | "voice"
+  | "broll"
   | "other";
 
 export type UploadResult = { id: number; url: string; key: string; size: number };

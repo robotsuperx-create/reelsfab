@@ -25,16 +25,29 @@ guarded by a lease row in `settings` so only one instance works at a time:
 Cost: economic reels cost only LLM tokens (voice and render are local). Character reference images must be uploaded in Supabase Storage (the nine Character Bible portraits ship in `assets/characters/` and are uploaded to Supabase Storage automatically on first start; Shelly's spec is in `shelly.md` and her image is added manually).
 Note: Kokoro downloads its model from Hugging Face on first use; this was not testable in the build sandbox (blocked), so the render tests use `TTS_PROVIDER=test`.
 
+## Montage studio (free, server-side)
+
+`/montage` is an edit room on top of the same ffmpeg engine. A project starts from a script — its Higgsfield clip with the
+transcript, or the character's stills with Kokoro narration — and its edit is a declarative spec (`shared/montage.ts`,
+the same idea as Editly's JSON edits): video/still segments with trims and Ken Burns motions, `xfade` transitions,
+three caption styles (karaoke / classic / boxed), a music bed ducked under the voice with `sidechaincompress`, hook and
+CTA card. "Quick preview" renders 540×960 synchronously; "Final render" goes through `render_jobs` (`montageId`), lands
+in QC as a `montage` render and supersedes the script's automatic reel so the scheduler never posts both.
+
+Free B-roll comes from Pexels (API key in the Integrations page; 200 requests/hour): portrait clips are imported into
+the library as `broll` assets with the videographer credit in `assets.meta`, and the editor shows the required
+"Videos provided by Pexels" link.
+
 ## Runtime services
 
-Every service key (Claude, OpenAI, Gemini, Higgsfield, ElevenLabs, Instagram/Meta, TikTok, YouTube, Telegram) is entered in the Integrations page and stored encrypted with `INTEGRATION_ENCRYPTION_KEY` — `.env` holds infrastructure only. Text generation uses Claude by default, transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
+Every service key (Claude, OpenAI, Gemini, Higgsfield, ElevenLabs, Instagram/Meta, TikTok, YouTube, Telegram, Pexels) is entered in the Integrations page and stored encrypted with `INTEGRATION_ENCRYPTION_KEY` — `.env` holds infrastructure only. Text generation uses Claude by default, transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
 
 ## Full-cycle test
 
-`pnpm e2e` runs the whole studio against a throwaway local Postgres with every external service (Claude, Supabase Storage, Instagram) faked at the network boundary: seed + reference images → daily batch → render queue (real ffmpeg) → QC → scheduling (connected platforms only) → concurrent publishing (no double posts) → autopilot tick. It refuses to run unless `DATABASE_URL` points at localhost.
+`pnpm e2e` runs the whole studio against a throwaway local Postgres with every external service (Claude, Supabase Storage, Instagram) faked at the network boundary: seed + reference images → daily batch → render queue (real ffmpeg) → QC → scheduling (connected platforms only) → concurrent publishing (no double posts) → premium clip pipeline → montage (fake Pexels B-roll, preview, queued final render that supersedes the automatic reel) → autopilot tick. It refuses to run unless `DATABASE_URL` points at localhost.
 
 ```
-createdb reelsfab_e2e && psql reelsfab_e2e -f drizzle/supabase/0000_*.sql -f drizzle/supabase/0001_*.sql
+createdb reelsfab_e2e && psql reelsfab_e2e -f drizzle/supabase/0000_*.sql -f drizzle/supabase/0001_*.sql -f drizzle/supabase/0002_*.sql
 DATABASE_URL=postgres://postgres@127.0.0.1:5432/reelsfab_e2e pnpm e2e
 ```
 

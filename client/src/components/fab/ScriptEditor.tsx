@@ -20,7 +20,7 @@ import {
   WORDS_TARGET_MIN,
   type TemplateKey,
 } from "@shared/domain";
-import { Clapperboard, RefreshCw, Save, Wand2 } from "lucide-react";
+import { Clapperboard, RefreshCw, Save, Wand2, Scissors } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -284,6 +284,11 @@ export default function ScriptEditor({ script, open, onOpenChange }: { script: S
                 </Link>
               </Button>
             ) : null}
+            <Button asChild variant="outline">
+              <Link href={`/montage/from/${script.id}`}>
+                <Scissors /> مونتاج
+              </Link>
+            </Button>
           </div>
         </div>
       </SheetContent>

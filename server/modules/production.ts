@@ -1,3 +1,4 @@
+import { probeBufferDurationMs } from "../worker/media";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -77,8 +78,10 @@ export const premiumRouter = router({
     if (result.status === "completed" && result.video?.url) {
       const video = await fetch(result.video.url);
       if (!video.ok) throw new TRPCError({ code: "BAD_GATEWAY", message: "تعذر تنزيل فيديو Higgsfield" });
-      const stored = await storagePut(`premium/${clip.characterId}/clip-${clip.id}.mp4`, Buffer.from(await video.arrayBuffer()), "video/mp4");
-      await db.update(premiumClips).set({ status: "received", videoUrl: stored.url, durationMs: 15000, providerError: null, completedAt: new Date() }).where(eq(premiumClips.id, clip.id));
+      const buf = Buffer.from(await video.arrayBuffer());
+      const stored = await storagePut(`premium/${clip.characterId}/clip-${clip.id}.mp4`, buf, "video/mp4");
+      const durationMs = await probeBufferDurationMs(buf, 15000);
+      await db.update(premiumClips).set({ status: "received", videoUrl: stored.url, durationMs, providerError: null, completedAt: new Date() }).where(eq(premiumClips.id, clip.id));
       await db.update(scripts).set({ status: "premium_uploaded" }).where(eq(scripts.id, clip.scriptId));
       return { status: "received", videoUrl: stored.url };
     }

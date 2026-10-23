@@ -17,6 +17,7 @@ const providers = [
   ["tiktok", "TikTok API", "النشر · التحليلات"],
   ["youtube", "YouTube Data API", "النشر · التحليلات"],
   ["telegram", "Telegram", "إشعارات المالك"],
+  ["pexels", "Pexels (مجاني)", "لقطات B-roll مجانية للمونتاج"],
   ["custom", "Custom API", "موصل قابل للتخصيص"],
 ] as const;
 /** Fields each service needs, pre-filled in the form so nothing has to live in .env. */
@@ -30,6 +31,7 @@ const providerFields: Record<string, string[]> = {
   tiktok: ["clientId", "clientSecret"],
   youtube: ["clientId", "clientSecret"],
   telegram: ["botToken", "chatId"],
+  pexels: ["apiKey"],
   custom: ["apiKey", "testUrl"],
 };
 const capabilities = ["text", "review", "image", "video", "voice", "transcription", "social_publish", "analytics", "storage"] as const;
@@ -43,7 +45,7 @@ export default function IntegrationsPage() {
   const test = trpc.integrations.test.useMutation({ onSuccess: r => { utils.integrations.list.invalidate(); r.ok ? toast.success("تم الاتصال بنجاح") : toast.error(r.message); } });
   const remove = trpc.integrations.remove.useMutation({ onSuccess: () => { utils.integrations.list.invalidate(); toast.success("تم حذف التكامل"); } });
   const [form, setForm] = useState<{ id?: number; provider: Provider; label: string; capabilities: string[]; config: Record<string, string> } | null>(null);
-  const start = (provider: Provider, existing?: any) => setForm({ id: existing?.id, provider, label: existing?.label ?? providers.find(p => p[0] === provider)?.[1] ?? provider, capabilities: existing?.capabilities ?? [provider === "higgsfield" ? "video" : provider === "elevenlabs" ? "voice" : provider === "instagram" || provider === "tiktok" || provider === "youtube" ? "social_publish" : provider === "telegram" ? "analytics" : "text"], config: existing ? {} : Object.fromEntries((providerFields[provider] ?? ["apiKey"]).map(k => [k, ""])) });
+  const start = (provider: Provider, existing?: any) => setForm({ id: existing?.id, provider, label: existing?.label ?? providers.find(p => p[0] === provider)?.[1] ?? provider, capabilities: existing?.capabilities ?? [provider === "higgsfield" ? "video" : provider === "elevenlabs" ? "voice" : provider === "instagram" || provider === "tiktok" || provider === "youtube" ? "social_publish" : provider === "telegram" ? "analytics" : provider === "pexels" ? "storage" : "text"], config: existing ? {} : Object.fromEntries((providerFields[provider] ?? ["apiKey"]).map(k => [k, ""])) });
   const selected = providers.find(p => p[0] === form?.provider);
   return <div>
     <PageHeader kicker="CONTROL PLANE · INTEGRATIONS" title="مركز التكاملات" subtitle="خزنة واحدة مشفرة لكل مزودي الذكاء والصوت والصور والفيديو ومنصات النشر. القيم السرية لا تظهر في الواجهة ولا تُعاد من الخادم." actions={<Button onClick={() => start("openai")}><Plus /> إضافة تكامل</Button>} />

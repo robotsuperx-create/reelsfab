@@ -15,6 +15,7 @@ const KIND_LABELS: Record<Kind, string> = {
   music: "موسيقى",
   voice: "أصوات",
   premium_video: "فيديوهات Premium",
+  broll: "لقطات B-roll",
   render: "ريلات مُصدّرة",
   thumbnail: "صور مصغرة",
   other: "أخرى",
@@ -24,9 +25,10 @@ const ACCEPT: Partial<Record<Kind, string>> = {
   background: "image/*",
   music: "audio/*",
   voice: "audio/*",
+  broll: "video/mp4,video/webm,video/quicktime",
   other: "*/*",
 };
-const UPLOADABLE: Kind[] = ["character_image", "background", "music", "voice", "other"];
+const UPLOADABLE: Kind[] = ["character_image", "background", "music", "voice", "broll", "other"];
 
 function fmtSize(b?: number | null) {
   if (!b) return "";
@@ -91,7 +93,7 @@ export default function Library() {
   const canUpload = UPLOADABLE.includes(kind);
   const isImage = kind === "character_image" || kind === "background" || kind === "thumbnail";
   const isAudio = kind === "music" || kind === "voice";
-  const isVideo = kind === "premium_video" || kind === "render";
+  const isVideo = kind === "premium_video" || kind === "render" || kind === "broll";
 
   return (
     <div>
@@ -138,7 +140,7 @@ export default function Library() {
         <div className="text-sm text-muted-foreground">جارٍ التحميل…</div>
       ) : rows.length === 0 ? (
         <EmptyBlock title={`لا توجد ${KIND_LABELS[kind]}`}>
-          {canUpload ? "ارفع ملفات من الزر أعلاه. اختر شخصية من القائمة قبل الرفع لربط الملفات بها مباشرة." : "تظهر هنا تلقائيًا عند الرفع أو الرندر."}
+          {kind === "broll" ? "ارفع مقاطع فيديو قصيرة من هنا، أو ابحث في Pexels من صفحة المونتاج وستُحفظ هنا تلقائيًا." : canUpload ? "ارفع ملفات من الزر أعلاه. اختر شخصية من القائمة قبل الرفع لربط الملفات بها مباشرة." : "تظهر هنا تلقائيًا عند الرفع أو الرندر."}
         </EmptyBlock>
       ) : (
         <div className={isImage || isVideo ? "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-7" : "panel divide-y"}>
@@ -182,6 +184,11 @@ export default function Library() {
                   <div className="timecode text-[10px] text-muted-foreground">
                     {a.width && a.height ? `${a.width}×${a.height}` : ""} {fmtSize(a.sizeBytes)}
                   </div>
+                  {a.meta?.credit && (
+                    <a href={a.meta.sourceUrl ?? "https://www.pexels.com"} target="_blank" rel="noreferrer" dir="ltr" className="truncate text-left text-[10px] text-muted-foreground hover:text-tally" title={a.meta.credit}>
+                      {a.meta.credit}
+                    </a>
+                  )}
                   <div className="flex items-center gap-0.5">
                     {kind === "character_image" && (
                       <Button size="icon-sm" variant="ghost" title="اجعلها صورة مرجعية" onClick={() => makeReference(a.url, a.characterId)}>

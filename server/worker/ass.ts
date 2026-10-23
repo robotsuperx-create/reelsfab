@@ -1,5 +1,8 @@
 /** Builds the ASS subtitle script (hook, word-by-word captions, AI badge, CTA card) for a reel. */
 
+export type CaptionStyle = "karaoke" | "classic" | "boxed" | "none";
+export type CaptionPosition = "bottom" | "center";
+
 export type AssInput = {
   words: { word: string; start: number; end: number }[];
   hook: string | null;
@@ -8,6 +11,11 @@ export type AssInput = {
   durationSec: number;
   font: string;
   colors: { primary: string; accent: string; text: string };
+  /** Caption look; "karaoke" (active word in the accent colour) is the studio default. */
+  captionStyle?: CaptionStyle;
+  captionPosition?: CaptionPosition;
+  /** Length of the CTA card at the end (default 2.6s). */
+  ctaSeconds?: number;
 };
 
 /** "#RRGGBB" -> ASS "&HBBGGRR&" (alpha handled separately). */
@@ -49,12 +57,42 @@ export function wordTimings(text: string, start: number, duration: number) {
 
 const CTA_SECONDS = 2.6;
 
+/** Groups caption words into display chunks: 3 for word-by-word styles, up to 5 (or a sentence end) for classic. */
+export function chunkWords<T extends { word: string }>(words: T[], style: CaptionStyle) {
+  const groups: T[][] = [];
+  if (style === "classic") {
+    let cur: T[] = [];
+    for (const w of words) {
+      cur.push(w);
+      if (cur.length >= 5 || /[.!?]$/.test(w.word)) {
+        groups.push(cur);
+        cur = [];
+      }
+    }
+    if (cur.length) groups.push(cur);
+    return groups;
+  }
+  for (let g = 0; g < words.length; g += 3) groups.push(words.slice(g, g + 3));
+  return groups;
+}
+
 export function buildAss(input: AssInput) {
   const { colors, font } = input;
+  const style = input.captionStyle ?? "karaoke";
+  const position = input.captionPosition ?? "bottom";
+  const ctaSeconds = input.ctaSeconds ?? CTA_SECONDS;
   const accent = assColor(colors.accent, "#DFFF00");
   const text = assColor(colors.text, "#FFFFFF");
   const primary = assColor(colors.primary, "#000000");
   const safeFont = assEscape(font) || "DejaVu Sans";
+  // Alignment 2 = bottom centre with a margin above the platform UI; 5 = dead centre.
+  const place = position === "center" ? "5,60,60,0" : "2,60,60,430";
+  const capStyle =
+    style === "boxed"
+      ? `Style: Cap,${safeFont},80,${text},${text},${primary},${primary},-1,0,0,0,100,100,0,0,3,18,0,${place},1`
+      : style === "classic"
+        ? `Style: Cap,${safeFont},76,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,6,2,${place},1`
+        : `Style: Cap,${safeFont},86,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,7,2,${place},1`;
   const lines: string[] = [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -65,7 +103,7 @@ export function buildAss(input: AssInput) {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Cap,${safeFont},86,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,7,2,2,60,60,430,1`,
+    capStyle,
     `Style: Hook,${safeFont},74,${text},${text},&H00000000&,&H96000000&,-1,0,0,0,100,100,0,0,1,6,3,8,70,70,250,1`,
     `Style: Badge,${safeFont},32,${text},${text},&H00000000&,&H78000000&,-1,0,0,0,100,100,1,0,3,10,0,7,40,40,56,1`,
     `Style: Cta,${safeFont},68,${primary},${primary},${accent},${accent},-1,0,0,0,100,100,0,0,3,26,0,2,60,60,200,1`,
@@ -83,11 +121,18 @@ export function buildAss(input: AssInput) {
   // Hook text for the opening seconds.
   if (input.hook) push("Hook", 0, Math.min(3.2, dur), `{\\fad(150,250)}${assEscape(input.hook).toUpperCase()}`, 2);
 
-  // Word-by-word captions in groups of three; the active word takes the accent colour.
-  const ctaStart = Math.max(0, dur - CTA_SECONDS);
-  const words = input.words.filter(w => w.word.trim());
-  for (let g = 0; g < words.length; g += 3) {
-    const group = words.slice(g, g + 3);
+  // Captions: word-by-word styles light the active word in the accent colour; classic shows whole phrases.
+  const ctaStart = Math.max(0, dur - ctaSeconds);
+  const words = style === "none" ? [] : input.words.filter(w => w.word.trim());
+  const capEnd = input.cta ? ctaStart : dur;
+  for (const group of chunkWords(words, style)) {
+    if (style === "classic") {
+      const start = group[0].start;
+      const end = Math.max(group[group.length - 1].end, start + 0.3);
+      if (start >= ctaStart && input.cta) continue;
+      push("Cap", start, Math.min(end, capEnd), group.map(x => assEscape(x.word)).join(" "), 1);
+      continue;
+    }
     group.forEach((w, i) => {
       const start = w.start;
       const end = i === group.length - 1 ? Math.max(w.end, start + 0.12) : group[i + 1].start;
@@ -95,7 +140,7 @@ export function buildAss(input: AssInput) {
       const body = group
         .map((x, k) => (k === i ? `{\\c${accent}}${assEscape(x.word)}{\\c${text}}` : assEscape(x.word)))
         .join(" ");
-      push("Cap", start, Math.min(end, input.cta ? ctaStart : dur), body, 1);
+      push("Cap", start, Math.min(end, capEnd), body, 1);
     });
   }
 

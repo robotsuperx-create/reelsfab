@@ -18,6 +18,7 @@ const ASSET_KINDS = [
   "render",
   "thumbnail",
   "voice",
+  "broll",
   "other",
 ] as const;
 type AssetKind = (typeof ASSET_KINDS)[number];

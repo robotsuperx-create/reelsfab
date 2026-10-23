@@ -37,6 +37,8 @@ export function buildHiggsfieldPrompt(c: CharacterLike, s: ScriptLike) {
 }
 
 export type QcInput = {
+  /** Montage reels may run longer than the 15-second automatic reels. */
+  kind?: "economic" | "derivative" | "premium" | "montage";
   durationMs: number;
   width: number;
   height: number;
@@ -54,12 +56,15 @@ export function evaluateQc(input: QcInput) {
   const checks: QcCheckOut[] = [];
   const sec = input.durationMs / 1000;
   const videoBased = input.script.track === "derivative" || input.script.track === "premium";
-  // Higgsfield clips are often 8–10s; video-based reels are clip + CTA card (max 15s).
+  // Higgsfield clips are often 8–10s; video-based reels are clip + CTA card (max 15s). Montages may run to 60s.
   const minOk = videoBased ? 8 : 13;
+  const montage = input.kind === "montage";
   checks.push({
     key: "duration",
-    label: videoBased ? "المدة 8–15.5 ثانية (فيديو Premium)" : "المدة 13–15.5 ثانية",
-    status: sec >= minOk && sec <= 15.6 ? "pass" : sec >= 5 && sec <= 20 ? "warn" : "fail",
+    label: montage ? "المدة 8–60 ثانية (مونتاج)" : videoBased ? "المدة 8–15.5 ثانية (فيديو Premium)" : "المدة 13–15.5 ثانية",
+    status: montage
+      ? sec >= 8 && sec <= 60 ? "pass" : sec >= 5 && sec <= 90 ? "warn" : "fail"
+      : sec >= minOk && sec <= 15.6 ? "pass" : sec >= 5 && sec <= 20 ? "warn" : "fail",
     detail: `${sec.toFixed(2)}s`,
   });
   const vertical = input.height > input.width;

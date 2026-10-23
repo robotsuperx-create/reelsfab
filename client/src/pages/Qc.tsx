@@ -5,8 +5,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { downloadUrl } from "@/lib/api";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import { Check, Download, Eye, Trash2, X, AlertTriangle } from "lucide-react";
+import { Check, Download, Eye, Scissors, Trash2, X, AlertTriangle } from "lucide-react";
 import { useState } from "react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 import { CharacterAvatar, EmptyBlock, PageHeader, StatusTally, TrackBadge, useCharacterMap, type RouterOutputs } from "@/components/fab/common";
 
@@ -98,6 +99,9 @@ function RenderCard({ row }: { row: Row }) {
           </Button>
           <Button size="icon-sm" variant="ghost" title="تنزيل" onClick={() => downloadUrl(r.videoUrl, `${c?.slug ?? "reel"}-${r.scriptId}-${r.id}.mp4`)}>
             <Download />
+          </Button>
+          <Button asChild size="icon-sm" variant="ghost" title="افتح في غرفة المونتاج">
+            <Link href={`/montage/from/${r.scriptId}`} aria-label="افتح في غرفة المونتاج"><Scissors /></Link>
           </Button>
           <Button
             size="icon-sm"

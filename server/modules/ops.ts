@@ -42,7 +42,7 @@ export const teamRouter = router({
   access: protectedProcedure.query(({ ctx }) => ({ role: ctx.user.role, approved: ctx.user.role !== "user" })),
 });
 
-const ASSET_KINDS = ["character_image", "background", "music", "premium_video", "render", "thumbnail", "voice", "other"] as const;
+const ASSET_KINDS = ["character_image", "background", "music", "premium_video", "render", "thumbnail", "voice", "broll", "other"] as const;
 
 export const assetsRouter = router({
   list: memberProcedure

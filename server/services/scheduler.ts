@@ -24,9 +24,11 @@ export async function autoFillSchedule(opts: {
   const db = await requireDb();
   const s = await getSettings();
   const scheduled = await db
-    .select({ renderId: posts.renderId, characterId: posts.characterId, scheduledAt: posts.scheduledAt })
+    .select({ renderId: posts.renderId, scriptId: posts.scriptId, characterId: posts.characterId, scheduledAt: posts.scheduledAt })
     .from(posts);
   const used = new Set(scheduled.map(p => p.renderId));
+  // A script is posted once even when it has several renders (automatic reel + montage version).
+  const usedScripts = new Set(scheduled.map(p => p.scriptId));
   const taken = new Set(scheduled.map(p => `${p.characterId}|${p.scheduledAt.toISOString()}`));
   const approved = await db
     .select({ render: renders, script: scripts })
@@ -36,7 +38,8 @@ export async function autoFillSchedule(opts: {
     .orderBy(asc(renders.id));
   const queue = new Map<number, typeof approved>();
   for (const row of approved) {
-    if (used.has(row.render.id)) continue;
+    if (used.has(row.render.id) || usedScripts.has(row.script.id)) continue;
+    usedScripts.add(row.script.id);
     const list = queue.get(row.render.characterId) ?? [];
     list.push(row);
     queue.set(row.render.characterId, list);

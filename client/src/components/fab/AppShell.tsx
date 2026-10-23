@@ -11,6 +11,7 @@ import {
   CalendarClock,
   Clapperboard,
   Coins,
+  Scissors,
   FolderOpen,
   Gauge,
   Layers,
@@ -30,13 +31,6 @@ import { Link, useLocation } from "wouter";
 import { Logo } from "./common";
 import { BRAND_PORTRAITS, ReelWall } from "./ReelWall";
 
-/** Short names for the vertical rail (the full names stay in the mobile menu). */
-const RAIL_LABEL: Record<string, string> = {
-  "/": "التحكم", "/characters": "الشخصيات", "/scripts": "النصوص", "/premium": "Premium", "/studio": "الاستوديو",
-  "/render": "الرندر", "/qc": "الجودة", "/calendar": "التقويم", "/analytics": "التحليلات", "/library": "المكتبة",
-  "/costs": "التكلفة", "/automation": "الآلي", "/settings": "الإعدادات", "/integrations": "التكاملات",
-};
-
 const NAV: { group: string; items: { href: string; label: string; icon: typeof Gauge }[] }[] = [
   {
     group: "الإنتاج",
@@ -47,6 +41,7 @@ const NAV: { group: string; items: { href: string; label: string; icon: typeof G
       { href: "/premium", label: "مركز Higgsfield", icon: Sparkles },
       { href: "/studio", label: "الاستوديو الاقتصادي", icon: Clapperboard },
       { href: "/render", label: "الرندر الجماعي", icon: Layers },
+      { href: "/montage", label: "غرفة المونتاج", icon: Scissors },
     ],
   },
   {
@@ -72,11 +67,11 @@ const NAV: { group: string; items: { href: string; label: string; icon: typeof G
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const [loc] = useLocation();
   return (
-    <nav className="flex flex-col gap-5">
+    <nav className="flex flex-col gap-6" aria-label="التنقل الرئيسي">
       {NAV.map(g => (
         <div key={g.group}>
-          <div className="mb-1.5 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">{g.group}</div>
-          <div className="flex flex-col gap-0.5">
+          <div className="mb-2 px-3 text-[11.5px] font-medium text-muted-foreground/70">{g.group}</div>
+          <div className="flex flex-col gap-1">
             {g.items.map(it => {
               const active = it.href === "/" ? loc === "/" : loc.startsWith(it.href);
               const Icon = it.icon;
@@ -85,14 +80,15 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                   key={it.href}
                   href={it.href}
                   onClick={onNavigate}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
-                    "group relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                    "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] leading-none transition-colors focus-visible:outline-2 focus-visible:outline-tally",
                     active ? "bg-sidebar-accent text-foreground" : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-foreground",
                   )}
                 >
-                  {active && <span className="absolute inset-y-1.5 right-0 w-[3px] rounded-full bg-tally" />}
-                  <Icon className={cn("size-4", active ? "text-tally" : "text-muted-foreground group-hover:text-foreground")} />
-                  {it.label}
+                  {active && <span className="absolute inset-y-2 right-0 w-[3px] rounded-full bg-tally" />}
+                  <Icon className={cn("size-[22px] shrink-0", active ? "text-tally" : "text-muted-foreground group-hover:text-foreground")} strokeWidth={active ? 2.2 : 1.9} />
+                  <span className="truncate">{it.label}</span>
                 </Link>
               );
             })}
@@ -103,38 +99,18 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+/** Desktop sidebar: full names with large icons. */
 function Rail() {
-  const [loc] = useLocation();
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 hidden w-[88px] flex-col items-center border-l border-sidebar-border bg-sidebar py-4 lg:flex">
-      <Link href="/" aria-label="غرفة التحكم">
-        <Logo compact />
-      </Link>
-      <nav className="mt-6 flex w-full flex-1 flex-col items-center gap-4 overflow-y-auto px-2 pb-4" aria-label="التنقل الرئيسي">
-        {NAV.map((g, gi) => (
-          <div key={g.group} className={cn("flex w-full flex-col items-center gap-1", gi > 0 && "border-t border-sidebar-border pt-4")}>
-            {g.items.map(it => {
-              const active = it.href === "/" ? loc === "/" : loc.startsWith(it.href);
-              const Icon = it.icon;
-              return (
-                <Link
-                  key={it.href}
-                  href={it.href}
-                  title={it.label}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "group flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10.5px] leading-none transition-colors focus-visible:outline-2 focus-visible:outline-tally",
-                    active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-                  )}
-                >
-                  <Icon className={cn("size-[19px]", active && "text-tally")} strokeWidth={active ? 2.2 : 1.8} />
-                  <span className="max-w-full truncate">{RAIL_LABEL[it.href] ?? it.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        ))}
-      </nav>
+    <aside className="fixed inset-y-0 right-0 z-40 hidden w-[236px] flex-col border-l border-sidebar-border bg-sidebar lg:flex">
+      <div className="px-4 pb-3 pt-5">
+        <Link href="/" aria-label="غرفة التحكم" className="inline-flex">
+          <Logo />
+        </Link>
+      </div>
+      <div className="flex-1 overflow-y-auto px-2 pb-6">
+        <NavList />
+      </div>
     </aside>
   );
 }
@@ -353,7 +329,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <Gate>
       <div className="min-h-screen">
         <Rail />
-        <div className="lg:pr-[88px]">
+        <div className="lg:pr-[236px]">
           <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-background/85 backdrop-blur-xl">
             <div className="container flex h-16 items-center gap-3">
               <div className="lg:hidden">

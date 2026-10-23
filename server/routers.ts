@@ -22,6 +22,7 @@ import { characterGeneratorRouter } from "./modules/character-generator";
 import { socialAccountsRouter } from "./modules/social-accounts";
 import { integrationsRouter } from "./modules/integrations";
 import { mediaGenerationRouter } from "./modules/media-generation";
+import { montageRouter } from "./modules/montage";
 
 export const appRouter = router({
   // All APIs live under /api/ so the gateway routes them to the server.
@@ -65,6 +66,7 @@ export const appRouter = router({
   batches: batchesRouter,
   premium: premiumRouter,
   renders: rendersRouter,
+  montage: montageRouter,
   posts: postsRouter,
   analytics: analyticsRouter,
   assets: assetsRouter,

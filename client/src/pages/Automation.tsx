@@ -79,9 +79,9 @@ export default function Automation() {
 
       <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="panel">
-          <div className="flex items-center justify-between border-b p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
             <h2 className="text-sm font-semibold">طابور الرندر</h2>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Tally tone={workerTone} label={workerLabel} live={workerTone === "go"} />
               {(q.failed ?? 0) > 0 && (
                 <Button size="sm" variant="outline" onClick={() => retry.mutate()} disabled={retry.isPending}>
