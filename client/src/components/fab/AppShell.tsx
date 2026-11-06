@@ -27,10 +27,51 @@ import {
   Cable,
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Logo } from "./common";
 import { BRAND_PORTRAITS, ReelWall } from "./ReelWall";
+
+type DbHealth = { db: "ok" | "down" | "unconfigured"; dbHint?: string; dbPaused?: boolean };
+
+/** Polls /api/health and explains a dead database in plain words (a paused Supabase project is the usual reason). */
+function DatabaseBanner() {
+  const [health, setHealth] = useState<DbHealth | null>(null);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const r = await fetch("/api/health", { cache: "no-store" });
+        const j = (await r.json()) as DbHealth;
+        if (!stopped) setHealth(j);
+        if (!stopped) timer = setTimeout(poll, j.db === "ok" ? 90_000 : 20_000);
+      } catch {
+        if (!stopped) timer = setTimeout(poll, 20_000);
+      }
+    };
+    void poll();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+  }, []);
+  if (!health || health.db === "ok") return null;
+  return (
+    <div role="alert" className="border-b border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-[13px] leading-6 text-amber-100">
+      <div className="container flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-semibold text-amber-300">قاعدة البيانات لا تستجيب.</span>
+        {health.db === "unconfigured" ? (
+          <span>لم يُضبط الاتصال بعد — <a className="underline" href="/setup">افتح صفحة الإعداد الأول</a>.</span>
+        ) : health.dbPaused ? (
+          <span>
+            غالبًا مشروع Supabase <b>متوقف (Paused)</b> في الخطة المجانية.{" "}
+            <a className="underline" href="https://supabase.com/dashboard/projects" target="_blank" rel="noreferrer">افتح لوحة Supabase</a> واضغط <b>Restore project</b>؛ يعود التطبيق للعمل وحده خلال دقيقة دون إعادة تشغيل.
+          </span>
+        ) : (
+          <span dir="ltr" className="font-mono text-[12px] text-amber-200/80">{health.dbHint?.split("\n")[0]}</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const NAV: { group: string; items: { href: string; label: string; icon: typeof Gauge }[] }[] = [
   {
@@ -212,6 +253,8 @@ function Gate({ children }: { children: ReactNode }) {
   }
   if (!user) {
     return (
+      <div className="min-h-screen">
+      <DatabaseBanner />
       <div className="grid min-h-screen lg:grid-cols-[minmax(400px,480px)_1fr]">
         <div className="flex items-center justify-center px-6 py-10 sm:px-10">
         <div className="w-full max-w-sm">
@@ -302,6 +345,7 @@ function Gate({ children }: { children: ReactNode }) {
           <div className="pointer-events-none absolute inset-y-0 left-0 w-56 bg-gradient-to-r from-background to-transparent" />
         </div>
       </div>
+      </div>
     );
   }
   if (access.data && !access.data.approved) {
@@ -332,6 +376,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="min-h-screen">
         <Rail />
         <div className="lg:pr-[236px]">
+          <DatabaseBanner />
           <header className="sticky top-0 z-30 border-b border-white/[0.07] bg-background/85 backdrop-blur-xl">
             <div className="container flex h-16 items-center gap-3">
               <div className="lg:hidden">

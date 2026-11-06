@@ -160,16 +160,27 @@ export async function saveSettings(patch: Partial<AppSettings>) {
   return getSettings();
 }
 
+/** Where the first-run setup page lives on this machine (the port is whatever the server was started with). */
+export const setupUrl = () => `http://localhost:${process.env.PORT || "3000"}/setup`;
+
+/** True when the failure looks like a paused Supabase project (the pooler forgets the tenant and its DNS record disappears). */
+export function looksLikePausedProject(e: unknown) {
+  return /Tenant or user not found|XX000|ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(describeDbError(e));
+}
+
 /** Human-readable reason for a DB failure: drizzle hides the driver error in `cause`. */
 export function describeDbError(e: unknown): string {
   const err = e as { message?: string; cause?: { message?: string; code?: string } };
   const cause = err?.cause?.message ? ` — ${err.cause.message}${err.cause.code ? ` (${err.cause.code})` : ""}` : "";
   const msg = `${(err?.message ?? String(e)).split("\n")[0]}${cause}`;
   const hints: [RegExp, string][] = [
-    [/your-project|\[PASSWORD\]/i, "SUPABASE_DB_URL is still the .env.example template. Open http://localhost:3000/setup to configure it."],
-    [/password authentication failed|28P01/i, "Wrong database password in SUPABASE_DB_URL. Fix it at http://localhost:3000/setup"],
-    [/Tenant or user not found|XX000/i, "Wrong pooler user/region. Use the Session pooler URL from Supabase, or http://localhost:3000/setup"],
-    [/ENOTFOUND|EAI_AGAIN|getaddrinfo/i, "Database host not found (wrong URL or no internet)."],
+    [/your-project|\[PASSWORD\]/i, `SUPABASE_DB_URL is still the .env.example template. Open ${setupUrl()} to configure it.`],
+    [/password authentication failed|28P01/i, `Wrong database password in SUPABASE_DB_URL. Fix it at ${setupUrl()}`],
+    [
+      /Tenant or user not found|XX000/i,
+      `The pooler does not know this project: it is most likely PAUSED in Supabase (free plan) — open the Supabase dashboard and click "Restore project"; the app reconnects by itself. Otherwise the pooler region/user is wrong: use the Session pooler URL, or ${setupUrl()}`,
+    ],
+    [/ENOTFOUND|EAI_AGAIN|getaddrinfo/i, "Database host not found: the Supabase project is paused/deleted, the URL is wrong, or there is no internet."],
     [/ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|connect timeout/i, "Database unreachable: use the Session pooler URL instead of the direct one."],
     [/Invalid URL|ERR_INVALID_URL/i, "Invalid URL: URL-encode special characters in the password (@ -> %40, # -> %23, / -> %2F)."],
   ];

@@ -12,7 +12,8 @@ import { registerMetaRoutes } from "../routes/meta";
 import { rateLimit, securityHeaders } from "./security";
 import { startAutopilot } from "../worker/autopilot";
 import { registerSetupRoutes, setupComplete } from "./setup";
-import { describeDbError, ensureSeed } from "../db";
+import { sql } from "drizzle-orm";
+import { describeDbError, ensureSeed, getDb, looksLikePausedProject } from "../db";
 import { ensureSchemaUpgrades } from "../db-upgrades";
 
 async function startServer() {
@@ -25,7 +26,7 @@ async function startServer() {
   app.use("/api/upload", rateLimit({ windowMs: 60_000, max: 60 }));
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ limit: "2mb", extended: true }));
-  app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+  app.get("/api/health", async (_req, res) => res.set("Cache-Control", "no-store").json({ status: "ok", ...(await databaseHealth()) }));
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
@@ -56,11 +57,51 @@ async function startServer() {
     if (!setupComplete()) {
       console.log(`[setup] Configuration incomplete. Open http://localhost:${port}/setup on this computer to finish it.`);
     } else {
-      void ensureSchemaUpgrades()
-        .then(() => ensureSeed())
-        .catch(e => console.warn("[database]", describeDbError(e)));
+      void bootstrapDatabase();
     }
     startAutopilot(); });
+}
+
+/** Cached (15s) database probe for /api/health, so the UI can say "Supabase is paused" instead of failing quietly. */
+let healthCache: { at: number; value: { db: "ok" | "down" | "unconfigured"; dbHint?: string; dbPaused?: boolean } } | null = null;
+async function databaseHealth() {
+  if (healthCache && Date.now() - healthCache.at < 15_000) return healthCache.value;
+  let value: NonNullable<typeof healthCache>["value"];
+  if (!setupComplete()) value = { db: "unconfigured" };
+  else {
+    try {
+      const db = await getDb();
+      if (!db) value = { db: "unconfigured" };
+      else {
+        await Promise.race([db.execute(sql`select 1`), new Promise((_, reject) => setTimeout(() => reject(new Error("connect timeout")), 6_000))]);
+        value = { db: "ok" };
+      }
+    } catch (e) {
+      value = { db: "down", dbHint: describeDbError(e), dbPaused: looksLikePausedProject(e) };
+    }
+  }
+  healthCache = { at: Date.now(), value };
+  return value;
+}
+
+/**
+ * Schema upgrade + seed, retried with backoff until the database answers: a paused Supabase project that the
+ * owner restores while the app is running gets its tables and channels without a restart.
+ */
+async function bootstrapDatabase() {
+  const delays = [15_000, 30_000, 60_000, 120_000, 300_000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await ensureSchemaUpgrades();
+      await ensureSeed();
+      if (attempt) console.log("[database] connected — schema and seed are in place");
+      return;
+    } catch (e) {
+      const wait = delays[Math.min(attempt, delays.length - 1)];
+      console.warn(`[database] ${describeDbError(e)}\n  ↳ retrying in ${Math.round(wait / 1000)}s`);
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
 }
 
 startServer().catch(error => { console.error(error); process.exit(1); });
