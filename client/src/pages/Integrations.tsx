@@ -10,6 +10,7 @@ import { toast } from "sonner";
 const providers = [
   ["anthropic", "Claude / Anthropic", "كل النصوص: سكربتات الريلات والحلقات · المراجعة · بناء الشخصيات"],
   ["speech", "الصوت: OpenAI TTS أو خادم صوتك المستنسخ", "التعليق الصوتي العربي للحلقات (endpoint متوافق مع OpenAI /audio/speech)"],
+  ["fal", "صور الذكاء الاصطناعي (fal.ai)", "صور المشاهد والقنوات المرسومة: Muse Image بـ ~0.01$، FLUX بـ ~0.003$، Nano Banana 2.1 بـ ~0.04$"],
   ["openai", "OpenAI", "مفتاح OpenAI: يخدم الصوت والصور والتفريغ (النصوص على Claude)"],
   ["gemini", "Gemini / Google", "اختياري: Gemini TTS المجاني والصور"],
   ["higgsfield", "Higgsfield", "الفيديو Premium"],
@@ -27,6 +28,7 @@ const providerFields: Record<string, string[]> = {
   openai: ["apiKey"],
   anthropic: ["apiKey"],
   speech: ["baseUrl", "apiKey", "model", "format", "instructions", "extraJson"],
+  fal: ["apiKey", "standardModel", "draftModel", "premiumModel", "usdPerImage"],
   gemini: ["apiKey", "ttsModel"],
   higgsfield: ["apiKey", "apiSecret"],
   elevenlabs: ["apiKey"],
@@ -40,6 +42,11 @@ const providerFields: Record<string, string[]> = {
 };
 /** Hints for the non-secret fields (shown as placeholders). */
 const PLACEHOLDERS: Record<string, string> = {
+  "fal.apiKey": "key-id:key-secret من fal.ai/dashboard/keys",
+  "fal.standardModel": "meta/muse-image/text-to-image (الافتراضي)",
+  "fal.draftModel": "fal-ai/flux/schnell (الافتراضي)",
+  "fal.premiumModel": "google/nano-banana-2.1 (الافتراضي)",
+  "fal.usdPerImage": "سعر الصورة لنموذج غير معروف، مثل 0.02",
   "speech.baseUrl": "https://api.openai.com/v1 — أو عنوان خادمك مثل http://127.0.0.1:8000/v1",
   "speech.model": "gpt-4o-mini-tts (OpenAI) أو اسم النموذج في خادمك",
   "speech.format": "wav",
@@ -61,7 +68,7 @@ export default function IntegrationsPage() {
   const test = trpc.integrations.test.useMutation({ onSuccess: r => { utils.integrations.list.invalidate(); r.ok ? toast.success("تم الاتصال بنجاح") : toast.error(r.message); } });
   const remove = trpc.integrations.remove.useMutation({ onSuccess: () => { utils.integrations.list.invalidate(); toast.success("تم حذف التكامل"); } });
   const [form, setForm] = useState<{ id?: number; provider: Provider; label: string; capabilities: string[]; config: Record<string, string> } | null>(null);
-  const start = (provider: Provider, existing?: any) => setForm({ id: existing?.id, provider, label: existing?.label ?? providers.find(p => p[0] === provider)?.[1] ?? provider, capabilities: existing?.capabilities ?? [provider === "higgsfield" ? "video" : provider === "elevenlabs" ? "voice" : provider === "instagram" || provider === "tiktok" || provider === "youtube" ? "social_publish" : provider === "telegram" ? "analytics" : provider === "pexels" ? "storage" : provider === "speech" ? "voice" : provider === "ollama" ? "text" : "text"], config: existing ? {} : Object.fromEntries((providerFields[provider] ?? ["apiKey"]).map(k => [k, ""])) });
+  const start = (provider: Provider, existing?: any) => setForm({ id: existing?.id, provider, label: existing?.label ?? providers.find(p => p[0] === provider)?.[1] ?? provider, capabilities: existing?.capabilities ?? [provider === "higgsfield" ? "video" : provider === "elevenlabs" ? "voice" : provider === "instagram" || provider === "tiktok" || provider === "youtube" ? "social_publish" : provider === "telegram" ? "analytics" : provider === "pexels" ? "storage" : provider === "speech" ? "voice" : provider === "fal" ? "image" : provider === "ollama" ? "text" : "text"], config: existing ? {} : Object.fromEntries((providerFields[provider] ?? ["apiKey"]).map(k => [k, ""])) });
   const selected = providers.find(p => p[0] === form?.provider);
   return <div>
     <PageHeader kicker="CONTROL PLANE · INTEGRATIONS" title="مركز التكاملات" subtitle="خزنة واحدة مشفرة لكل مزودي الذكاء والصوت والصور والفيديو ومنصات النشر. القيم السرية لا تظهر في الواجهة ولا تُعاد من الخادم." actions={<Button onClick={() => start("anthropic")}><Plus /> إضافة تكامل</Button>} />

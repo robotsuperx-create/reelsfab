@@ -20,6 +20,8 @@ import { renderEpisode, type SceneSource } from "../worker/episode-render";
 import { synthesize } from "../worker/tts";
 import { callJson } from "./ai";
 import { importStockPhoto, importStockVideo, searchStockPhotos, searchStockVideos } from "./stock";
+import { generateImageAsset, imageProviderReady } from "./ai-images";
+import { imagePromptFor } from "../../shared/images";
 
 const WORDS_PER_MINUTE = { ar: 125, en: 150 } as const;
 const run = promisify(execFile);
@@ -46,6 +48,7 @@ const scriptJsonSchema = {
           narration: { type: "string" },
           title: { type: "string" },
           keywords: { type: "array", items: { type: "string" } },
+          imagePrompt: { type: "string" },
           chapter: { type: "string" },
         },
         required: ["narration", "keywords"],
@@ -80,12 +83,13 @@ export async function generateEpisodeScript(channel: Channel, topic: string, use
     `Structure the episode in these sections, in order: ${channel.episodeTemplate.structure.join(" → ")}. Put the section name in "chapter" on the first scene of each section (same string for the section's scenes).`,
     `The first ${Math.max(1, Math.round(channel.episodeTemplate.hookSeconds / 7))} scene(s) are the hook: a surprising question or fact that makes the viewer stay.`,
     `For every scene give "keywords": 2-4 English search terms for free stock footage that visually matches the scene (concrete nouns, places, actions — never abstract words).`,
+    `For every scene give "imagePrompt": one English sentence (15-35 words) describing a single picture that illustrates the scene — subject, setting, era, mood, camera framing — usable by an image generator. No text, signs or captions in the picture; no real living people by name.`,
     `"title" is an optional short on-screen caption (max 6 words) for scenes that introduce a new idea, name, date or place.`,
     `"outro" is one sentence inviting to subscribe: ${channel.episodeTemplate.cta}.`,
     `"description" is the YouTube description (3-6 sentences) ending with a Sources: list. "tags" are 8-15 short tags.`,
     `Return ONLY JSON.`,
   ].join("\n");
-  const raw = await callJson<{ title: string; hook: string; scenes: { narration: string; title?: string; keywords?: string[]; chapter?: string }[]; outro: string; description: string; tags: string[] }>({
+  const raw = await callJson<{ title: string; hook: string; scenes: { narration: string; title?: string; keywords?: string[]; chapter?: string; imagePrompt?: string }[]; outro: string; description: string; tags: string[] }>({
     model,
     messages: [
       { role: "system", content: system },
@@ -108,6 +112,7 @@ export async function generateEpisodeScript(channel: Channel, topic: string, use
       narration: s.narration.trim().slice(0, 2000),
       title: s.title?.trim().slice(0, 120) || undefined,
       keywords: (s.keywords ?? []).map(k => String(k).trim().slice(0, 60)).filter(Boolean).slice(0, 8),
+      imagePrompt: typeof s.imagePrompt === "string" && s.imagePrompt.trim() ? s.imagePrompt.trim().slice(0, 600) : undefined,
       chapter: s.chapter?.trim().slice(0, 80) || undefined,
     }));
   const script = episodeScriptSchema.parse({
@@ -174,13 +179,29 @@ export async function prepareNarration(episodeId: number, onProgress?: (done: nu
 
 const MOTIONS = ["slow_push", "pan_left", "slow_pull", "step_zoom"] as const;
 
-/** Picks free stock for scenes without a visual (one search per scene), skipping clips already used in the episode. */
-export async function planVisuals(episodeId: number, opts?: { onlyMissing?: boolean; userId?: number | null; onProgress?: (done: number, total: number) => void }) {
+/** Prompt for a scene's AI picture: the script's English visual description, else its stock keywords. */
+export function scenePrompt(scene: Scene, channel: Pick<Channel, "niche">) {
+  const base = scene.imagePrompt?.trim() || (scene.keywords.length ? scene.keywords.join(", ") : channel.niche);
+  return base;
+}
+
+/**
+ * Picks a visual for scenes without one. Source "stock" = free Pexels (one search per scene, no clip reused inside
+ * the episode); "ai" = a generated picture per scene (fal.ai, standard tier); "auto" = AI for illustration channels
+ * when the image provider is configured, stock otherwise.
+ */
+export async function planVisuals(episodeId: number, opts?: { onlyMissing?: boolean; userId?: number | null; source?: "auto" | "stock" | "ai"; onProgress?: (done: number, total: number) => void }) {
   const db = await requireDb();
   const { episode, channel } = await loadEpisode(episodeId);
   if (!episode.script) throw new Error("لا يوجد سكربت بعد — ولّد السكربت أولًا");
   const script = episodeScriptSchema.parse(episode.script);
   const onlyMissing = opts?.onlyMissing ?? true;
+  const source = opts?.source ?? "auto";
+  const aiReady = await imageProviderReady();
+  if (source === "ai" && !aiReady) throw new Error("أضف مفتاح fal.ai من مركز التكاملات (مزوّد «صور الذكاء الاصطناعي») أولًا");
+  if (source === "ai" || (source === "auto" && aiReady && channel.visualStyle === "illustration")) {
+    return planAiVisuals(episodeId, script, channel, { onlyMissing, userId: opts?.userId ?? null, onProgress: opts?.onProgress });
+  }
   // Assets already placed in this episode are not reused (imports are deduplicated by source id, so
   // re-importing a known clip costs no download).
   const used = new Set(script.scenes.map(s => s.visual?.assetId).filter((x): x is number => typeof x === "number"));
@@ -231,6 +252,50 @@ export async function planVisuals(episodeId: number, opts?: { onlyMissing?: bool
     await db.update(episodes).set({ script, updatedAt: new Date() }).where(eq(episodes.id, episodeId));
   }
   return { picked, missing };
+}
+
+async function planAiVisuals(
+  episodeId: number,
+  script: EpisodeScript,
+  channel: Channel,
+  opts: { onlyMissing: boolean; userId: number | null; onProgress?: (done: number, total: number) => void },
+) {
+  const db = await requireDb();
+  let picked = 0;
+  let missing = 0;
+  let spentUsd = 0;
+  let lastError = "";
+  for (let i = 0; i < script.scenes.length; i++) {
+    const scene = script.scenes[i];
+    if (opts.onlyMissing && scene.visual) {
+      opts.onProgress?.(i + 1, script.scenes.length);
+      continue;
+    }
+    try {
+      const r = await generateImageAsset({
+        prompt: imagePromptFor(scenePrompt(scene, channel), channel.visualStyle),
+        tier: "standard",
+        aspect: "16:9",
+        title: `${channel.name}: ${scene.title || scene.narration.slice(0, 60)}`,
+        userId: opts.userId,
+        ref: { type: "episode", id: episodeId },
+      });
+      spentUsd += r.usd;
+      scene.visual = { kind: "image", src: r.asset.url, assetId: r.asset.id, credit: r.asset.meta?.credit, motion: MOTIONS[i % MOTIONS.length], auto: true };
+      picked++;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+      // A wrong key or an empty balance stops the run; a refused prompt only skips that scene.
+      if (/مفتاح|رصيد|key|balance/i.test(lastError)) throw e;
+      missing++;
+    }
+    opts.onProgress?.(i + 1, script.scenes.length);
+    await db.update(episodes).set({ script, updatedAt: new Date() }).where(eq(episodes.id, episodeId));
+  }
+  if (spentUsd > 0) {
+    await db.update(episodes).set({ costMilliCents: sql`${episodes.costMilliCents} + ${Math.round(spentUsd * 100000)}` }).where(eq(episodes.id, episodeId));
+  }
+  return { picked, missing, ai: true as const, spentUsd: Number(spentUsd.toFixed(4)), lastError: missing ? lastError : undefined };
 }
 
 /** Both preparation steps; status moves to needs_review (kids) or script_ready. */

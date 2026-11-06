@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { assets, channels, episodes, renderJobs } from "../../drizzle/schema";
 import { channelUpdateSchema, episodeProblems, episodeScriptSchema, sceneSchema } from "../../shared/episodes";
@@ -9,6 +9,8 @@ import { router } from "../_core/trpc";
 import { channelStats, finishEpisodeRender, generateEpisodeScript, listEpisodes, loadEpisode, planVisuals, prepareEpisode } from "../services/episodes";
 import { importStockPhoto, importStockVideo, searchStockPhotos, searchStockVideos, type StockPhoto, type StockVideo } from "../services/stock";
 import { storageKeyFromUrl } from "../storage";
+import { generateImageAsset, imageProviderReady, resolveImageModel } from "../services/ai-images";
+import { IMAGE_TIERS, IMAGE_TIER_DEFAULTS, imagePromptFor } from "../../shared/images";
 import { enqueueEpisode, runJobNow } from "../worker/jobs";
 
 const bad = (e: unknown) => new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
@@ -111,8 +113,10 @@ export const videosRouter = router({
   ),
 
   /** Re-pick visuals: all scenes (replace the automatic picks) or only the empty ones. */
-  planVisuals: memberProcedure.input(z.object({ id: z.number().int(), onlyMissing: z.boolean().default(true) })).mutation(({ input, ctx }) =>
-    exclusive(`ep:${input.id}`, async () => planVisuals(input.id, { onlyMissing: input.onlyMissing, userId: ctx.user.id }).catch(e => { throw bad(e); })),
+  planVisuals: memberProcedure
+    .input(z.object({ id: z.number().int(), onlyMissing: z.boolean().default(true), source: z.enum(["auto", "stock", "ai"]).default("auto") }))
+    .mutation(({ input, ctx }) =>
+      exclusive(`ep:${input.id}`, async () => planVisuals(input.id, { onlyMissing: input.onlyMissing, source: input.source, userId: ctx.user.id }).catch(e => { throw bad(e); })),
   ),
 
   /** Editor edits: narration text, title, keywords, chapter, visual (library asset) per scene; reorder; delete. */
@@ -210,6 +214,28 @@ export const videosRouter = router({
         ? await importStockVideo(input.video as StockVideo, { characterId: null, query: input.query, userId: ctx.user.id }).catch(e => { throw bad(e); })
         : await importStockPhoto(input.photo as StockPhoto, { query: input.query, userId: ctx.user.id }).catch(e => { throw bad(e); });
       return { id: r.asset.id, url: r.asset.url, kind: input.video ? ("video" as const) : ("image" as const), credit: r.asset.meta?.credit ?? null, durationMs: r.asset.durationMs };
+    }),
+
+  /** Whether AI images can be generated (fal key in the vault) and the tier prices, for the picker. */
+  imageStatus: memberProcedure.query(async () => {
+    const ready = await imageProviderReady();
+    const tiers = await Promise.all(IMAGE_TIERS.map(async tier => ({ tier, label: IMAGE_TIER_DEFAULTS[tier].label, ...(await resolveImageModel(tier).then(r => ({ model: r.model, usd: r.usd })).catch(() => ({ model: IMAGE_TIER_DEFAULTS[tier].model, usd: IMAGE_TIER_DEFAULTS[tier].usd }))) })));
+    return { ready, tiers };
+  }),
+
+  /** One AI picture for a scene (picker): stored in the library, cost charged to the episode. */
+  generateSceneImage: memberProcedure
+    .input(z.object({ id: z.number().int(), sceneId: z.string(), prompt: z.string().min(3).max(1500), tier: z.enum(IMAGE_TIERS).default("standard"), styled: z.boolean().default(true), fresh: z.boolean().default(false) }))
+    .mutation(async ({ input, ctx }) => {
+      const { episode, channel } = await loadEpisode(input.id).catch(e => { throw bad(e); });
+      if (!episode.script) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد سكربت" });
+      const prompt = input.styled ? imagePromptFor(input.prompt, channel.visualStyle) : input.prompt;
+      const r = await generateImageAsset({ prompt, tier: input.tier, aspect: "16:9", title: `${channel.name}: ${input.prompt.slice(0, 80)}`, userId: ctx.user.id, ref: { type: "episode", id: input.id }, fresh: input.fresh }).catch(e => { throw bad(e); });
+      if (r.usd > 0) {
+        const db = await requireDb();
+        await db.update(episodes).set({ costMilliCents: sql`${episodes.costMilliCents} + ${Math.round(r.usd * 100000)}` }).where(eq(episodes.id, input.id));
+      }
+      return { id: r.asset.id, url: r.asset.url, kind: "image" as const, credit: r.asset.meta?.credit ?? null, usd: r.usd, reused: r.reused, model: r.model };
     }),
 
   /** Library media usable as scene visuals (landscape-friendly kinds) and music. */

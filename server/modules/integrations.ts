@@ -7,7 +7,7 @@ import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 
 const CAPABILITIES = ["text", "review", "image", "video", "voice", "transcription", "social_publish", "analytics", "storage"] as const;
-const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "ollama", "speech", "custom"] as const;
+const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "ollama", "speech", "fal", "custom"] as const;
 
 async function getRow(id: number) {
   const db = await requireDb();
@@ -28,6 +28,15 @@ async function probe(provider: string, config: Record<string, string>) {
   if (provider === "instagram" && (config.appId || config.clientId)) {
     if (!(config.appSecret || config.clientSecret)) throw new Error("Instagram يحتاج appId و appSecret من تطبيق Meta");
     return { checked: false, note: "بيانات تطبيق Meta محفوظة؛ اربط حساب كل شخصية من صفحتها." };
+  }
+  if (provider === "fal") {
+    // fal has no free "whoami" call; a malformed key is caught here, a wrong one on the first image (no charge on 401).
+    if (!config.apiKey || !/^[A-Za-z0-9_-]{8,}:[A-Za-z0-9_-]{16,}$/.test(config.apiKey.trim())) throw new Error("مفتاح fal.ai يكون بالشكل key-id:key-secret — انسخه من fal.ai/dashboard/keys");
+    for (const k of ["draftModel", "standardModel", "premiumModel"]) {
+      const v = config[k]?.trim();
+      if (v && !/^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*){1,5}$/i.test(v)) throw new Error(`${k} ليس معرّف نموذج fal صالحًا (مثال: meta/muse-image/text-to-image)`);
+    }
+    return { checked: false, note: "شكل المفتاح صحيح؛ أول صورة تولّدها تتحقق منه (لا تُحتسب تكلفة عند الرفض)." };
   }
   if (provider === "speech") {
     // OpenAI's endpoint needs a key (this one or the OpenAI provider's); a self-hosted clone server may be open.

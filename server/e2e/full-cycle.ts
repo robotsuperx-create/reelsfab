@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { eq, sql } from "drizzle-orm";
-import { assets, channels, characters, episodes, montages, posts, renderJobs, renders, scripts, settings } from "../../drizzle/schema";
+import { assets, channels, characters, costEntries, episodes, montages, posts, renderJobs, renders, scripts, settings } from "../../drizzle/schema";
 import { FAKE_ENV, fakeState, installFakes, seedFakeIntegrations } from "./fakes";
 
 const url = process.env.DATABASE_URL ?? "";
@@ -228,7 +228,7 @@ async function main() {
   console.log(`  montage #${mrow.id}: ${spec.segments.length} segments, render #${mrender.id} (${mrender.qcStatus}, ${(mrender.durationMs / 1000).toFixed(1)}s), superseded render #${oldRender.id}`);
 
   step("long-form pillar: 10 seeded channels -> Claude script (forced tool call) -> OpenAI-compatible narration cached per scene + stock -> 1080p render");
-  const { generateEpisodeScript, prepareEpisode, narrationHash } = await import("../services/episodes");
+  const { generateEpisodeScript, prepareEpisode, narrationHash, planVisuals } = await import("../services/episodes");
   const { enqueueEpisode } = await import("../worker/jobs");
   const allChannels = await db.select().from(channels);
   assert.equal(allChannels.length, 10, "ten channels seeded");
@@ -287,7 +287,26 @@ async function main() {
   assert.ok(epPrepared2.script!.scenes.every(s => s.visual?.kind === "image" && s.visual.motion), "stills with motions for a stills channel");
   const stillAssets = await db.select().from(assets).where(eq(assets.kind, "background"));
   assert.ok(stillAssets.some(a => a.meta?.source === "pexels"), "stock photos saved as library backgrounds with credit");
-  console.log(`  episode #${ep.id}: ${preparedScript.scenes.length} scenes, ${((epDone.durationMs ?? 0) / 1000).toFixed(1)}s, chapters: ${epDone.chaptersText?.split("\n").length}; episode #${ep2.id} (en, stills) prepared`);
+  // Illustrated kids channel: with the fal key in the vault, every scene gets an AI picture (standard tier, Muse Image).
+  const kids = allChannels.find(c => c.slug === "kids-stories")!;
+  const kidsScript = await generateEpisodeScript(kids, "نور تتعلم الصبر");
+  assert.ok(kidsScript.scenes.every(s => s.imagePrompt), "Claude writes an English image prompt for every scene");
+  const [ep3] = await db.insert(episodes).values({ channelId: kids.id, topic: "نور تتعلم الصبر", title: kidsScript.title, script: kidsScript }).returning({ id: episodes.id });
+  const falBefore = calls["fal:meta/muse-image/text-to-image"] ?? 0;
+  const prep3 = await prepareEpisode(ep3.id, null);
+  assert.equal(prep3.picked, 6, "one AI picture per scene");
+  assert.equal((calls["fal:meta/muse-image/text-to-image"] ?? 0) - falBefore, 6, "standard tier = Meta Muse Image on fal");
+  assert.ok(fakeState.falPrompts.slice(-6).every(p => /picture-book illustration/.test(p) && /no text/.test(p)), "channel style + no-text suffix in every prompt");
+  const [epPrepared3] = await db.select().from(episodes).where(eq(episodes.id, ep3.id));
+  assert.equal(epPrepared3.status, "needs_review", "kids episodes always wait for a human review");
+  assert.ok(epPrepared3.script!.scenes.every(s => s.visual?.kind === "image" && s.visual.credit?.startsWith("AI image")), "AI pictures placed as stills");
+  assert.ok(epPrepared3.costMilliCents >= 6 * 1000, `image cost charged to the episode (${epPrepared3.costMilliCents} milli-cents incl. narration)`);
+  const imageCosts = await db.select().from(costEntries).where(eq(costEntries.category, "image"));
+  assert.equal(imageCosts.length, 6, "six image cost entries ($0.01 each)");
+  assert.equal(imageCosts.reduce((a, c) => a + c.amountMilliCents, 0), 6 * 1000);
+  assert.equal((await planVisuals(ep3.id, { onlyMissing: false, source: "ai" })).picked, 6);
+  assert.equal((await db.select().from(costEntries).where(eq(costEntries.category, "image"))).length, 6, "re-planning the same prompts reuses the pictures (no new cost)");
+  console.log(`  episode #${ep.id}: ${preparedScript.scenes.length} scenes, ${((epDone.durationMs ?? 0) / 1000).toFixed(1)}s, chapters: ${epDone.chaptersText?.split("\n").length}; episode #${ep2.id} (en, stills) prepared; episode #${ep3.id} (kids, AI pictures) prepared`);
 
   step("autopilot tick (lease + full loop, nothing left to do)");
   await autopilotTick(new Date());

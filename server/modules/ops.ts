@@ -136,7 +136,7 @@ export const costsRouter = router({
   add: memberProcedure
     .input(
       z.object({
-        category: z.enum(["llm", "higgsfield", "voice", "subscription", "storage", "other"]),
+        category: z.enum(["llm", "higgsfield", "voice", "image", "subscription", "storage", "other"]),
         usd: z.number().min(0).max(100000),
         credits: z.number().int().min(0).default(0),
         description: z.string().min(1).max(500),

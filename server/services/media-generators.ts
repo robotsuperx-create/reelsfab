@@ -11,7 +11,13 @@ export async function generateElevenLabsSpeech(input: { text: string; voiceId: s
   return stored;
 }
 
-export async function generateImage(input: { provider: "openai" | "gemini"; prompt: string; size?: string }) {
+export async function generateImage(input: { provider: "openai" | "gemini" | "fal"; prompt: string; size?: string; tier?: "draft" | "standard" | "premium"; userId?: number | null }) {
+  if (input.provider === "fal") {
+    const { generateImageAsset } = await import("./ai-images");
+    const aspect = input.size === "1024x1536" || input.size === "9:16" ? "9:16" : input.size === "1024x1024" || input.size === "1:1" ? "1:1" : "16:9";
+    const r = await generateImageAsset({ prompt: input.prompt, tier: input.tier, aspect, userId: input.userId });
+    return { key: r.asset.storageKey, url: r.asset.url, assetId: r.asset.id, usd: r.usd, model: r.model };
+  }
   if (input.provider === "openai") {
     const config = await getIntegrationConfig("openai"); const key = config.apiKey;
     if (!key) throw new Error("OpenAI apiKey is not configured");

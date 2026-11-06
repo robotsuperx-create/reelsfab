@@ -60,11 +60,19 @@ An episode goes through three steps:
    chapter cards, captions (phrase captions for Arabic with the bundled IBM Plex Sans Arabic font, karaoke for English),
    outro and AI badge, and mixes narration with a ducked music bed. Output: MP4 + thumbnail + YouTube chapters text.
 
+**AI images** (`server/services/ai-images.ts`, vault provider `fal`): one fal.ai key, three tiers chosen by arena
+quality per dollar — draft `fal-ai/flux/schnell` (~$0.003), standard `meta/muse-image/text-to-image` (~$0.01, the
+default), premium `google/nano-banana-2.1` (~$0.04); any fal endpoint id can replace a tier in the vault. Claude writes
+an English `imagePrompt` per scene; illustration channels (kids) get an AI picture per scene automatically, any episode
+can switch to AI pictures ("صور AI للمشاهد"), and the scene picker has an AI tab. The channel's visual style and a
+"no text in the picture" suffix are appended to every prompt; identical prompts reuse the stored picture; each image is
+logged under the `image` cost category and charged to its episode.
+
 Schema upgrades for this pillar run idempotently at startup (`server/db-upgrades.ts`), so `git pull` is enough.
 
 ## Runtime services
 
-Every service key (Claude, OpenAI, the `speech` endpoint, Gemini, Higgsfield, ElevenLabs, Instagram/Meta, TikTok, YouTube, Telegram, Pexels) is entered in the Integrations page and stored encrypted with `INTEGRATION_ENCRYPTION_KEY` — `.env` holds infrastructure only. All text generation (reel scripts, review, episode scripts, character builder) runs on Claude (older Gemini/Ollama/Claude 4.x choices in settings are migrated to the current Claude models on read), transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
+Every service key (Claude, OpenAI, the `speech` endpoint, fal.ai, Gemini, Higgsfield, ElevenLabs, Instagram/Meta, TikTok, YouTube, Telegram, Pexels) is entered in the Integrations page and stored encrypted with `INTEGRATION_ENCRYPTION_KEY` — `.env` holds infrastructure only. All text generation (reel scripts, review, episode scripts, character builder) runs on Claude (older Gemini/Ollama/Claude 4.x choices in settings are migrated to the current Claude models on read), transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
 
 ## Full-cycle test
 

@@ -9,6 +9,7 @@ export const fakeState = {
   tiktokPosts: [] as string[],
   youtubePosts: [] as string[],
   telegram: [] as string[],
+  falPrompts: [] as string[],
 };
 
 const hit = (k: string) => (fakeState.calls[k] = (fakeState.calls[k] ?? 0) + 1);
@@ -64,6 +65,7 @@ function llmJson(prompt: string): unknown {
         : `This is scene number ${i + 1} of the test episode, where the idea is explained calmly in two short sentences.`,
       title: i % 2 === 0 ? (ar ? `عنوان المشهد ${i + 1}` : `Scene title ${i + 1}`) : undefined,
       keywords: ["garden", "sunrise", "city"].slice(0, 2 + (i % 2)),
+      ...(/"imagePrompt"/.test(prompt) ? { imagePrompt: `A quiet garden at sunrise with a small child watering flowers, scene ${i + 1}, wide shot` } : {}),
       chapter: sections[Math.min(sections.length - 1, Math.floor(i / 2))],
     });
     return {
@@ -298,6 +300,20 @@ export function installFakes() {
         }
         return new Response(new Uint8Array(PNG), { headers: { "content-type": "image/png" } });
       }
+      case "fal.run": {
+        hit("fal");
+        if (new Headers(init?.headers).get("authorization") !== "Key test-fal-id:test-fal-secret-0000") return json({ detail: "Unauthorized" }, 401);
+        const b = JSON.parse(await bodyText());
+        hit(`fal:${u.pathname.slice(1)}`);
+        fakeState.falPrompts.push(String(b.prompt ?? ""));
+        return json({ images: [{ url: `https://v3.fal.media/files/fake/${fakeState.falPrompts.length}.jpg`, content_type: "image/jpeg", width: 1344, height: 768 }], seed: 1 });
+      }
+      case "v3.fal.media": {
+        hit("fal.cdn");
+        const { execFileSync } = await import("node:child_process");
+        const img = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=1", "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"], { maxBuffer: 4 * 1024 * 1024 });
+        return new Response(new Uint8Array(img), { headers: { "content-type": "image/jpeg" } });
+      }
       case "api.telegram.org":
         fakeState.telegram.push(JSON.parse(await bodyText()).text);
         return json({ ok: true });
@@ -332,6 +348,7 @@ export async function seedFakeIntegrations(withTelegram = true) {
     ["openai", "OpenAI", ["transcription"], { apiKey: "test-openai-key" }],
     ["pexels", "Pexels", ["storage"], { apiKey: "test-pexels-key" }],
     ["gemini", "Gemini", ["text"], { apiKey: "test-gemini-key" }],
+    ["fal", "fal.ai", ["image"], { apiKey: "test-fal-id:test-fal-secret-0000" }],
   ];
   if (withTelegram) rows.push(["telegram", "Telegram", ["analytics"], { botToken: "e2e-telegram", chatId: "1" }]);
   for (const [provider, label, capabilities, config] of rows) {

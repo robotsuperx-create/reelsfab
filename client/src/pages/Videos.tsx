@@ -318,7 +318,16 @@ export function EpisodePage() {
   const onErr = (e: { message: string }) => toast.error(e.message);
   const generate = trpc.videos.generateScript.useMutation({ onSuccess: r => { toast.success(`السكربت جاهز: ${r.scenes} مشهد`); setDirty(false); loadedFor.current = ""; invalidate(); }, onError: onErr });
   const prepare = trpc.videos.prepare.useMutation({ onSuccess: r => { toast.success(`جُهّز الصوت (${r.synthesized} مشهد جديد) واللقطات (${r.picked} مختارة${r.missing ? `، ${r.missing} بلا لقطة` : ""})`); setDirty(false); loadedFor.current = ""; invalidate(); }, onError: onErr });
-  const replan = trpc.videos.planVisuals.useMutation({ onSuccess: r => { toast.success(`اختيار جديد للقطات: ${r.picked}`); setDirty(false); loadedFor.current = ""; invalidate(); }, onError: onErr });
+  const replan = trpc.videos.planVisuals.useMutation({
+    onSuccess: r => {
+      const ai = "ai" in r && r.ai;
+      const spent = "spentUsd" in r && r.spentUsd ? ` · ${r.spentUsd.toFixed(3)}$` : "";
+      toast.success(ai ? `صور AI للمشاهد: ${r.picked}${r.missing ? `، ${r.missing} تعذّرت` : ""}${spent}` : `اختيار جديد للقطات: ${r.picked}`);
+      setDirty(false); loadedFor.current = ""; invalidate();
+    },
+    onError: onErr,
+  });
+  const imageStatus = trpc.videos.imageStatus.useQuery(undefined, { staleTime: 60_000 });
   const update = trpc.videos.updateScript.useMutation({ onError: onErr });
   const render = trpc.videos.render.useMutation({ onSuccess: r => { toast.success(r.already ? "الرندر قيد التنفيذ بالفعل" : "بدأ الرندر — قد يستغرق دقائق حسب طول الحلقة"); invalidate(); }, onError: onErr });
   const setVisual = trpc.videos.setSceneVisual.useMutation({ onSuccess: () => { loadedFor.current = ""; invalidate(); }, onError: onErr });
@@ -385,8 +394,24 @@ export function EpisodePage() {
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-semibold">المشاهد</h2>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={async () => { if (dirty && !(await save())) return; replan.mutate({ id, onlyMissing: false }); }} disabled={working || busy}><RefreshCw /> اختيار تلقائي جديد للقطات</Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => { if (dirty && !(await save())) return; replan.mutate({ id, onlyMissing: false, source: "stock" }); }} disabled={working || busy}><RefreshCw /> اختيار تلقائي جديد للقطات</Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    title={imageStatus.data?.ready ? `صورة AI لكل مشهد (~${(imageStatus.data.tiers.find(t => t.tier === "standard")?.usd ?? 0.01).toFixed(3)}$ للصورة)` : "أضف مفتاح fal.ai في مركز التكاملات"}
+                    onClick={async () => {
+                      if (!imageStatus.data?.ready) { toast.error("أضف مفتاح fal.ai من مركز التكاملات (صور الذكاء الاصطناعي) أولًا"); return; }
+                      const n = script.scenes.length;
+                      const usd = (imageStatus.data.tiers.find(t => t.tier === "standard")?.usd ?? 0.01) * n;
+                      if (!confirm(`توليد ${n} صورة AI لكل المشاهد (≈ ${usd.toFixed(2)}$)؟ تحل محل اللقطات الحالية.`)) return;
+                      if (dirty && !(await save())) return;
+                      replan.mutate({ id, onlyMissing: false, source: "ai" });
+                    }}
+                    disabled={working || busy}
+                  >
+                    <ImageIcon /> صور AI للمشاهد
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => edit(s => ({ ...s, scenes: [...s.scenes, { id: newSceneId(), narration: "", keywords: [] }] }))} disabled={busy}><Plus /> مشهد</Button>
                 </div>
               </div>
@@ -455,7 +480,10 @@ export function EpisodePage() {
 
       {picker && script && (
         <VisualPicker
+          episodeId={id}
+          sceneId={picker}
           sceneKeywords={script.scenes.find(s => s.id === picker)?.keywords ?? []}
+          scenePrompt={(() => { const sc = script.scenes.find(s => s.id === picker); return sc?.imagePrompt || sc?.keywords.join(", ") || ""; })()}
           media={media.data ?? []}
           onClose={() => setPicker(null)}
           onChoose={v => { setVisual.mutate({ id, sceneId: picker, visual: v }); setPicker(null); media.refetch(); }}
@@ -521,8 +549,16 @@ function SceneCard({ scene, index, start, count, language, disabled, onChange, o
   );
 }
 
-function VisualPicker({ sceneKeywords, media, onClose, onChoose }: { sceneKeywords: string[]; media: Media[]; onClose: () => void; onChoose: (v: NonNullable<Scene["visual"]>) => void }) {
-  const [tab, setTab] = useState<"stock" | "library">("stock");
+function VisualPicker({ episodeId, sceneId, sceneKeywords, scenePrompt, media, onClose, onChoose }: { episodeId: number; sceneId: string; sceneKeywords: string[]; scenePrompt: string; media: Media[]; onClose: () => void; onChoose: (v: NonNullable<Scene["visual"]>) => void }) {
+  const [tab, setTab] = useState<"stock" | "ai" | "library">("stock");
+  const [prompt, setPrompt] = useState(scenePrompt);
+  const [tier, setTier] = useState<"draft" | "standard" | "premium">("standard");
+  const imageStatus = trpc.videos.imageStatus.useQuery(undefined, { staleTime: 60_000 });
+  const [generated, setGenerated] = useState<{ id: number; url: string; credit: string | null; usd: number; reused: boolean } | null>(null);
+  const genImage = trpc.videos.generateSceneImage.useMutation({
+    onSuccess: r => { setGenerated(r); toast.success(r.reused ? "صورة موجودة من قبل — لم تُحتسب تكلفة" : `وُلّدت الصورة (${r.usd.toFixed(3)}$)`); },
+    onError: e => toast.error(e.message),
+  });
   const [kind, setKind] = useState<"video" | "photo">("video");
   const [query, setQuery] = useState(sceneKeywords.slice(0, 3).join(" "));
   const [submitted, setSubmitted] = useState(sceneKeywords.slice(0, 3).join(" "));
@@ -537,13 +573,46 @@ function VisualPicker({ sceneKeywords, media, onClose, onChoose }: { sceneKeywor
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>لقطة المشهد</DialogTitle>
-          <DialogDescription>لقطات مجانية من Pexels (تُحفظ في مكتبتك مع اسم المصوّر) أو ملفات مكتبتك.</DialogDescription>
+          <DialogDescription>لقطات مجانية من Pexels (تُحفظ في مكتبتك مع اسم المصوّر)، صورة تولّدها بالذكاء الاصطناعي، أو ملفات مكتبتك.</DialogDescription>
         </DialogHeader>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           <Button size="sm" variant={tab === "stock" ? "secondary" : "outline"} onClick={() => setTab("stock")}><Search /> Pexels مجاني</Button>
+          <Button size="sm" variant={tab === "ai" ? "secondary" : "outline"} onClick={() => setTab("ai")}><Sparkles /> صورة AI</Button>
           <Button size="sm" variant={tab === "library" ? "secondary" : "outline"} onClick={() => setTab("library")}>المكتبة</Button>
         </div>
-        {tab === "stock" ? (
+        {tab === "ai" ? (
+          !imageStatus.data?.ready ? (
+            <p className="rounded-lg border border-hold/40 bg-hold/10 p-3 text-sm text-hold">
+              أضف مفتاح <b>fal.ai</b> في <Link href="/integrations" className="underline">مركز التكاملات</Link> (مزوّد «صور الذكاء الاصطناعي») لتوليد الصور.
+            </p>
+          ) : (
+            <form className="space-y-3" onSubmit={ev => { ev.preventDefault(); const again = generated !== null; setGenerated(null); genImage.mutate({ id: episodeId, sceneId, prompt: prompt.trim(), tier, fresh: again }); }}>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="ai-prompt">وصف الصورة (بالإنجليزية أفضل)</Label>
+                <Textarea id="ai-prompt" dir="ltr" rows={3} value={prompt} onChange={ev => setPrompt(ev.target.value)} placeholder="An Ottoman fleet anchored in the Golden Horn at dawn, wide shot" />
+                <p className="text-[11px] text-muted-foreground">يُضاف تلقائيًا أسلوب القناة البصري و«بلا نصوص داخل الصورة».</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={tier} onValueChange={v => setTier(v as typeof tier)}>
+                  <SelectTrigger className="w-72" aria-label="جودة الصورة"><SelectValue /></SelectTrigger>
+                  <SelectContent>{imageStatus.data.tiers.map(t => <SelectItem key={t.tier} value={t.tier}>{t.label}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button type="submit" size="sm" disabled={prompt.trim().length < 3 || genImage.isPending}>
+                  {genImage.isPending ? <RefreshCw className="animate-spin" /> : <Sparkles />} {genImage.isPending ? "جارٍ التوليد…" : "ولّد الصورة"}
+                </Button>
+              </div>
+              {generated && (
+                <div className="space-y-2">
+                  <img src={generated.url} alt="الصورة المولدة" className="aspect-video w-full rounded-lg border border-border object-cover" />
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" onClick={() => onChoose({ kind: "image", src: generated.url, assetId: generated.id, credit: generated.credit ?? undefined, motion: "slow_push" })}><Check /> استخدم هذه الصورة</Button>
+                    <Button type="submit" size="sm" variant="outline" disabled={genImage.isPending}><RefreshCw /> جرّب مرة أخرى</Button>
+                  </div>
+                </div>
+              )}
+            </form>
+          )
+        ) : tab === "stock" ? (
           <>
             <form className="flex gap-1.5" onSubmit={ev => { ev.preventDefault(); setSubmitted(query.trim()); }}>
               <Select value={kind} onValueChange={v => setKind(v as "video" | "photo")}>

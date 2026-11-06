@@ -9,8 +9,8 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader, Stat, EmptyBlock } from "@/components/fab/common";
 
-const cats = ["llm", "higgsfield", "voice", "subscription", "storage", "other"] as const;
-const catLabel: Record<string,string> = { llm:"LLM", higgsfield:"Higgsfield", voice:"الصوت", subscription:"اشتراكات", storage:"تخزين", other:"أخرى" };
+const cats = ["llm", "higgsfield", "voice", "image", "subscription", "storage", "other"] as const;
+const catLabel: Record<string,string> = { llm:"LLM", higgsfield:"Higgsfield", voice:"الصوت", image:"صور AI", subscription:"اشتراكات", storage:"تخزين", other:"أخرى" };
 const monthKey = (d: Date) => d.toISOString().slice(0,7);
 export default function Costs(){
  const [month,setMonth]=useState(monthKey(new Date())); const [open,setOpen]=useState(false);

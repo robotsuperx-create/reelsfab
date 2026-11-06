@@ -86,6 +86,8 @@ export const sceneSchema = z.object({
   narration: z.string().min(1).max(2000),
   title: z.string().max(120).optional(),
   keywords: z.array(z.string().max(60)).max(8),
+  /** English description of one picture for the scene (AI image generation). */
+  imagePrompt: z.string().max(600).optional(),
   chapter: z.string().max(80).optional(),
   visual: sceneVisual.optional(),
   /** Narration length once synthesized (seconds). */
