@@ -55,6 +55,26 @@ function llmJson(prompt: string): unknown {
   if (variants) {
     return { variants: Array.from({ length: variants }, (_, i) => ({ variantLabel: `Angle ${i + 1}`, hook: `Watch what happens next ${i + 1}`, hookType: "story", onScreenText: `Part ${i + 1}`, cta: "Follow for more", caption: `Clip ${i + 1}`, hashtags: "#AIcharacter #clip #daily #tips" })) };
   }
+  if (/Write the full episode script/.test(prompt)) {
+    const ar = /Language of narration[^\n]*Arabic/.test(prompt);
+    const sections = ar ? ["خطاف", "السياق", "الذروة"] : ["Hook", "Context", "Climax"];
+    const mk = (i: number) => ({
+      narration: ar
+        ? `هذا هو المشهد رقم ${i + 1} من الحلقة التجريبية، وفيه نشرح الفكرة بهدوء وبجملتين قصيرتين.`
+        : `This is scene number ${i + 1} of the test episode, where the idea is explained calmly in two short sentences.`,
+      title: i % 2 === 0 ? (ar ? `عنوان المشهد ${i + 1}` : `Scene title ${i + 1}`) : undefined,
+      keywords: ["garden", "sunrise", "city"].slice(0, 2 + (i % 2)),
+      chapter: sections[Math.min(sections.length - 1, Math.floor(i / 2))],
+    });
+    return {
+      title: ar ? "حلقة تجريبية عن الموضوع" : "A test episode about the topic",
+      hook: ar ? "سؤال مدهش يفتح الحلقة" : "A surprising question opens the episode",
+      scenes: Array.from({ length: 6 }, (_, i) => mk(i)),
+      outro: ar ? "اشترك ليصلك الجديد" : "Subscribe for the next one",
+      description: ar ? "وصف الحلقة. Sources: كتاب تجريبي" : "Episode description. Sources: a test book",
+      tags: ["test", "episode", "free"],
+    };
+  }
   if (/character bible from this description/.test(prompt)) {
     return { name: "Test Persona", nameAr: "شخصية تجريبية", age: "35", origin: "American", niche: "Home cooking", appearancePrompt: "friendly woman in her 30s, curly hair, warm smile", wardrobe: "apron", voiceDescription: "warm", style: "cheerful", catchphrase: "Cook it simple", contentTemplates: ["recipe", "tip", "story"], product: "recipe cards", rules: "no health claims", loraKeyword: "chr_test", ttsVoice: "af_heart", ttsSpeed: 100, colors: { primary: "#222222", accent: "#DFFF00", text: "#FFFFFF" }, dailyQuota: 2 };
   }
@@ -144,6 +164,14 @@ export function installFakes() {
         hit("gemini");
         const body = JSON.parse(await bodyText());
         if (u.pathname.includes("image")) return json({ candidates: [{ content: { parts: [{ inlineData: { data: PNG.toString("base64"), mimeType: "image/png" } }] } }] });
+        if (body?.generationConfig?.responseModalities?.includes("AUDIO")) {
+          hit("gemini.tts");
+          if (!init?.headers || !new Headers(init.headers).get("x-goog-api-key")) return json({ error: "missing key" }, 401);
+          // 0.34s of 24 kHz silence per word, like the test TTS provider.
+          const words = String(body.contents?.[0]?.parts?.[0]?.text ?? "").split(/\s+/).filter(Boolean).length;
+          const pcm = Buffer.alloc(Math.max(1, Math.round(words * 0.34 * 24000)) * 2);
+          return json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/L16;codec=pcm;rate=24000", data: pcm.toString("base64") } }] } }] });
+        }
         return json({ candidates: [{ content: { parts: [{ text: JSON.stringify(llmJson(promptOf(body))) }] } }], usageMetadata: { promptTokenCount: 500, candidatesTokenCount: 400 } });
       }
       case "api.elevenlabs.io":
@@ -204,15 +232,25 @@ export function installFakes() {
         hit("pexels");
         if (!new Headers(init?.headers).get("authorization")) return json({ error: "Unauthorized" }, 401);
         const q = u.searchParams.get("query") ?? "";
-        const mk = (id: number, w: number, h: number, d: number) => ({
+        const landscape = u.searchParams.get("orientation") === "landscape";
+        if (u.pathname === "/v1/search") {
+          // Photos: ids derive from the query so different scenes get different stills.
+          const seed = [...q].reduce((a, c) => a + c.charCodeAt(0), 0) % 50;
+          const photo = (id: number) => ({ id, width: 4000, height: landscape ? 2250 : 6000, url: `https://www.pexels.com/photo/${id}/`, photographer: `Photographer ${id}`, src: { original: `https://images.pexels.com/photos/${id}/orig.jpg`, large2x: `https://images.pexels.com/photos/${id}/large2x.jpg`, large: `https://images.pexels.com/photos/${id}/large.jpg`, medium: `https://images.pexels.com/photos/${id}/medium.jpg` } });
+          return json({ page: 1, per_page: 24, total_results: 3, photos: q ? [photo(5000 + seed), photo(5100 + seed), photo(5200 + seed)] : [] });
+        }
+        const [w, h] = landscape ? [1920, 1080] : [1080, 1920];
+        const mk = (id: number, d: number) => ({
           id, width: w, height: h, duration: d, url: `https://www.pexels.com/video/${id}/`, image: `https://images.pexels.com/videos/${id}/thumb.jpg`,
           user: { name: `Creator ${id}`, url: `https://www.pexels.com/@creator${id}` },
           video_files: [
-            { id: id * 10 + 1, quality: "hd", file_type: "video/mp4", width: 1080, height: 1920, fps: 30, link: `https://videos.pexels.com/video-files/${id}/hd.mp4` },
-            { id: id * 10 + 2, quality: "sd", file_type: "video/mp4", width: 360, height: 640, fps: 30, link: `https://videos.pexels.com/video-files/${id}/sd.mp4` },
+            { id: id * 10 + 1, quality: "hd", file_type: "video/mp4", width: w, height: h, fps: 30, link: `https://videos.pexels.com/video-files/${id}/hd.mp4` },
+            { id: id * 10 + 2, quality: "sd", file_type: "video/mp4", width: Math.round(w / 3), height: Math.round(h / 3), fps: 30, link: `https://videos.pexels.com/video-files/${id}/sd.mp4` },
           ],
         });
-        return json({ page: 1, per_page: 24, total_results: 2, videos: q ? [mk(1001, 1080, 1920, 8), mk(1002, 1080, 1920, 15)] : [] });
+        const base = landscape ? 2000 : 1000;
+        const seed = [...q].reduce((a, c) => a + c.charCodeAt(0), 0) % 7;
+        return json({ page: 1, per_page: 24, total_results: 3, videos: q ? [mk(base + 1 + seed * 3, 8), mk(base + 2 + seed * 3, 15), mk(base + 3 + seed * 3, 6)] : [] });
       }
       case "videos.pexels.com": {
         hit("pexels.cdn");
@@ -220,8 +258,15 @@ export function installFakes() {
         const file = process.env.E2E_SAMPLE_MP4;
         return new Response(new Uint8Array(file ? await readFile(file) : Buffer.alloc(4096)), { headers: { "content-type": "video/mp4" } });
       }
-      case "images.pexels.com":
+      case "images.pexels.com": {
+        // Photos must be real raster images for ffmpeg (a 640×360 test card); thumbnails can stay tiny.
+        if (u.pathname.includes("/photos/")) {
+          const { execFileSync } = await import("node:child_process");
+          const img = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=1", "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"], { maxBuffer: 4 * 1024 * 1024 });
+          return new Response(new Uint8Array(img), { headers: { "content-type": "image/jpeg" } });
+        }
         return new Response(new Uint8Array(PNG), { headers: { "content-type": "image/png" } });
+      }
       case "api.telegram.org":
         fakeState.telegram.push(JSON.parse(await bodyText()).text);
         return json({ ok: true });
@@ -255,6 +300,7 @@ export async function seedFakeIntegrations(withTelegram = true) {
     ["anthropic", "Claude", ["text", "review"], { apiKey: "test-anthropic-key" }],
     ["openai", "OpenAI", ["transcription"], { apiKey: "test-openai-key" }],
     ["pexels", "Pexels", ["storage"], { apiKey: "test-pexels-key" }],
+    ["gemini", "Gemini", ["text"], { apiKey: "test-gemini-key" }],
   ];
   if (withTelegram) rows.push(["telegram", "Telegram", ["analytics"], { botToken: "e2e-telegram", chatId: "1" }]);
   for (const [provider, label, capabilities, config] of rows) {

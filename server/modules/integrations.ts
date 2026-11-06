@@ -7,7 +7,7 @@ import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 
 const CAPABILITIES = ["text", "review", "image", "video", "voice", "transcription", "social_publish", "analytics", "storage"] as const;
-const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "custom"] as const;
+const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "ollama", "custom"] as const;
 
 async function getRow(id: number) {
   const db = await requireDb();
@@ -29,7 +29,7 @@ async function probe(provider: string, config: Record<string, string>) {
     if (!(config.appSecret || config.clientSecret)) throw new Error("Instagram يحتاج appId و appSecret من تطبيق Meta");
     return { checked: false, note: "بيانات تطبيق Meta محفوظة؛ اربط حساب كل شخصية من صفحتها." };
   }
-  if (!key && provider !== "custom" && provider !== "higgsfield" && provider !== "youtube") throw new Error("أدخل apiKey أو accessToken أولاً");
+  if (!key && provider !== "custom" && provider !== "higgsfield" && provider !== "youtube" && provider !== "ollama") throw new Error("أدخل apiKey أو accessToken أولاً");
   if (provider === "openai") {
     const r = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` } });
     if (!r.ok) throw new Error(`OpenAI رفض الاتصال (${r.status})`);
@@ -48,6 +48,15 @@ async function probe(provider: string, config: Record<string, string>) {
   } else if (provider === "youtube") {
     if (!config.clientId || !config.clientSecret) throw new Error("YouTube يحتاج clientId و clientSecret بالإضافة إلى OAuth token للحساب");
     return { checked: false, note: "بيانات OAuth مسجلة؛ اختبار الرفع يتم عند نشر أول فيديو." };
+  } else if (provider === "ollama") {
+    const base = (config.baseUrl?.trim() || "http://127.0.0.1:11434").replace(/\/+$/, "");
+    const r = await fetch(`${base}/api/tags`).catch(() => null);
+    if (!r?.ok) throw new Error("Ollama لا يستجيب — تأكد أنه يعمل على هذا الجهاز (ollama serve)");
+    const data = (await r.json()) as { models?: { name: string }[] };
+    const names = (data.models ?? []).map(m => m.name);
+    if (config.model && !names.some(n => n === config.model || n.startsWith(`${config.model}:`))) {
+      throw new Error(`النموذج ${config.model} غير منزّل. النماذج المتاحة: ${names.join(", ") || "لا شيء"} — نزّله بـ ollama pull`);
+    }
   } else if (provider === "pexels") {
     const r = await fetch("https://api.pexels.com/v1/videos/search?query=nature&per_page=1", { headers: { Authorization: key! } });
     if (!r.ok) throw new Error(`Pexels رفض المفتاح (${r.status})`);

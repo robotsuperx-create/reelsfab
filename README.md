@@ -38,16 +38,37 @@ Free B-roll comes from Pexels (API key in the Integrations page; 200 requests/ho
 the library as `broll` assets with the videographer credit in `assets.meta`, and the editor shows the required
 "Videos provided by Pexels" link.
 
+## Long-form pillar: full videos at zero cost (`/videos`)
+
+Ten YouTube channels are seeded (`server/channel-seed.ts`): history, geopolitics, philosophy, book summaries (EN),
+public-domain readings, kids stories, science, economics, psychology, tech/AI (EN). Each channel is an editorial
+line — angle, guidelines, template, voice, visual style, topic bank — which is the human input YouTube's
+inauthentic-content policy expects from faceless channels.
+
+An episode goes through three steps, all free:
+1. **Script** — scene-by-scene JSON (narration, on-screen title, English stock keywords, chapter) from the model in
+   `settings.episodeModel` (default `gemini-3.8-flash`, free tier; `ollama:<model>` runs a local model through the
+   Ollama provider in the Integrations page).
+2. **Prepare** — narration per scene (Kokoro locally for English, Gemini TTS free tier for Arabic; each scene is
+   synthesized once and cached in storage by text+voice hash, so re-renders cost no quota) and a free Pexels clip or
+   still per scene (landscape, deduplicated inside the episode, credit kept). The editor reviews and swaps any scene.
+3. **Render** — `server/worker/episode-render.ts`: every scene becomes a 1920×1080 clip (trimmed/padded to its
+   narration, Ken Burns for stills), clips are joined without re-encoding, then one pass burns intro card, lower-thirds,
+   chapter cards, captions (phrase captions for Arabic with the bundled IBM Plex Sans Arabic font, karaoke for English),
+   outro and AI badge, and mixes narration with a ducked music bed. Output: MP4 + thumbnail + YouTube chapters text.
+
+Schema upgrades for this pillar run idempotently at startup (`server/db-upgrades.ts`), so `git pull` is enough.
+
 ## Runtime services
 
 Every service key (Claude, OpenAI, Gemini, Higgsfield, ElevenLabs, Instagram/Meta, TikTok, YouTube, Telegram, Pexels) is entered in the Integrations page and stored encrypted with `INTEGRATION_ENCRYPTION_KEY` — `.env` holds infrastructure only. Text generation uses Claude by default, transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
 
 ## Full-cycle test
 
-`pnpm e2e` runs the whole studio against a throwaway local Postgres with every external service (Claude, Supabase Storage, Instagram) faked at the network boundary: seed + reference images → daily batch → render queue (real ffmpeg) → QC → scheduling (connected platforms only) → concurrent publishing (no double posts) → premium clip pipeline → montage (fake Pexels B-roll, preview, queued final render that supersedes the automatic reel) → autopilot tick. It refuses to run unless `DATABASE_URL` points at localhost.
+`pnpm e2e` runs the whole studio against a throwaway local Postgres with every external service (Claude, Supabase Storage, Instagram) faked at the network boundary: seed + reference images → daily batch → render queue (real ffmpeg) → QC → scheduling (connected platforms only) → concurrent publishing (no double posts) → premium clip pipeline → montage (fake Pexels B-roll, preview, queued final render that supersedes the automatic reel) → long-form episode (10 seeded channels, fake Gemini script, cached narration, stock per scene, 1080p render with chapters) → autopilot tick. It refuses to run unless `DATABASE_URL` points at localhost.
 
 ```
-createdb reelsfab_e2e && psql reelsfab_e2e -f drizzle/supabase/0000_*.sql -f drizzle/supabase/0001_*.sql -f drizzle/supabase/0002_*.sql
+createdb reelsfab_e2e && psql reelsfab_e2e -f drizzle/supabase/0000_*.sql -f drizzle/supabase/0001_*.sql -f drizzle/supabase/0002_*.sql -f drizzle/supabase/0003_*.sql
 DATABASE_URL=postgres://postgres@127.0.0.1:5432/reelsfab_e2e pnpm e2e
 ```
 

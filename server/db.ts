@@ -139,7 +139,7 @@ export async function getSettings(): Promise<AppSettings> {
   const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const row of rows) merged[row.key] = row.value;
   const deprecatedGeminiModels = new Set(["gemini-2.5-flash", "gemini-3-flash-preview", "gemini:gemini-2.5-flash", "gemini:gemini-3-flash-preview"]);
-  for (const key of ["scriptModel", "reviewModel"] as const) {
+  for (const key of ["scriptModel", "reviewModel", "episodeModel"] as const) {
     if (typeof merged[key] === "string" && deprecatedGeminiModels.has(merged[key] as string)) {
       merged[key] = "gemini-3.8-flash";
       await db.insert(settings).values({ key, value: merged[key] }).onConflictDoUpdate({ target: settings.key, set: { value: merged[key] } });
@@ -187,6 +187,15 @@ export async function ensureSeed() {
   const have = new Set(existing.map(r => r.slug));
   const missing = CHARACTER_SEED.filter(c => !have.has(c.slug));
   if (missing.length) await db.insert(characters).values(missing);
+  try {
+    const { channels } = await import("../drizzle/schema");
+    const { CHANNEL_SEED } = await import("./channel-seed");
+    const haveChannels = new Set((await db.select({ slug: channels.slug }).from(channels)).map(r => r.slug));
+    const missingChannels = CHANNEL_SEED.filter(c => !haveChannels.has(c.slug));
+    if (missingChannels.length) await db.insert(channels).values(missingChannels);
+  } catch (e) {
+    console.warn("[seed] channels not seeded:", e instanceof Error ? e.message : e);
+  }
   try {
     const { syncBundledCharacterImages } = await import("./services/character-images");
     await syncBundledCharacterImages();

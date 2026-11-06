@@ -1,3 +1,4 @@
+import { outputPath } from "../output";
 import express, { type Express, type Request, type Response } from "express";
 import { assets } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
@@ -100,6 +101,22 @@ export function registerMediaRoutes(app: Express) {
       }
     },
   );
+
+  // Big local renders (long-form episodes) live on disk; express handles Range requests for the player.
+  app.get("/api/output/*", async (req: Request, res: Response) => {
+    const user = await requireMember(req, res);
+    if (!user) return;
+    const rel = (req.params as Record<string, string>)[0] ?? "";
+    const abs = rel && !rel.includes("..") ? outputPath(rel) : null;
+    if (!abs || !/\.(mp4|jpg|jpeg|png|m4a|wav)$/i.test(abs)) {
+      res.status(404).end();
+      return;
+    }
+    const type = /\.mp4$/i.test(abs) ? "video/mp4" : /\.(jpg|jpeg)$/i.test(abs) ? "image/jpeg" : /\.png$/i.test(abs) ? "image/png" : /\.m4a$/i.test(abs) ? "audio/mp4" : "audio/wav";
+    res.sendFile(abs, { headers: { "Content-Type": type, "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline", "Cache-Control": "private, max-age=3600" } }, err => {
+      if (err && !res.headersSent) res.status(404).end();
+    });
+  });
 
   // Same-origin byte proxy so canvases/WebCodecs can read stored media without CORS tainting.
   app.get("/api/media/*", async (req: Request, res: Response) => {

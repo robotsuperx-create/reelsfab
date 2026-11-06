@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { EpisodeScript, EpisodeStatus, EpisodeTemplate } from "../shared/episodes";
 import type { MontageSpec } from "../shared/montage";
 
 /**
@@ -383,9 +384,12 @@ export const renderJobs = pgTable(
   "render_jobs",
   {
     id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
-    scriptId: integer("scriptId").notNull(),
+    /** Null for long-form episode jobs. */
+    scriptId: integer("scriptId"),
     /** Set for montage renders; the automatic script render keeps montageId null (one such job per script). */
     montageId: integer("montageId"),
+    /** Set for long-form episode renders. */
+    episodeId: integer("episodeId"),
     status: text("status").$type<"queued" | "running" | "done" | "failed">().default("queued").notNull(),
     attempts: integer("attempts").default(0).notNull(),
     maxAttempts: integer("maxAttempts").default(3).notNull(),
@@ -401,9 +405,68 @@ export const renderJobs = pgTable(
     index("render_jobs_claim_idx").on(t.status, t.runAfter),
     uniqueIndex("render_jobs_script_auto_idx").on(t.scriptId).where(sql`"montageId" is null`),
     uniqueIndex("render_jobs_montage_idx").on(t.montageId).where(sql`"montageId" is not null`),
+    uniqueIndex("render_jobs_episode_idx").on(t.episodeId).where(sql`"episodeId" is not null`),
   ],
 );
 export type RenderJob = typeof renderJobs.$inferSelect;
+
+/** Long-form YouTube channels: the counterpart of characters for the full-video pillar. */
+export const channels = pgTable(
+  "channels",
+  {
+    id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+    slug: varchar("slug", { length: 64 }).notNull().unique(),
+    name: varchar("name", { length: 120 }).notNull(),
+    niche: varchar("niche", { length: 200 }).notNull(),
+    description: text("description").default("").notNull(),
+    language: text("language").$type<"ar" | "en">().default("ar").notNull(),
+    ttsProvider: text("ttsProvider").$type<"kokoro" | "gemini">().default("gemini").notNull(),
+    voice: varchar("voice", { length: 60 }).default("Charon").notNull(),
+    ttsSpeed: integer("ttsSpeed").default(100).notNull(),
+    visualStyle: text("visualStyle").$type<"stock" | "stills" | "maps" | "illustration">().default("stock").notNull(),
+    episodeTemplate: jsonb("episodeTemplate").$type<EpisodeTemplate>().notNull(),
+    /** Angle, tone and rules the script generator must follow (the human editorial line of the channel). */
+    guidelines: text("guidelines").default("").notNull(),
+    topicsBank: jsonb("topicsBank").$type<string[]>().default([]).notNull(),
+    colors: jsonb("colors").$type<{ primary: string; accent: string; text: string }>().notNull(),
+    musicAssetId: integer("musicAssetId"),
+    madeForKids: boolean("madeForKids").default(false).notNull(),
+    isActive: boolean("isActive").default(true).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  t => [index("channels_active_idx").on(t.isActive)],
+);
+export type Channel = typeof channels.$inferSelect;
+
+export const episodes = pgTable(
+  "episodes",
+  {
+    id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+    channelId: integer("channelId").notNull(),
+    topic: varchar("topic", { length: 240 }).notNull(),
+    title: varchar("title", { length: 200 }).default("").notNull(),
+    status: text("status").$type<EpisodeStatus>().default("planned").notNull(),
+    script: jsonb("script").$type<EpisodeScript>(),
+    /** Narration track (one file for the whole episode) once synthesized. */
+    narrationKey: varchar("narrationKey", { length: 512 }),
+    narrationUrl: varchar("narrationUrl", { length: 1024 }),
+    videoUrl: varchar("videoUrl", { length: 1024 }),
+    storageKey: varchar("storageKey", { length: 512 }),
+    thumbnailUrl: varchar("thumbnailUrl", { length: 1024 }),
+    durationMs: integer("durationMs"),
+    chaptersText: text("chaptersText"),
+    costMilliCents: integer("costMilliCents").default(0).notNull(),
+    error: text("error"),
+    publishedUrl: varchar("publishedUrl", { length: 1024 }),
+    publishedAt: timestamp("publishedAt"),
+    createdBy: integer("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  t => [index("episodes_channel_idx").on(t.channelId), index("episodes_status_idx").on(t.status)],
+);
+export type Episode = typeof episodes.$inferSelect;
 
 /** Montage projects: an editable spec rendered into a reel (kind "montage") that supersedes the script's automatic render. */
 export const montages = pgTable(

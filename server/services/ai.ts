@@ -9,13 +9,14 @@ type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_u
 type JsonSchemaObject = Record<string, unknown>;
 
 function estimateMilliCents(model: string, tokensIn: number, tokensOut: number) {
-  const price = LLM_PRICE_PER_MTOK[model] ?? { in: 3, out: 15 };
+  const price = LLM_PRICE_PER_MTOK[model] ?? (/^ollama:|^gemini-/.test(model) ? { in: 0, out: 0 } : { in: 3, out: 15 });
+  if (price.in === 0 && price.out === 0) return 0;
   const usd = (tokensIn * price.in + tokensOut * price.out) / 1_000_000;
   return Math.max(1, Math.round(usd * 100000));
 }
 
 function resolveProvider(model: string): { provider: ProviderName; model: string } {
-  const explicit = model.match(/^(openai|anthropic|gemini):(.+)$/i);
+  const explicit = model.match(/^(openai|anthropic|gemini|ollama):(.+)$/i);
   if (explicit) return { provider: explicit[1].toLowerCase() as ProviderName, model: explicit[2] };
   if (/^gpt[-_]/i.test(model)) return { provider: "openai", model };
   if (/^claude[-_]/i.test(model)) return { provider: "anthropic", model };
@@ -87,7 +88,7 @@ export async function callJson<T>(opts: {
   const text = result.text;
   const tokensIn = result.usage?.inputTokens ?? 0;
   const tokensOut = result.usage?.outputTokens ?? 0;
-  const billedModel = target.model;
+  const billedModel = target.provider === "ollama" ? `ollama:${result.model}` : target.model;
   const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
   let parsed: T;
   try {

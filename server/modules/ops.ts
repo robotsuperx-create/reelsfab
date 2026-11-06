@@ -173,6 +173,7 @@ const settingsPatch = z
     higgsfieldDefaultModel: z.string().max(120),
     scriptModel: z.string().max(80),
     reviewModel: z.string().max(80),
+    episodeModel: z.string().max(80).optional(),
     postingSlots: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(12),
     postingTimezone: z.string().max(64).refine(tz => {
       try {
@@ -220,6 +221,8 @@ export const automationRouter = router({
       .select({
         id: renderJobs.id,
         scriptId: renderJobs.scriptId,
+        montageId: renderJobs.montageId,
+        episodeId: renderJobs.episodeId,
         status: renderJobs.status,
         attempts: renderJobs.attempts,
         error: renderJobs.error,

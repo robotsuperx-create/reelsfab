@@ -12,6 +12,7 @@ import {
   Clapperboard,
   Coins,
   Scissors,
+  Tv,
   FolderOpen,
   Gauge,
   Layers,
@@ -42,6 +43,7 @@ const NAV: { group: string; items: { href: string; label: string; icon: typeof G
       { href: "/studio", label: "الاستوديو الاقتصادي", icon: Clapperboard },
       { href: "/render", label: "الرندر الجماعي", icon: Layers },
       { href: "/montage", label: "غرفة المونتاج", icon: Scissors },
+      { href: "/videos", label: "الفيديوهات الكاملة", icon: Tv },
     ],
   },
   {

@@ -13,6 +13,7 @@ import { rateLimit, securityHeaders } from "./security";
 import { startAutopilot } from "../worker/autopilot";
 import { registerSetupRoutes, setupComplete } from "./setup";
 import { describeDbError, ensureSeed } from "../db";
+import { ensureSchemaUpgrades } from "../db-upgrades";
 
 async function startServer() {
   const app = express();
@@ -55,7 +56,9 @@ async function startServer() {
     if (!setupComplete()) {
       console.log(`[setup] Configuration incomplete. Open http://localhost:${port}/setup on this computer to finish it.`);
     } else {
-      void ensureSeed().catch(e => console.warn("[database]", describeDbError(e)));
+      void ensureSchemaUpgrades()
+        .then(() => ensureSeed())
+        .catch(e => console.warn("[database]", describeDbError(e)));
     }
     startAutopilot(); });
 }

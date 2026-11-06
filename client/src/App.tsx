@@ -14,6 +14,7 @@ import Costs from "./pages/Costs";
 import Dashboard from "./pages/Dashboard";
 import Library from "./pages/Library";
 import MontageList, { MontageEditor, MontageFromScript } from "./pages/Montage";
+import VideosPage, { ChannelPage, EpisodePage } from "./pages/Videos";
 import Premium from "./pages/Premium";
 import QcPage from "./pages/Qc";
 import RenderQueue from "./pages/RenderQueue";
@@ -36,6 +37,9 @@ function Router() {
         <Route path="/montage" component={MontageList} />
         <Route path="/montage/from/:scriptId" component={MontageFromScript} />
         <Route path="/montage/:id" component={MontageEditor} />
+        <Route path="/videos" component={VideosPage} />
+        <Route path="/videos/channel/:id" component={ChannelPage} />
+        <Route path="/videos/episode/:id" component={EpisodePage} />
         <Route path="/qc" component={QcPage} />
         <Route path="/calendar" component={CalendarPage} />
         <Route path="/analytics" component={Analytics} />

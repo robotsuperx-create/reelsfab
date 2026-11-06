@@ -11,6 +11,7 @@ import dotenv from "dotenv";
 import express, { type Express, type Request, type Response } from "express";
 import postgres from "postgres";
 import { describeDbError, ensureSeed, getDb, resetDb } from "../db";
+import { ensureSchemaUpgrades } from "../db-upgrades";
 
 const ENV_PATH = join(process.cwd(), ".env");
 /**
@@ -154,6 +155,7 @@ async function dbHealthy() {
   try {
     const db = await getDb();
     if (!db) return false;
+    await ensureSchemaUpgrades();
     await ensureSeed();
     return true;
   } catch (e) {

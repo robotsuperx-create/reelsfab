@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { characters, montages, premiumClips, renderJobs, renders, scripts } from "../../drizzle/schema";
 import { spokenText } from "../../shared/domain";
@@ -61,7 +61,7 @@ export const montageRouter = router({
         createdAt: scripts.createdAt,
       })
       .from(scripts)
-      .where(inArray(scripts.status, ["script_ready", "premium_uploaded", "approved", "needs_review", "rejected", "scheduled"]))
+      .where(sql`${scripts.status} <> 'failed'`)
       .orderBy(desc(scripts.id))
       .limit(120);
     const existing = await db.select({ scriptId: montages.scriptId }).from(montages);

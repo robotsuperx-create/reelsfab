@@ -1,6 +1,6 @@
 import { getIntegrationConfig } from "../integration-vault";
 
-export type ProviderName = "openai" | "anthropic" | "gemini";
+export type ProviderName = "openai" | "anthropic" | "gemini" | "ollama";
 export type ProviderRequest = { provider: ProviderName; model: string; system?: string; prompt: string; /** image URLs or data: URLs for vision checks */ images?: string[]; jsonSchema?: Record<string, unknown>; maxTokens?: number; timeoutMs?: number };
 export type ProviderResult = { provider: ProviderName; model: string; text: string; usage?: { inputTokens?: number; outputTokens?: number } };
 
@@ -52,6 +52,24 @@ async function callGemini(r: ProviderRequest): Promise<ProviderResult> {
   const data = await res.json(); return { provider: r.provider, model: r.model, text: data.candidates?.[0]?.content?.parts?.map((x: any) => x.text ?? "").join("") ?? "", usage: { inputTokens: data.usageMetadata?.promptTokenCount, outputTokens: data.usageMetadata?.candidatesTokenCount } };
 }
 
+/** Local, free models through Ollama (http://127.0.0.1:11434 by default); JSON mode when a schema is requested. */
+async function callOllama(r: ProviderRequest): Promise<ProviderResult> {
+  if (r.images?.length) throw new Error("الفحص البصري يحتاج Claude أو OpenAI؛ Ollama هنا للنصوص فقط");
+  const config = await getIntegrationConfig("ollama");
+  const base = (config.baseUrl?.trim() || "http://127.0.0.1:11434").replace(/\/+$/, "");
+  const model = r.model && r.model !== "default" ? r.model : config.model?.trim();
+  if (!model) throw new Error("حدّد اسم نموذج Ollama في مركز التكاملات (مثال: qwen2.5:7b)");
+  const messages = [...(r.system ? [{ role: "system", content: r.system }] : []), { role: "user", content: `${r.prompt}${jsonInstruction(r.jsonSchema)}` }];
+  const res = await request(`${base}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages, stream: false, ...(r.jsonSchema ? { format: "json" } : {}), options: { num_predict: r.maxTokens ?? 1200, temperature: 0.7 } }),
+  }, r.timeoutMs ?? 300_000);
+  if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return { provider: r.provider, model, text: data?.message?.content ?? "", usage: { inputTokens: data?.prompt_eval_count, outputTokens: data?.eval_count } };
+}
+
 export async function invokeProvider(r: ProviderRequest): Promise<ProviderResult> {
   let last: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -59,6 +77,7 @@ export async function invokeProvider(r: ProviderRequest): Promise<ProviderResult
       if (r.provider === "openai") return await callOpenAI(r);
       if (r.provider === "anthropic") return await callAnthropic(r);
       if (r.provider === "gemini") return await callGemini(r);
+      if (r.provider === "ollama") return await callOllama(r);
       throw new Error(`Unknown AI provider: ${r.provider}`);
     } catch (e) { last = e; if (attempt === 0) await sleep(350); }
   }
@@ -74,5 +93,6 @@ export async function providerConfigured(provider: ProviderName) {
   if (provider === "openai") return Boolean((await getIntegrationConfig("openai")).apiKey);
   if (provider === "anthropic") return Boolean((await getIntegrationConfig("anthropic")).apiKey);
   if (provider === "gemini") return Boolean((await getIntegrationConfig("gemini")).apiKey);
+  if (provider === "ollama") return Boolean((await getIntegrationConfig("ollama")).model);
   return false;
 }

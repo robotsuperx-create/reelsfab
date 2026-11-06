@@ -9,15 +9,28 @@ import { requireDb } from "../db";
 import { storagePut } from "../storage";
 import { getIntegrationConfig } from "./integration-vault";
 
+export type StockOrientation = "portrait" | "landscape";
+
 export type StockVideo = {
   id: string;
   source: "pexels";
   thumb: string;
-  /** Direct link of the chosen portrait file (≤1080 wide keeps downloads small). */
+  /** Direct link of the chosen file (≤1080 wide portrait / ≤1920 wide landscape keeps downloads small). */
   file: string;
   width: number;
   height: number;
   durationSec: number;
+  credit: string;
+  sourceUrl: string;
+};
+
+export type StockPhoto = {
+  id: string;
+  source: "pexels";
+  thumb: string;
+  file: string;
+  width: number;
+  height: number;
   credit: string;
   sourceUrl: string;
 };
@@ -43,17 +56,19 @@ async function pexelsKey() {
   return key;
 }
 
-/** Picks the portrait rendition closest to 1080 wide without exceeding it; falls back to the smallest file. */
-export function pickPexelsFile(v: PexelsVideo) {
+/** Picks the rendition closest to the target size without exceeding it; falls back to the smallest file. */
+export function pickPexelsFile(v: PexelsVideo, orientation: StockOrientation = "portrait") {
   const files = (v.video_files ?? []).filter(f => f.link && /mp4/i.test(f.file_type ?? "mp4"));
-  const portrait = files.filter(f => (f.height ?? 0) > (f.width ?? 0));
-  const pool = portrait.length ? portrait : files;
-  const fit = pool.filter(f => (f.width ?? 0) <= 1080 && (f.height ?? 0) <= 1920).sort((a, b) => (b.width ?? 0) - (a.width ?? 0));
+  const wanted = files.filter(f => (orientation === "portrait" ? (f.height ?? 0) > (f.width ?? 0) : (f.width ?? 0) >= (f.height ?? 0)));
+  const pool = wanted.length ? wanted : files;
+  const maxW = orientation === "portrait" ? 1080 : 1920;
+  const maxH = orientation === "portrait" ? 1920 : 1080;
+  const fit = pool.filter(f => (f.width ?? 0) <= maxW && (f.height ?? 0) <= maxH).sort((a, b) => (b.width ?? 0) - (a.width ?? 0));
   return fit[0] ?? pool.sort((a, b) => (a.width ?? 0) - (b.width ?? 0))[0] ?? null;
 }
 
-export function normalizePexels(v: PexelsVideo): StockVideo | null {
-  const file = pickPexelsFile(v);
+export function normalizePexels(v: PexelsVideo, orientation: StockOrientation = "portrait"): StockVideo | null {
+  const file = pickPexelsFile(v, orientation);
   if (!file) return null;
   const name = v.user?.name?.trim() || "Pexels";
   return {
@@ -69,16 +84,16 @@ export function normalizePexels(v: PexelsVideo): StockVideo | null {
   };
 }
 
-export async function searchStockVideos(query: string, page = 1) {
+export async function searchStockVideos(query: string, page = 1, orientation: StockOrientation = "portrait") {
   const q = query.trim();
   if (!q) return { items: [] as StockVideo[], total: 0 };
-  const cacheKey = `${q.toLowerCase()}|${page}`;
+  const cacheKey = `v|${orientation}|${q.toLowerCase()}|${page}`;
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_MS) return { items: hit.items, total: hit.total };
   const key = await pexelsKey();
   const url = new URL("https://api.pexels.com/v1/videos/search");
   url.searchParams.set("query", q);
-  url.searchParams.set("orientation", "portrait");
+  url.searchParams.set("orientation", orientation);
   url.searchParams.set("size", "medium");
   url.searchParams.set("per_page", "24");
   url.searchParams.set("page", String(Math.max(1, page)));
@@ -86,13 +101,90 @@ export async function searchStockVideos(query: string, page = 1) {
   if (r.status === 429) throw new Error("Pexels: تجاوزت حد الطلبات (200 في الساعة) — انتظر قليلًا");
   if (!r.ok) throw new Error(`Pexels رفض الطلب (${r.status})`);
   const data = (await r.json()) as { videos?: PexelsVideo[]; total_results?: number };
-  const items = (data.videos ?? []).map(normalizePexels).filter((x): x is StockVideo => !!x && x.durationSec >= 2 && x.durationSec <= 60);
+  const items = (data.videos ?? []).map(v => normalizePexels(v, orientation)).filter((x): x is StockVideo => !!x && x.durationSec >= 2 && x.durationSec <= 60);
   const total = Number(data.total_results) || items.length;
   cache.set(cacheKey, { at: Date.now(), items, total });
   return { items, total };
 }
 
+const photoCache = new Map<string, { at: number; items: StockPhoto[]; total: number }>();
+
+type PexelsPhoto = { id: number; width: number; height: number; url: string; photographer?: string; src?: Record<string, string> };
+
+export function normalizePexelsPhoto(p: PexelsPhoto, orientation: StockOrientation = "landscape"): StockPhoto | null {
+  const file = p.src?.large2x || p.src?.large || p.src?.original;
+  if (!file) return null;
+  return {
+    id: String(p.id),
+    source: "pexels",
+    thumb: p.src?.medium || p.src?.small || file,
+    file,
+    width: orientation === "landscape" ? 1880 : 1080,
+    height: Math.round((orientation === "landscape" ? 1880 : 1080) * (p.height / Math.max(1, p.width))),
+    credit: `Photo by ${p.photographer?.trim() || "Pexels"} on Pexels`,
+    sourceUrl: p.url,
+  };
+}
+
+/** Free stills (Ken Burns material) from Pexels photos. */
+export async function searchStockPhotos(query: string, page = 1, orientation: StockOrientation = "landscape") {
+  const q = query.trim();
+  if (!q) return { items: [] as StockPhoto[], total: 0 };
+  const cacheKey = `p|${orientation}|${q.toLowerCase()}|${page}`;
+  const hit = photoCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_MS) return { items: hit.items, total: hit.total };
+  const key = await pexelsKey();
+  const url = new URL("https://api.pexels.com/v1/search");
+  url.searchParams.set("query", q);
+  url.searchParams.set("orientation", orientation);
+  url.searchParams.set("per_page", "24");
+  url.searchParams.set("page", String(Math.max(1, page)));
+  const r = await fetch(url, { headers: { Authorization: key } });
+  if (r.status === 429) throw new Error("Pexels: تجاوزت حد الطلبات (200 في الساعة) — انتظر قليلًا");
+  if (!r.ok) throw new Error(`Pexels رفض الطلب (${r.status})`);
+  const data = (await r.json()) as { photos?: PexelsPhoto[]; total_results?: number };
+  const items = (data.photos ?? []).map(p => normalizePexelsPhoto(p, orientation)).filter((x): x is StockPhoto => !!x);
+  const total = Number(data.total_results) || items.length;
+  photoCache.set(cacheKey, { at: Date.now(), items, total });
+  return { items, total };
+}
+
 const MAX_DOWNLOAD_BYTES = 60 * 1024 * 1024;
+
+/** Downloads a stock photo into storage as a "background" asset (deduplicated by source id). */
+export async function importStockPhoto(item: StockPhoto, opts: { query: string; userId: number | null }) {
+  const db = await requireDb();
+  const [existing] = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.kind, "background"), sql`${assets.meta}->>'source' = ${item.source}`, sql`${assets.meta}->>'sourceId' = ${`photo-${item.id}`}`))
+    .limit(1);
+  if (existing) return { asset: existing, reused: true as const };
+  const r = await fetch(item.file);
+  if (!r.ok) throw new Error(`تعذر تنزيل الصورة من ${item.source} (${r.status})`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (!buf.length || buf.length > 25 * 1024 * 1024) throw new Error("حجم الصورة غير مناسب");
+  const type = r.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+  const put = await storagePut(`stills/${item.source}-${item.id}.${type.includes("png") ? "png" : "jpg"}`, buf, type);
+  const [row] = await db
+    .insert(assets)
+    .values({
+      kind: "background",
+      characterId: null,
+      title: `${item.source}: ${opts.query}`.slice(0, 255),
+      url: put.url,
+      storageKey: put.key,
+      mimeType: type,
+      sizeBytes: buf.length,
+      width: item.width,
+      height: item.height,
+      tags: ["stock", item.source, opts.query.slice(0, 60)],
+      meta: { source: item.source, sourceId: `photo-${item.id}`, sourceUrl: item.sourceUrl, credit: item.credit, query: opts.query },
+      createdBy: opts.userId,
+    })
+    .returning();
+  return { asset: row, reused: false as const };
+}
 
 /** Downloads a stock clip into storage as a "broll" asset (deduplicated by source id). */
 export async function importStockVideo(item: StockVideo, opts: { characterId: number | null; query: string; userId: number | null }) {

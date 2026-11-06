@@ -98,7 +98,7 @@ export default function Automation() {
                 <div key={j.id} className="flex items-center gap-3 p-3 text-sm">
                   <span className="timecode text-xs text-muted-foreground">#{j.scriptId}</span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate">{j.hook ?? "—"}</div>
+                    <div className="truncate">{j.hook ?? (j.episodeId ? `حلقة طويلة #${j.episodeId}` : j.montageId ? `مونتاج #${j.montageId}` : "—")}</div>
                     {j.error && <div className="mt-0.5 truncate text-[11px] text-stop">{j.error}</div>}
                   </div>
                   {j.attempts > 1 && <span className="timecode text-[11px] text-muted-foreground">×{j.attempts}</span>}

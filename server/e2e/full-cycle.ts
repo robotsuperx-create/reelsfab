@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { eq, sql } from "drizzle-orm";
-import { assets, characters, montages, posts, renderJobs, renders, scripts, settings } from "../../drizzle/schema";
+import { assets, channels, characters, episodes, montages, posts, renderJobs, renders, scripts, settings } from "../../drizzle/schema";
 import { FAKE_ENV, fakeState, installFakes, seedFakeIntegrations } from "./fakes";
 
 const url = process.env.DATABASE_URL ?? "";
@@ -17,6 +17,7 @@ if (!/@(localhost|127\.0\.0\.1)[:/]/.test(url)) {
   process.exit(1);
 }
 for (const [k, v] of Object.entries(FAKE_ENV)) process.env[k] = v;
+process.env.OUTPUT_DIR = `/tmp/reelsfab-e2e-output-${process.pid}`;
 // The fake Higgsfield CDN serves this clip (8s, 9:16, with speech-like audio).
 if (!process.env.E2E_SAMPLE_MP4) {
   const { execFileSync } = await import("node:child_process");
@@ -43,7 +44,7 @@ async function main() {
   const db = await requireDb();
 
   step("reset database");
-  await db.execute(sql`truncate table assets, automation_runs, batches, characters, cost_entries, insights, integrations,
+  await db.execute(sql`truncate table assets, automation_runs, batches, channels, characters, cost_entries, episodes, insights, integrations,
     login_attempts, montages, post_metrics, posts, premium_clips, render_jobs, renders, scripts, settings, social_accounts, users restart identity cascade`);
 
   await seedFakeIntegrations(false);
@@ -59,7 +60,8 @@ async function main() {
   console.log(`  ${withImage.length} images in storage`);
 
   step("daily batch (fake Claude)");
-  await saveSettings({ dailyTarget: 10, automationEnabled: true, platforms: ["instagram", "tiktok"], postingTimezone: "America/New_York" });
+  // A large budget keeps the premium allowance independent of the day of the month.
+  await saveSettings({ dailyTarget: 10, automationEnabled: true, platforms: ["instagram", "tiktok"], postingTimezone: "America/New_York", monthlyBudgetUsd: 3000 });
   const run = await runDailyAutomation("manual");
   assert.equal(run.skipped, false);
   for (let i = 0; i < 60; i++) {
@@ -75,8 +77,9 @@ async function main() {
   assert.ok(held[0].hook.includes("$5000") && held[0].track === "economic", "held script is never premium");
   const premium = all.filter(s => s.track === "premium");
   const { premiumAllowance } = await import("../services/batch");
-  const allowed = premiumAllowance({ requested: 99, budgetUsd: 300, spentUsd: 0, perClipUsd: 72 * 3 * 0.05 });
+  const allowed = premiumAllowance({ requested: 99, budgetUsd: 3000, spentUsd: 0, perClipUsd: 72 * 3 * 0.05 });
   assert.ok(premium.length <= allowed, `budget guard caps premium (${premium.length} <= ${allowed} today)`);
+  assert.ok(premium.length >= 2, `at least two premium clips planned (${premium.length})`);
   console.log(`  ${all.length} scripts, ${premium.length} premium, statuses: ${JSON.stringify(countBy(all.map(s => s.status)))}`);
 
   step("render queue (ffmpeg, test voice)");
@@ -185,7 +188,7 @@ async function main() {
   assert.equal(spec.voice.source, "segments");
   assert.ok((spec.segments[0] as { words?: unknown[] }).words?.length, "clip transcript carried into the spec");
   const stock = await searchStockVideos("garden sunrise");
-  assert.equal(stock.items.length, 2, "fake Pexels returns portrait clips");
+  assert.equal(stock.items.length, 3, "fake Pexels returns portrait clips");
   assert.ok(stock.items[0].credit.startsWith("Video by"), "credit line kept for attribution");
   const imported = await importStockVideo(stock.items[0], { characterId: premiumScript.characterId, query: "garden sunrise", userId: null });
   assert.equal(imported.asset.kind, "broll");
@@ -223,6 +226,61 @@ async function main() {
   const brollAssets = await db.select().from(assets).where(eq(assets.kind, "broll"));
   assert.equal(brollAssets.length, 1);
   console.log(`  montage #${mrow.id}: ${spec.segments.length} segments, render #${mrender.id} (${mrender.qcStatus}, ${(mrender.durationMs / 1000).toFixed(1)}s), superseded render #${oldRender.id}`);
+
+  step("long-form pillar: 10 seeded channels -> free script (fake Gemini) -> cached narration + stock per scene -> 1080p render");
+  const { generateEpisodeScript, prepareEpisode, narrationHash } = await import("../services/episodes");
+  const { enqueueEpisode } = await import("../worker/jobs");
+  const allChannels = await db.select().from(channels);
+  assert.equal(allChannels.length, 10, "ten channels seeded");
+  assert.equal(allChannels.filter(c => c.language === "ar").length, 8, "eight Arabic channels");
+  assert.ok(allChannels.find(c => c.slug === "kids-stories")?.madeForKids, "kids channel is flagged made-for-kids");
+  const history = allChannels.find(c => c.slug === "history-docs")!;
+  const script = await generateEpisodeScript(history, "كيف انهارت الدولة العثمانية في عشرين سنة");
+  assert.equal(script.scenes.length, 6, "scene-by-scene script");
+  assert.ok(script.scenes.every(s => s.keywords.length >= 2), "every scene carries stock keywords");
+  assert.ok(/[\u0600-\u06FF]/.test(script.scenes[0].narration), "Arabic narration for an Arabic channel");
+  const [ep] = await db.insert(episodes).values({ channelId: history.id, topic: "كيف انهارت الدولة العثمانية في عشرين سنة", title: script.title, script }).returning({ id: episodes.id });
+  const prep = await prepareEpisode(ep.id, null);
+  assert.equal(prep.synthesized, 6, "one TTS call per scene");
+  assert.equal(prep.picked, 6, "free stock picked for every scene");
+  assert.equal(prep.missing, 0);
+  assert.deepEqual(prep.problems, []);
+  const [epPrepared] = await db.select().from(episodes).where(eq(episodes.id, ep.id));
+  assert.equal(epPrepared.status, "script_ready");
+  const preparedScript = epPrepared.script!;
+  assert.ok(preparedScript.scenes.every(s => s.durationSec && s.visual?.kind === "video" && s.visual.credit?.startsWith("Video by")), "durations, clips and credits recorded");
+  const distinct = new Set(preparedScript.scenes.map(s => s.visual!.assetId));
+  assert.ok(distinct.size >= 3, `scenes use different clips (${distinct.size})`);
+  const hash = narrationHash(preparedScript.scenes[0].narration, history.voice, history.ttsProvider, history.ttsSpeed / 100);
+  assert.equal(preparedScript.scenes[0].narrationHash, hash, "narration hash recorded");
+  assert.ok(preparedScript.scenes.every(s => s.narrationKey && objects.has(s.narrationKey)), "narration cached in storage per scene");
+  assert.equal((await prepareEpisode(ep.id, null)).synthesized, 0, "second prepare re-uses the cached narration (no quota spent)");
+  const eq1 = await enqueueEpisode(ep.id);
+  assert.equal(eq1.already, false);
+  const er = await drainQueue(1);
+  assert.equal(er.failed, 0, "episode render succeeded");
+  assert.equal(er.done, 1);
+  const [epDone] = await db.select().from(episodes).where(eq(episodes.id, ep.id));
+  assert.equal(epDone.status, "rendered");
+  assert.ok(epDone.videoUrl?.startsWith("/api/output/episodes/") && epDone.storageKey && (await import("node:fs")).existsSync(epDone.storageKey), "episode video written to the local output folder");
+  assert.ok(preparedScript.scenes.every(s => s.narrationKey?.endsWith(".m4a")), "narration cached as AAC");
+  assert.ok(epDone.thumbnailUrl, "thumbnail stored");
+  const narrationSec = preparedScript.scenes.reduce((a, s) => a + (s.durationSec ?? 0) + 0.35, 0);
+  const expected = 3 + narrationSec + 5;
+  assert.ok(Math.abs((epDone.durationMs ?? 0) / 1000 - expected) < 1.2, `episode length ${epDone.durationMs} ≈ ${expected.toFixed(1)}s`);
+  assert.ok(epDone.chaptersText?.startsWith("00:00 المقدمة"), "YouTube chapters text");
+  // English channel with stills: photos are imported as backgrounds with Ken Burns.
+  const books = allChannels.find(c => c.slug === "book-summaries")!;
+  const enScript = await generateEpisodeScript(books, "Atomic Habits by James Clear");
+  assert.ok(!/[\u0600-\u06FF]/.test(enScript.scenes[0].narration), "English narration for an English channel");
+  const [ep2] = await db.insert(episodes).values({ channelId: books.id, topic: "Atomic Habits", title: enScript.title, script: enScript }).returning({ id: episodes.id });
+  const prep2 = await prepareEpisode(ep2.id, null);
+  assert.equal(prep2.picked, 6);
+  const [epPrepared2] = await db.select().from(episodes).where(eq(episodes.id, ep2.id));
+  assert.ok(epPrepared2.script!.scenes.every(s => s.visual?.kind === "image" && s.visual.motion), "stills with motions for a stills channel");
+  const stillAssets = await db.select().from(assets).where(eq(assets.kind, "background"));
+  assert.ok(stillAssets.some(a => a.meta?.source === "pexels"), "stock photos saved as library backgrounds with credit");
+  console.log(`  episode #${ep.id}: ${preparedScript.scenes.length} scenes, ${((epDone.durationMs ?? 0) / 1000).toFixed(1)}s, chapters: ${epDone.chaptersText?.split("\n").length}; episode #${ep2.id} (en, stills) prepared`);
 
   step("autopilot tick (lease + full loop, nothing left to do)");
   await autopilotTick(new Date());

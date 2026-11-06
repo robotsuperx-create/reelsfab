@@ -1,8 +1,9 @@
 import { and, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
-import { characters, montages, premiumClips, renderJobs, renders, scripts } from "../../drizzle/schema";
+import { characters, episodes, montages, premiumClips, renderJobs, renders, scripts } from "../../drizzle/schema";
 import { AI_DISCLOSURE, spokenText, TEMPLATES } from "../../shared/domain";
 import { requireDb } from "../db";
 import { notifyOwner } from "../services/notify";
+import { finishEpisodeRender } from "../services/episodes";
 import { finishMontageRender } from "../services/montages";
 import { createRenderRecord } from "../services/render-records";
 import { storageDownload, storageKeyFromUrl, storagePut } from "../storage";
@@ -56,10 +57,12 @@ export async function claimJob() {
       select id from render_jobs
       where status='queued' and "runAfter" <= now()
       order by id for update skip locked limit 1
-    ) returning id, "scriptId", "montageId", attempts, "maxAttempts"`);
-  const row = (res as unknown as { id: number; scriptId: number; montageId: number | null; attempts: number; maxAttempts: number }[])[0];
+    ) returning id, "scriptId", "montageId", "episodeId", attempts, "maxAttempts"`);
+  const row = (res as unknown as ClaimedJob[])[0];
   return row ?? null;
 }
+
+export type ClaimedJob = { id: number; scriptId: number | null; montageId: number | null; episodeId?: number | null; attempts: number; maxAttempts: number };
 
 /** Claims one specific queued job (used to run a user-requested render ahead of the batch queue). */
 export async function claimJobById(id: number) {
@@ -68,9 +71,45 @@ export async function claimJobById(id: number) {
     update render_jobs set status='running', "lockedAt"=now(), "lockedBy"=${WORKER_ID},
       attempts=attempts+1, "updatedAt"=now()
     where id=${id} and status='queued'
-    returning id, "scriptId", "montageId", attempts, "maxAttempts"`);
-  const row = (res as unknown as { id: number; scriptId: number; montageId: number | null; attempts: number; maxAttempts: number }[])[0];
+    returning id, "scriptId", "montageId", "episodeId", attempts, "maxAttempts"`);
+  const row = (res as unknown as ClaimedJob[])[0];
   return row ?? null;
+}
+
+/** Queues a long-form episode render (one live job per episode) and marks the episode rendering. */
+export async function enqueueEpisode(episodeId: number) {
+  const db = await requireDb();
+  const [e] = await db.select({ id: episodes.id }).from(episodes).where(eq(episodes.id, episodeId));
+  if (!e) throw new Error("Episode not found");
+  const [live] = await db.select({ id: renderJobs.id, status: renderJobs.status }).from(renderJobs).where(eq(renderJobs.episodeId, episodeId));
+  if (live && (live.status === "queued" || live.status === "running")) return { jobId: live.id, already: true as const };
+  if (live) await db.delete(renderJobs).where(eq(renderJobs.id, live.id));
+  const [job] = await db.insert(renderJobs).values({ episodeId, maxAttempts: 2 }).returning({ id: renderJobs.id });
+  await db.update(episodes).set({ status: "rendering", error: null, updatedAt: new Date() }).where(eq(episodes.id, episodeId));
+  return { jobId: job.id, already: false as const };
+}
+
+async function processEpisodeJob(job: { id: number; episodeId: number; attempts: number; maxAttempts: number }) {
+  const db = await requireDb();
+  try {
+    const r = await finishEpisodeRender(job.episodeId);
+    await db.update(renderJobs).set({ status: "done", error: null, lockedAt: null, lockedBy: null }).where(eq(renderJobs.id, job.id));
+    return { ok: true as const, episodeId: job.episodeId, durationMs: r.durationMs };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const permanent = /بلا لقطة|لا يوجد سكربت|Episode not found|Channel not found|مصدر غير صالح|غير مضبوط|أضف مفتاح/.test(msg);
+    const final = permanent || job.attempts >= job.maxAttempts;
+    await db
+      .update(renderJobs)
+      .set({ status: final ? "failed" : "queued", error: msg.slice(0, 1000), runAfter: new Date(Date.now() + 2 ** job.attempts * 60_000), lockedAt: null, lockedBy: null })
+      .where(eq(renderJobs.id, job.id));
+    await db
+      .update(episodes)
+      .set({ status: final ? "failed" : "rendering", error: msg.slice(0, 1000), updatedAt: new Date() })
+      .where(eq(episodes.id, job.episodeId));
+    if (final) await notifyOwner({ title: `فشل رندر الحلقة #${job.episodeId}`, content: msg.slice(0, 500) }).catch(() => false);
+    return { ok: false as const, error: msg };
+  }
 }
 
 /** Runs a queued job right now (no-op when a worker already holds it). */
@@ -132,11 +171,14 @@ async function loadReferenceImage(refs: string[] | null) {
   throw new Error("لا توجد صورة مرجعية صالحة للشخصية — ارفع صورة من صفحة الشخصيات");
 }
 
-export async function processJob(job: { id: number; scriptId: number; montageId?: number | null; attempts: number; maxAttempts: number }) {
+export async function processJob(job: ClaimedJob) {
+  if (job.episodeId) return processEpisodeJob({ ...job, episodeId: job.episodeId });
   if (job.montageId) return processMontageJob({ ...job, montageId: job.montageId });
+  if (!job.scriptId) throw new Error(`Render job #${job.id} has no script, montage or episode`);
+  const scriptId = job.scriptId;
   const db = await requireDb();
   try {
-    const [script] = await db.select().from(scripts).where(eq(scripts.id, job.scriptId));
+    const [script] = await db.select().from(scripts).where(eq(scripts.id, scriptId));
     if (!script) throw new Error("Script not found");
     // Idempotency: a crash after the render was stored must not produce a second render on retry.
     const [existing] = await db.select({ id: renders.id }).from(renders).where(eq(renders.scriptId, script.id)).limit(1);
@@ -223,7 +265,7 @@ export async function processJob(job: { id: number; scriptId: number; montageId?
       })
       .where(eq(renderJobs.id, job.id));
     if (final) {
-      await notifyOwner({ title: `فشل رندر النص #${job.scriptId}`, content: msg.slice(0, 500) }).catch(() => false);
+      await notifyOwner({ title: `فشل رندر النص #${scriptId}`, content: msg.slice(0, 500) }).catch(() => false);
     }
     return { ok: false as const, error: msg };
   }
