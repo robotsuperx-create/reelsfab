@@ -1,7 +1,9 @@
+import { supabaseOrigin } from "./env";
+
 // Only these public values may reach the browser. Never serialize process.env.
 export function publicPlatformConfig(env: NodeJS.ProcessEnv = process.env) {
   return {
-    supabaseUrl: env.SUPABASE_URL ?? "",
+    supabaseUrl: supabaseOrigin(env.SUPABASE_URL),
     supabaseAnonKey: env.SUPABASE_ANON_KEY ?? "",
   };
 }

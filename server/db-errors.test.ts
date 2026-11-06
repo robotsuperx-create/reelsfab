@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { describeDbError, looksLikePausedProject, setupUrl } from "./db";
+import { supabaseOrigin } from "./_core/env";
+import { publicPlatformConfig } from "./_core/publicConfig";
 
 const PORT = process.env.PORT;
 afterEach(() => {
@@ -30,5 +32,16 @@ describe("describeDbError", () => {
     expect(describeDbError({ message: "password authentication failed for user", cause: { code: "28P01" } })).toContain("http://localhost:3100/setup");
     delete process.env.PORT;
     expect(setupUrl()).toBe("http://localhost:3000/setup");
+  });
+});
+
+describe("supabaseOrigin", () => {
+  it("drops the /rest/v1 path the dashboard shows, so storage and auth reach their own services", () => {
+    expect(supabaseOrigin("https://abcdefghijklmnopqrst.supabase.co/rest/v1")).toBe("https://abcdefghijklmnopqrst.supabase.co");
+    expect(supabaseOrigin("https://abcdefghijklmnopqrst.supabase.co/rest/v1/")).toBe("https://abcdefghijklmnopqrst.supabase.co");
+    expect(supabaseOrigin(" https://abcdefghijklmnopqrst.supabase.co/ ")).toBe("https://abcdefghijklmnopqrst.supabase.co");
+    expect(supabaseOrigin("http://127.0.0.1:54321")).toBe("http://127.0.0.1:54321");
+    expect(supabaseOrigin(undefined)).toBe("");
+    expect(publicPlatformConfig({ SUPABASE_URL: "https://x.supabase.co/rest/v1", SUPABASE_ANON_KEY: "anon" } as NodeJS.ProcessEnv).supabaseUrl).toBe("https://x.supabase.co");
   });
 });

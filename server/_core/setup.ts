@@ -12,6 +12,7 @@ import express, { type Express, type Request, type Response } from "express";
 import postgres from "postgres";
 import { describeDbError, ensureSeed, getDb, resetDb } from "../db";
 import { ensureSchemaUpgrades } from "../db-upgrades";
+import { supabaseOrigin } from "./env";
 
 const ENV_PATH = join(process.cwd(), ".env");
 /**
@@ -181,7 +182,7 @@ export function registerSetupRoutes(app: Express) {
     const current = readEnvFile();
     const updates: Record<string, string> = {};
     const set = (k: string, v?: string) => { if (v && v.trim()) updates[k] = v.trim(); };
-    set("SUPABASE_URL", b.SUPABASE_URL?.replace(/\/+$/, ""));
+    set("SUPABASE_URL", b.SUPABASE_URL ? supabaseOrigin(b.SUPABASE_URL) : undefined);
     set("SUPABASE_ANON_KEY", b.SUPABASE_ANON_KEY);
     set("SUPABASE_SERVICE_ROLE_KEY", b.SUPABASE_SERVICE_ROLE_KEY);
     set("SUPABASE_DB_POOLER_REGION", b.SUPABASE_DB_POOLER_REGION);
