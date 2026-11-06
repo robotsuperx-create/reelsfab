@@ -16,8 +16,26 @@ export const VISUAL_STYLE_LABELS: Record<(typeof VISUAL_STYLES)[number], string>
   illustration: "رسوم توضيحية",
 };
 
-export const TTS_PROVIDERS = ["kokoro", "gemini"] as const;
+export const TTS_PROVIDERS = ["kokoro", "gemini", "speech"] as const;
 export type TtsProvider = (typeof TTS_PROVIDERS)[number];
+export const TTS_PROVIDER_LABELS: Record<TtsProvider, string> = {
+  kokoro: "Kokoro — محلي مجاني (إنجليزي فقط)",
+  speech: "OpenAI TTS أو خادم صوت متوافق (صوتك المستنسخ)",
+  gemini: "Gemini TTS — الخطة المجانية",
+};
+
+/** OpenAI built-in voices (gpt-4o-mini-tts); a self-hosted clone server uses whatever voice names it registers. */
+export const OPENAI_VOICES = [
+  { id: "onyx", label: "Onyx — ذكر، عميق وثائقي" },
+  { id: "ash", label: "Ash — ذكر، واضح" },
+  { id: "echo", label: "Echo — ذكر، هادئ" },
+  { id: "alloy", label: "Alloy — محايد" },
+  { id: "sage", label: "Sage — أنثى، هادئة" },
+  { id: "nova", label: "Nova — أنثى، دافئة" },
+  { id: "shimmer", label: "Shimmer — أنثى، مشرقة" },
+  { id: "coral", label: "Coral — أنثى، حيوية" },
+  { id: "fable", label: "Fable — راوٍ" },
+] as const;
 
 /** Gemini prebuilt voices usable for Arabic narration (free tier). */
 export const GEMINI_VOICES = [

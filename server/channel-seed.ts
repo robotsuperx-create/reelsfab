@@ -7,7 +7,9 @@ import type { channels } from "../drizzle/schema";
 
 type ChannelSeed = typeof channels.$inferInsert;
 
-const AR = { language: "ar" as const, ttsProvider: "gemini" as const };
+// Arabic narration goes through the "speech" vault provider: OpenAI TTS voices by default, or the owner's
+// cloned voice once a compatible speech server is registered (voice names then come from that server).
+const AR = { language: "ar" as const, ttsProvider: "speech" as const };
 const EN = { language: "en" as const, ttsProvider: "kokoro" as const };
 
 export const CHANNEL_SEED: ChannelSeed[] = [
@@ -17,7 +19,7 @@ export const CHANNEL_SEED: ChannelSeed[] = [
     niche: "حدث أو حقبة أو إمبراطورية تُروى كقصة ذات بداية وذروة ونهاية",
     description: "وثائقيات تاريخية بصوت هادئ وخرائط وأرشيف بالملكية العامة. كل حلقة تجيب عن سؤال واحد كبير.",
     ...AR,
-    voice: "Charon",
+    voice: "onyx",
     ttsSpeed: 97,
     visualStyle: "maps",
     episodeTemplate: { minutes: 12, structure: ["خطاف", "السياق", "الفصل الأول", "الفصل الثاني", "الذروة", "ماذا بقي منه اليوم"], hookSeconds: 20, cta: "اشترك ليصلك وثائقي جديد كل أسبوع" },
@@ -31,7 +33,7 @@ export const CHANNEL_SEED: ChannelSeed[] = [
     niche: "لماذا تفعل الدولة X هذا؟ تحليل المصالح على الخريطة",
     description: "جيوسياسة بلغة تحليلية هادئة: الخريطة أولًا، ثم اللاعبون والمصالح، ثم السيناريوهات.",
     ...AR,
-    voice: "Orus",
+    voice: "ash",
     ttsSpeed: 100,
     visualStyle: "maps",
     episodeTemplate: { minutes: 10, structure: ["السؤال", "الخريطة", "اللاعبون والمصالح", "ما حدث", "السيناريوهات"], hookSeconds: 20, cta: "اشترك لتفهم ما وراء الخبر" },
@@ -45,7 +47,7 @@ export const CHANNEL_SEED: ChannelSeed[] = [
     niche: "فكرة أو فيلسوف واحد في كل حلقة بأمثلة من الحياة اليومية",
     description: "فلسفة تُفهم من أول مرة: موقف يومي، ثم الفكرة، ثم الاعتراضات، ثم ماذا نفعل بها.",
     ...AR,
-    voice: "Kore",
+    voice: "sage",
     ttsSpeed: 98,
     visualStyle: "stills",
     episodeTemplate: { minutes: 9, structure: ["موقف يومي", "الفكرة", "الاعتراضات", "ماذا نفعل بها"], hookSeconds: 15, cta: "اشترك لفكرة جديدة كل أسبوع" },
@@ -73,7 +75,7 @@ export const CHANNEL_SEED: ChannelSeed[] = [
     niche: "قراءة كاملة لنصوص بالملكية العامة مع مقدمة وتعليق",
     description: "نصوص تراثية وكلاسيكيات من الملكية العامة تُقرأ كاملة بصوت هادئ، مع مقدمة عن الكتاب وخلاصة في النهاية.",
     ...AR,
-    voice: "Charon",
+    voice: "onyx",
     ttsSpeed: 95,
     visualStyle: "stills",
     episodeTemplate: { minutes: 20, structure: ["مقدمة عن الكتاب", "القراءة: الجزء الأول", "القراءة: الجزء الثاني", "خلاصة وتعليق"], hookSeconds: 15, cta: "اشترك لتصلك القراءة التالية" },
@@ -87,7 +89,7 @@ export const CHANNEL_SEED: ChannelSeed[] = [
     niche: "قصص بقيمة أخلاقية و«كيف يعمل؟» للأطفال من 5 إلى 9 سنوات",
     description: "شخصية ثابتة اسمها «نور» تحكي قصة بقيمة واضحة أو تشرح كيف يعمل شيء من حولنا، بلغة عربية فصحى بسيطة.",
     ...AR,
-    voice: "Leda",
+    voice: "nova",
     ttsSpeed: 92,
     visualStyle: "illustration",
     episodeTemplate: { minutes: 6, structure: ["نور تحيّي الأطفال", "المشكلة", "المحاولة", "الحل والقيمة", "سؤال للطفل"], hookSeconds: 10, cta: "اطلب من أمك أو أبيك الاشتراك لتصلك حكاية جديدة" },
@@ -102,7 +104,7 @@ export const CHANNEL_SEED: ChannelSeed[] = [
     niche: "ظاهرة علمية واحدة تُشرح من الصفر: من السؤال المدهش إلى ما يعنيه لنا",
     description: "فيزياء وفضاء وبيولوجيا بلا معادلات: سؤال مدهش، تجربة ذهنية، الشرح، ثم ماذا يعني ذلك لنا.",
     ...AR,
-    voice: "Puck",
+    voice: "echo",
     ttsSpeed: 100,
     visualStyle: "stock",
     episodeTemplate: { minutes: 9, structure: ["سؤال مدهش", "تجربة ذهنية", "الشرح", "ماذا يعني لنا"], hookSeconds: 15, cta: "اشترك لسؤال علمي جديد كل أسبوع" },
@@ -116,7 +118,7 @@ export const CHANNEL_SEED: ChannelSeed[] = [
     niche: "التضخم والعملات وسلاسل الإمداد والشركات: الآلية خلف الأخبار",
     description: "كل حلقة تبدأ بقصة شركة أو أزمة، ثم تشرح الآلية الاقتصادية وراءها، ثم تخرج بدرس عملي.",
     ...AR,
-    voice: "Orus",
+    voice: "ash",
     ttsSpeed: 100,
     visualStyle: "stock",
     episodeTemplate: { minutes: 10, structure: ["قصة", "الآلية", "الأرقام", "الدرس"], hookSeconds: 15, cta: "اشترك لتفهم الاقتصاد من حولك" },
@@ -130,7 +132,7 @@ export const CHANNEL_SEED: ChannelSeed[] = [
     niche: "سلوك واحد مدعوم بالدراسات: التسويف، العادات، الانتباه، القلق اليومي",
     description: "علم نفس عملي: المشكلة، ما تقوله الدراسات، الآلية في الدماغ، ثم بروتوكول صغير يمكن تجربته هذا الأسبوع.",
     ...AR,
-    voice: "Aoede",
+    voice: "coral",
     ttsSpeed: 98,
     visualStyle: "stock",
     episodeTemplate: { minutes: 8, structure: ["المشكلة", "ما تقوله الدراسات", "الآلية", "بروتوكول هذا الأسبوع"], hookSeconds: 15, cta: "اشترك لسلوك جديد كل أسبوع" },

@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { characters, InsertUser, settings, users } from "../drizzle/schema";
-import { AppSettings, DEFAULT_SETTINGS } from "../shared/domain";
+import { AppSettings, CLAUDE_DEFAULT_MODEL, CLAUDE_MODEL_UPGRADES, CLAUDE_REVIEW_MODEL, DEFAULT_SETTINGS } from "../shared/domain";
 import { ENV } from './_core/env';
 import { getDatabaseUrl } from './_core/database-url';
 import { CHARACTER_SEED } from "./seed";
@@ -138,14 +138,24 @@ export async function getSettings(): Promise<AppSettings> {
   const rows = await db.select().from(settings);
   const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const row of rows) merged[row.key] = row.value;
-  const deprecatedGeminiModels = new Set(["gemini-2.5-flash", "gemini-3-flash-preview", "gemini:gemini-2.5-flash", "gemini:gemini-3-flash-preview"]);
+  // Claude is the platform's text model: earlier Gemini/Ollama choices and retired Claude IDs move to the current generation.
   for (const key of ["scriptModel", "reviewModel", "episodeModel"] as const) {
-    if (typeof merged[key] === "string" && deprecatedGeminiModels.has(merged[key] as string)) {
-      merged[key] = "gemini-3.8-flash";
-      await db.insert(settings).values({ key, value: merged[key] }).onConflictDoUpdate({ target: settings.key, set: { value: merged[key] } });
+    const current = typeof merged[key] === "string" ? (merged[key] as string) : "";
+    const next = currentClaudeModel(current, key === "reviewModel" ? CLAUDE_REVIEW_MODEL : CLAUDE_DEFAULT_MODEL);
+    if (next !== current) {
+      merged[key] = next;
+      await db.insert(settings).values({ key, value: next }).onConflictDoUpdate({ target: settings.key, set: { value: next } });
     }
   }
   return merged as AppSettings;
+}
+
+/** Maps a stored model choice to the Claude model the platform should use now (other providers are opt-in again by prefix). */
+export function currentClaudeModel(model: string, fallback: string) {
+  const m = model.trim();
+  if (!m || /^(gemini|ollama)[:-]/i.test(m)) return fallback;
+  const bare = m.replace(/^anthropic:/i, "");
+  return CLAUDE_MODEL_UPGRADES[bare] ?? m;
 }
 
 export async function saveSettings(patch: Partial<AppSettings>) {

@@ -420,7 +420,7 @@ export const channels = pgTable(
     niche: varchar("niche", { length: 200 }).notNull(),
     description: text("description").default("").notNull(),
     language: text("language").$type<"ar" | "en">().default("ar").notNull(),
-    ttsProvider: text("ttsProvider").$type<"kokoro" | "gemini">().default("gemini").notNull(),
+    ttsProvider: text("ttsProvider").$type<"kokoro" | "gemini" | "speech">().default("speech").notNull(),
     voice: varchar("voice", { length: 60 }).default("Charon").notNull(),
     ttsSpeed: integer("ttsSpeed").default(100).notNull(),
     visualStyle: text("visualStyle").$type<"stock" | "stills" | "maps" | "illustration">().default("stock").notNull(),

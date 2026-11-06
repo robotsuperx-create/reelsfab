@@ -34,7 +34,7 @@ const published = fakeState.instagramPosts;
 const step = (msg: string) => console.log(`\n▶ ${msg}`);
 
 async function main() {
-  const { requireDb, ensureSeed, saveSettings } = await import("../db");
+  const { requireDb, ensureSeed, saveSettings, getSettings } = await import("../db");
   const { runDailyAutomation } = await import("../services/batch");
   const { enqueueReadyScripts, drainQueue } = await import("../worker/jobs");
   const { autoFillSchedule } = await import("../services/scheduler");
@@ -227,7 +227,7 @@ async function main() {
   assert.equal(brollAssets.length, 1);
   console.log(`  montage #${mrow.id}: ${spec.segments.length} segments, render #${mrender.id} (${mrender.qcStatus}, ${(mrender.durationMs / 1000).toFixed(1)}s), superseded render #${oldRender.id}`);
 
-  step("long-form pillar: 10 seeded channels -> free script (fake Gemini) -> cached narration + stock per scene -> 1080p render");
+  step("long-form pillar: 10 seeded channels -> Claude script (forced tool call) -> OpenAI-compatible narration cached per scene + stock -> 1080p render");
   const { generateEpisodeScript, prepareEpisode, narrationHash } = await import("../services/episodes");
   const { enqueueEpisode } = await import("../worker/jobs");
   const allChannels = await db.select().from(channels);
@@ -235,13 +235,20 @@ async function main() {
   assert.equal(allChannels.filter(c => c.language === "ar").length, 8, "eight Arabic channels");
   assert.ok(allChannels.find(c => c.slug === "kids-stories")?.madeForKids, "kids channel is flagged made-for-kids");
   const history = allChannels.find(c => c.slug === "history-docs")!;
+  assert.equal(history.ttsProvider, "speech", "Arabic channels narrate through the speech provider (OpenAI-compatible)");
+  assert.equal((await getSettings()).episodeModel, "claude-sonnet-5-5", "episode scripts default to Claude");
+  const anthropicBefore = calls.anthropic ?? 0;
   const script = await generateEpisodeScript(history, "كيف انهارت الدولة العثمانية في عشرين سنة");
+  assert.equal((calls.anthropic ?? 0) - anthropicBefore, 1, "the episode script is one Claude call");
   assert.equal(script.scenes.length, 6, "scene-by-scene script");
   assert.ok(script.scenes.every(s => s.keywords.length >= 2), "every scene carries stock keywords");
   assert.ok(/[\u0600-\u06FF]/.test(script.scenes[0].narration), "Arabic narration for an Arabic channel");
   const [ep] = await db.insert(episodes).values({ channelId: history.id, topic: "كيف انهارت الدولة العثمانية في عشرين سنة", title: script.title, script }).returning({ id: episodes.id });
   const prep = await prepareEpisode(ep.id, null);
   assert.equal(prep.synthesized, 6, "one TTS call per scene");
+  assert.equal(calls["openai.tts"], 6, "Arabic narration went through the OpenAI-compatible speech endpoint");
+  const [epCost] = await db.select({ costMilliCents: episodes.costMilliCents }).from(episodes).where(eq(episodes.id, ep.id));
+  assert.ok(epCost.costMilliCents > 0, "paid narration is charged to the episode");
   assert.equal(prep.picked, 6, "free stock picked for every scene");
   assert.equal(prep.missing, 0);
   assert.deepEqual(prep.problems, []);

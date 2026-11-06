@@ -83,6 +83,15 @@ function llmJson(prompt: string): unknown {
   return { hooks: [{ hook: "Fresh angle on this idea", hookType: "question", onScreenText: "Fresh angle" }] };
 }
 
+/** Minimal 16-bit mono WAV wrapper for fake speech responses. */
+function pcmWav(pcm: Buffer, sampleRate = 24000) {
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0); h.writeUInt32LE(36 + pcm.length, 4); h.write("WAVE", 8); h.write("fmt ", 12);
+  h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22); h.writeUInt32LE(sampleRate, 24);
+  h.writeUInt32LE(sampleRate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write("data", 36); h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+
 function promptOf(body: any): string {
   if (Array.isArray(body?.messages)) {
     return body.messages
@@ -122,6 +131,12 @@ export function installFakes() {
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", ...headers } });
     const bodyText = async () => (init?.body ? await new Response(init.body as BodyInit).text() : "");
 
+    // Local services (Ollama, a voice-clone speech server) are real even in the faked world.
+    if ((u.hostname === "127.0.0.1" || u.hostname === "localhost") && !/^(3000|4310)$/.test(u.port)) {
+      hit(`local:${u.port}`);
+      return realFetch(input as RequestInfo, init);
+    }
+
     switch (u.host) {
       case "supabase.test": {
         const m = /^\/storage\/v1\/object\/(sign\/)?([^/]+)\/(.+)$/.exec(u.pathname);
@@ -148,8 +163,14 @@ export function installFakes() {
       }
       case "api.anthropic.com": {
         hit("anthropic");
+        if (u.pathname.startsWith("/v1/models")) return json({ data: [{ id: "claude-sonnet-5-5", type: "model" }] });
         const body = JSON.parse(await bodyText());
-        return json({ content: [{ type: "text", text: JSON.stringify(llmJson(promptOf(body))) }], usage: { input_tokens: 1200, output_tokens: 900 } });
+        const result = llmJson(promptOf(body));
+        // Structured requests arrive as a forced tool call and are answered with a tool_use block, like the real API.
+        if (body?.tool_choice?.type === "tool") {
+          return json({ content: [{ type: "tool_use", id: "toolu_fake", name: body.tool_choice.name, input: result }], stop_reason: "tool_use", usage: { input_tokens: 1200, output_tokens: 900 } });
+        }
+        return json({ content: [{ type: "text", text: JSON.stringify(result) }], usage: { input_tokens: 1200, output_tokens: 900 } });
       }
       case "api.openai.com": {
         hit("openai");
@@ -157,6 +178,16 @@ export function installFakes() {
           return json({ text: "Water deeply twice a week at sunrise.", language: "en", duration: 3, segments: [{ start: 0, end: 3, text: "Water deeply twice a week at sunrise." }] });
         }
         if (u.pathname.includes("/images/generations")) return json({ data: [{ b64_json: PNG.toString("base64") }] });
+        if (u.pathname.includes("/audio/speech")) {
+          hit("openai.tts");
+          if (!new Headers(init?.headers).get("authorization")) return json({ error: "missing key" }, 401);
+          const b = JSON.parse(await bodyText());
+          // 0.34s of 24 kHz silence per word, like the test TTS provider — returned as a real WAV like OpenAI does.
+          const words = String(b.input ?? "").split(/\s+/).filter(Boolean).length;
+          const pcm = Buffer.alloc(Math.max(1, Math.round(words * 0.34 * 24000)) * 2);
+          return new Response(new Uint8Array(pcmWav(pcm)), { headers: { "content-type": "audio/wav" } });
+        }
+        if (u.pathname.endsWith("/models/gpt-4o-mini-tts")) return json({ id: "gpt-4o-mini-tts", object: "model" });
         const body = JSON.parse(await bodyText());
         return json({ output_text: JSON.stringify(llmJson(promptOf(body))), usage: { input_tokens: 800, output_tokens: 500 } });
       }

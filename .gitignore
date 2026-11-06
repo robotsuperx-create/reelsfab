@@ -110,3 +110,7 @@ temp/
 .webdev/
 
 output/
+
+# voice-server: personal voice recordings and its venv never enter git
+tools/voice-server/voices/
+tools/voice-server/.venv/

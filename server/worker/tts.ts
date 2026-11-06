@@ -5,11 +5,56 @@ import { getIntegrationConfig } from "../services/integration-vault";
 
 const run = promisify(execFile);
 
-export type TtsResult = { wavPath: string; durationSec: number };
-export type TtsProvider = "kokoro" | "gemini";
+export type TtsResult = { wavPath: string; durationSec: number; costMilliCents?: number };
+export type TtsProvider = "kokoro" | "gemini" | "speech";
+
+/** OpenAI's public endpoint; any server implementing the same /audio/speech contract (self-hosted voice clones) works too. */
+export const OPENAI_SPEECH_BASE = "https://api.openai.com/v1";
+const OPENAI_TTS_USD_PER_MINUTE = 0.015; // gpt-4o-mini-tts list price estimate (text-in billing ≈ $0.015 per minute of audio)
+
+/**
+ * OpenAI-compatible speech (`POST {baseUrl}/audio/speech`). Vault provider "speech": baseUrl, apiKey, model,
+ * format, instructions (style prompt, OpenAI only), extraJson (merged into the body — reference audio, language,
+ * or any field a self-hosted clone server expects). Returns the raw audio bytes and the content type.
+ */
+export async function openAiCompatibleSpeech(text: string, voice: string, fetchImpl: typeof fetch = fetch): Promise<{ audio: Buffer; contentType: string; openai: boolean }> {
+  const cfg = await getIntegrationConfig("speech");
+  const base = (cfg.baseUrl?.trim() || OPENAI_SPEECH_BASE).replace(/\/+$/, "");
+  const openai = /api\.openai\.com/i.test(base);
+  const key = cfg.apiKey?.trim() || (openai ? (await getIntegrationConfig("openai")).apiKey?.trim() : "");
+  if (openai && !key) throw new Error("أضف مفتاح OpenAI (أو مزوّد «الصوت» بعنوان خادمك) من مركز التكاملات — التعليق الصوتي العربي يحتاج مزوّد صوت");
+  let extra: Record<string, unknown> = {};
+  if (cfg.extraJson?.trim()) {
+    try { extra = JSON.parse(cfg.extraJson) as Record<string, unknown>; } catch { throw new Error("حقل extraJson في مزوّد الصوت ليس JSON صالحًا"); }
+  }
+  const format = (cfg.format?.trim() || "wav").toLowerCase();
+  const body: Record<string, unknown> = {
+    model: cfg.model?.trim() || (openai ? "gpt-4o-mini-tts" : "tts-1"),
+    input: text,
+    voice: voice || "alloy",
+    response_format: format,
+    ...(openai && cfg.instructions?.trim() ? { instructions: cfg.instructions.trim() } : {}),
+    ...extra,
+  };
+  let last = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetchImpl(`${base}/audio/speech`, { method: "POST", headers: { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) }, body: JSON.stringify(body) });
+    if (res.status === 429 || res.status === 503 || res.status === 502 || res.status === 500) {
+      last = `Speech ${res.status}`;
+      const retryAfter = Number(res.headers.get("retry-after")) || 0;
+      await sleep(Math.max(retryAfter * 1000, 4000 * (attempt + 1)));
+      continue;
+    }
+    if (!res.ok) throw new Error(`Speech ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const audio = Buffer.from(await res.arrayBuffer());
+    if (audio.length < 100) throw new Error("مزوّد الصوت أرجع ملفًا فارغًا — تحقق من اسم الصوت والنموذج");
+    return { audio, contentType: res.headers.get("content-type") ?? `audio/${format}`, openai };
+  }
+  throw new Error(`${last || "Speech"}: مزوّد الصوت مشغول أو يرفض الطلبات — أعد المحاولة بعد قليل`);
+}
 
 const GEMINI_TTS_MODELS = ["gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"];
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise(r => setTimeout(r, process.env.AI_RETRY_FAST ? 1 : ms));
 
 /** PCM 16-bit little-endian → WAV container (no re-encoding). */
 export function pcmToWav(pcm: Buffer, sampleRate = 24000, channels = 1) {
@@ -102,24 +147,33 @@ async function loadKokoro() {
  */
 export async function synthesize(opts: { text: string; voice: string; speed: number; outPath: string; provider?: TtsProvider }): Promise<TtsResult> {
   const provider = process.env.TTS_PROVIDER ?? "kokoro";
-  if (provider === "test") {
+  const remote = opts.provider === "gemini" || opts.provider === "speech";
+  // The test tone replaces the local model only; remote providers keep their real code path (the e2e fakes the network).
+  if (provider === "test" && !remote) {
     const words = opts.text.split(/\s+/).filter(Boolean).length;
     const seconds = Math.max(1, words * 0.34);
     await run("ffmpeg", ["-y", "-f", "lavfi", "-i", `sine=frequency=220:duration=${seconds.toFixed(2)}`, "-ar", "24000", opts.outPath]);
     return { wavPath: opts.outPath, durationSec: await probeDuration(opts.outPath) };
   }
-  if (opts.provider === "gemini") {
-    const wav = await geminiSpeech(opts.text, opts.voice);
+  if (remote) {
     const speed = Math.max(0.8, Math.min(1.2, opts.speed));
-    if (Math.abs(speed - 1) < 0.02) {
-      await writeFile(opts.outPath, wav);
-    } else {
-      const raw = `${opts.outPath}.raw.wav`;
-      await writeFile(raw, wav);
-      await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", raw, "-filter:a", `atempo=${speed.toFixed(3)}`, opts.outPath]);
-      await rm(raw, { force: true });
+    let audio: Buffer;
+    let ext = "wav";
+    let paid = false;
+    if (opts.provider === "gemini") audio = await geminiSpeech(opts.text, opts.voice);
+    else {
+      const r = await openAiCompatibleSpeech(opts.text, opts.voice);
+      audio = r.audio;
+      ext = /mpeg|mp3/i.test(r.contentType) ? "mp3" : /ogg|opus/i.test(r.contentType) ? "ogg" : /flac/i.test(r.contentType) ? "flac" : /aac|mp4/i.test(r.contentType) ? "m4a" : "wav";
+      paid = r.openai;
     }
-    return { wavPath: opts.outPath, durationSec: await probeDuration(opts.outPath) };
+    // Always normalised to 24 kHz mono WAV (the renderer and the AAC cache expect it); speed changes are local atempo.
+    const raw = `${opts.outPath}.raw.${ext}`;
+    await writeFile(raw, audio);
+    await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", raw, ...(Math.abs(speed - 1) < 0.02 ? [] : ["-filter:a", `atempo=${speed.toFixed(3)}`]), "-ar", "24000", "-ac", "1", opts.outPath]);
+    await rm(raw, { force: true });
+    const durationSec = await probeDuration(opts.outPath);
+    return { wavPath: opts.outPath, durationSec, costMilliCents: paid ? Math.round((durationSec / 60) * OPENAI_TTS_USD_PER_MINUTE * 100000) : 0 };
   }
   const tts = await loadKokoro().catch(error => {
     throw new Error(`Kokoro TTS unavailable: ${error instanceof Error ? error.message : String(error)}`);

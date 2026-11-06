@@ -7,7 +7,7 @@ import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 
 const CAPABILITIES = ["text", "review", "image", "video", "voice", "transcription", "social_publish", "analytics", "storage"] as const;
-const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "ollama", "custom"] as const;
+const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "ollama", "speech", "custom"] as const;
 
 async function getRow(id: number) {
   const db = await requireDb();
@@ -28,6 +28,23 @@ async function probe(provider: string, config: Record<string, string>) {
   if (provider === "instagram" && (config.appId || config.clientId)) {
     if (!(config.appSecret || config.clientSecret)) throw new Error("Instagram يحتاج appId و appSecret من تطبيق Meta");
     return { checked: false, note: "بيانات تطبيق Meta محفوظة؛ اربط حساب كل شخصية من صفحتها." };
+  }
+  if (provider === "speech") {
+    // OpenAI's endpoint needs a key (this one or the OpenAI provider's); a self-hosted clone server may be open.
+    const base = (config.baseUrl?.trim() || "https://api.openai.com/v1").replace(/\/+$/, "");
+    const openai = /api\.openai\.com/i.test(base);
+    if (config.extraJson?.trim()) {
+      try { JSON.parse(config.extraJson); } catch { throw new Error("extraJson ليس JSON صالحًا"); }
+    }
+    if (openai) {
+      if (!key) return { checked: false, note: "سيُستخدم مفتاح مزوّد OpenAI المحفوظ في الخزنة (أو أضف apiKey هنا)." };
+      const r = await fetch("https://api.openai.com/v1/models/gpt-4o-mini-tts", { headers: { Authorization: `Bearer ${key}` } });
+      if (!r.ok) throw new Error(`OpenAI رفض المفتاح (${r.status})`);
+      return { checked: true };
+    }
+    const r = await fetch(`${base}/models`, { headers: key ? { Authorization: `Bearer ${key}` } : {} }).catch(() => null);
+    if (!r) throw new Error(`خادم الصوت لا يستجيب على ${base} — شغّله أولًا (نفق/عنوان عام إن كان على جهاز آخر)`);
+    return { checked: r.ok, note: r.ok ? undefined : `الخادم يرد ${r.status} على /models؛ سيُختبر /audio/speech عند أول حلقة.` };
   }
   if (!key && provider !== "custom" && provider !== "higgsfield" && provider !== "youtube" && provider !== "ollama") throw new Error("أدخل apiKey أو accessToken أولاً");
   if (provider === "openai") {

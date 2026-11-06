@@ -9,7 +9,8 @@ type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_u
 type JsonSchemaObject = Record<string, unknown>;
 
 function estimateMilliCents(model: string, tokensIn: number, tokensOut: number) {
-  const price = LLM_PRICE_PER_MTOK[model] ?? (/^ollama:|^gemini-/.test(model) ? { in: 0, out: 0 } : { in: 3, out: 15 });
+  // Unknown Claude IDs are priced like Sonnet 5.5; unknown models from paid providers like Sonnet 4.6.
+  const price = LLM_PRICE_PER_MTOK[model] ?? (/^ollama:|^gemini-/.test(model) ? { in: 0, out: 0 } : /^claude[-_]/i.test(model) ? { in: 2, out: 10 } : { in: 3, out: 15 });
   if (price.in === 0 && price.out === 0) return 0;
   const usd = (tokensIn * price.in + tokensOut * price.out) / 1_000_000;
   return Math.max(1, Math.round(usd * 100000));
@@ -78,10 +79,16 @@ export async function callJson<T>(opts: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (target.provider === "anthropic" && /credit balance|insufficient_quota|billing/i.test(message)) {
-      throw new Error("Claude رفض الطلب لأن رصيد Anthropic غير كافٍ. أضف رصيدًا من Plans & Billing في Anthropic أو غيّر نموذج النصوص إلى مزوّد آخر.");
+      throw new Error("Claude رفض الطلب لأن رصيد Anthropic غير كافٍ. أضف رصيدًا من Plans & Billing في console.anthropic.com.");
+    }
+    if (target.provider === "anthropic" && /404|not_found_error|model.*not found/i.test(message)) {
+      throw new Error(`نموذج Claude «${target.model}» غير موجود أو أُوقف. اختر نموذجًا حاليًا من الإعدادات (claude-sonnet-5-5 مثلًا).`);
+    }
+    if (target.provider === "anthropic" && /401|authentication_error|invalid x-api-key/i.test(message)) {
+      throw new Error("مفتاح Claude مرفوض (401). تحقق من المفتاح في مركز التكاملات.");
     }
     if (target.provider === "gemini" && /404|no longer available|not found/i.test(message)) {
-      throw new Error("نموذج Gemini المختار لم يعد متاحًا. استخدم gemini-3.8-flash.");
+      throw new Error("نموذج Gemini المختار لم يعد متاحًا. الأفضل الانتقال إلى Claude من الإعدادات.");
     }
     throw new Error(`${target.provider} لم يتمكن من توليد النص: ${message.slice(0, 500)}`);
   }

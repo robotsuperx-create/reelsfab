@@ -241,7 +241,7 @@ export type AppSettings = {
   higgsfieldPlanUsd: number;
   higgsfieldDefaultModel: string;
   scriptModel: string;
-  /** Model for long-form episode scripts (free Gemini tier by default; "ollama:<model>" for a local model). */
+  /** Model for long-form episode scripts (Claude by default; "gemini-…" or "ollama:<model>" still work if configured). */
   episodeModel: string;
   reviewModel: string;
   automationEnabled: boolean;
@@ -252,6 +252,29 @@ export type AppSettings = {
   platforms: string[];
   accounts: Record<string, Record<string, string>>;
   musicVolume: number;
+};
+
+/** Claude is the platform's only text model by default (current generation, platform.claude.com/docs/en/models/overview). */
+export const CLAUDE_DEFAULT_MODEL = "claude-sonnet-5-5";
+export const CLAUDE_REVIEW_MODEL = "claude-haiku-5-5";
+export const CLAUDE_MODELS = [
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5 — الافتراضي: سريع وقوي ($2 / $10 لكل مليون رمز)" },
+  { id: "claude-haiku-5-5", label: "Claude Haiku 5.5 — الأرخص والأسرع للمراجعة ($0.10 / $0.50)" },
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5 — أعلى جودة للسكربتات المعقدة ($4 / $20)" },
+  { id: "claude-fable-5-1", label: "Claude Fable 5.1 — الأقوى والأبطأ ($10 / $50)" },
+] as const;
+/** Older Claude IDs the settings may still hold → the current equivalent (Sonnet 4.5 retires 2026-11-30, Haiku 4.5 may retire any time). */
+export const CLAUDE_MODEL_UPGRADES: Record<string, string> = {
+  "claude-sonnet-4-5": "claude-sonnet-5-5",
+  "claude-sonnet-4-5-20250929": "claude-sonnet-5-5",
+  "claude-sonnet-4-6": "claude-sonnet-5-5",
+  "claude-haiku-4-5": "claude-haiku-5-5",
+  "claude-haiku-4-5-20251001": "claude-haiku-5-5",
+  "claude-opus-4-5": "claude-opus-5-5",
+  "claude-opus-4-5-20251101": "claude-opus-5-5",
+  "claude-opus-4-6": "claude-opus-5-5",
+  "claude-opus-4-7": "claude-opus-5-5",
+  "claude-opus-4-8": "claude-opus-5-5",
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -266,9 +289,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   higgsfieldAttemptsPerClip: 3,
   higgsfieldPlanUsd: 49,
   higgsfieldDefaultModel: "Seedance 2.5 · 8s · 1080p",
-  scriptModel: "claude-sonnet-4-6",
-  episodeModel: "gemini-3.8-flash",
-  reviewModel: "claude-haiku-4-5",
+  scriptModel: CLAUDE_DEFAULT_MODEL,
+  episodeModel: CLAUDE_DEFAULT_MODEL,
+  reviewModel: CLAUDE_REVIEW_MODEL,
   automationEnabled: false,
   automationHourUtc: 5,
   postingSlots: ["09:00", "13:00", "18:00", "21:00"],
@@ -280,10 +303,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 /** Rough public list prices (USD per 1M tokens) used only for internal cost estimates. */
 export const LLM_PRICE_PER_MTOK: Record<string, { in: number; out: number }> = {
+  "claude-sonnet-5-5": { in: 2, out: 10 },
+  "claude-haiku-5-5": { in: 0.1, out: 0.5 },
+  "claude-opus-5-5": { in: 4, out: 20 },
+  "claude-fable-5-1": { in: 10, out: 50 },
   "claude-sonnet-4-6": { in: 3, out: 15 },
   "claude-haiku-4-5": { in: 1, out: 5 },
   "claude-opus-4-6": { in: 15, out: 75 },
   "claude-opus-4-7": { in: 15, out: 75 },
+  "claude-opus-4-8": { in: 15, out: 75 },
   "gemini-3-flash-preview": { in: 0.5, out: 3 },
   "gemini-3.8-flash": { in: 0, out: 0 },
   "gemini-3.1-pro-preview": { in: 2, out: 12 },

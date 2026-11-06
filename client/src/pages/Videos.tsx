@@ -13,6 +13,9 @@ import { KOKORO_VOICES } from "@shared/domain";
 import {
   EPISODE_STATUS_LABELS,
   GEMINI_VOICES,
+  OPENAI_VOICES,
+  TTS_PROVIDERS,
+  TTS_PROVIDER_LABELS,
   VISUAL_STYLES,
   VISUAL_STYLE_LABELS,
   episodeTimeline,
@@ -54,7 +57,7 @@ export default function VideosPage() {
     <div>
       <PageHeader
         title="الفيديوهات الكاملة"
-        subtitle="عشر قنوات يوتيوب بإنتاج مجاني بالكامل: سكربت مشاهد من نموذج مجاني، تعليق صوتي محلي أو من الخطة المجانية، لقطات مجانية تُراجعها بنفسك، ثم رندر 1080p على جهازك بالفصول والترجمة."
+        subtitle="عشر قنوات يوتيوب بإنتاج شبه مجاني: سكربت مشاهد من Claude، تعليق صوتي (Kokoro محليًا للإنجليزي، صوتك المستنسخ أو OpenAI للعربي)، لقطات مجانية تُراجعها بنفسك، ثم رندر 1080p على جهازك بالفصول والترجمة."
       />
       {channels.isLoading ? (
         <div className="text-sm text-muted-foreground">جارٍ التحميل…</div>
@@ -208,7 +211,13 @@ function ChannelSettings({ c, media, onSaved }: { c: RouterOutputs["videos"]["ch
     isActive: c.isActive,
   });
   const update = trpc.videos.updateChannel.useMutation({ onSuccess: () => { toast.success("حُفظت إعدادات القناة"); onSaved(); }, onError: e => toast.error(e.message) });
-  const voices = f.ttsProvider === "kokoro" ? KOKORO_VOICES.map(v => ({ id: v.id, label: v.label })) : GEMINI_VOICES.map(v => ({ id: v.id, label: v.label }));
+  const voices =
+    f.ttsProvider === "kokoro" ? KOKORO_VOICES.map(v => ({ id: v.id, label: v.label }))
+    : f.ttsProvider === "speech" ? OPENAI_VOICES.map(v => ({ id: v.id, label: v.label }))
+    : GEMINI_VOICES.map(v => ({ id: v.id, label: v.label }));
+  const defaultVoice = (p: (typeof TTS_PROVIDERS)[number]) => (p === "kokoro" ? "af_heart" : p === "speech" ? "onyx" : "Charon");
+  // A self-hosted clone server registers its own voice names, so the field also accepts free text.
+  const customVoice = f.ttsProvider === "speech" && !voices.some(v => v.id === f.voice);
   const music = media.filter(m => m.kind === "music");
   return (
     <form
@@ -232,24 +241,28 @@ function ChannelSettings({ c, media, onSaved }: { c: RouterOutputs["videos"]["ch
       <div className="flex flex-col gap-1.5 md:col-span-2"><Label>الوصف</Label><Textarea rows={2} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
       <div className="flex flex-col gap-1.5">
         <Label>اللغة</Label>
-        <Select value={f.language} onValueChange={v => setF({ ...f, language: v as "ar" | "en", ttsProvider: v === "ar" ? "gemini" : "kokoro", voice: v === "ar" ? "Charon" : "af_heart" })}>
+        <Select value={f.language} onValueChange={v => setF({ ...f, language: v as "ar" | "en", ttsProvider: v === "ar" ? "speech" : "kokoro", voice: v === "ar" ? "onyx" : "af_heart" })}>
           <SelectTrigger aria-label="اللغة"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="ar">عربي</SelectItem><SelectItem value="en">English</SelectItem></SelectContent>
         </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>محرّك الصوت</Label>
-        <Select value={f.ttsProvider} onValueChange={v => setF({ ...f, ttsProvider: v as "kokoro" | "gemini", voice: v === "kokoro" ? "af_heart" : "Charon" })}>
+        <Select value={f.ttsProvider} onValueChange={v => setF({ ...f, ttsProvider: v as (typeof TTS_PROVIDERS)[number], voice: defaultVoice(v as (typeof TTS_PROVIDERS)[number]) })}>
           <SelectTrigger aria-label="محرّك الصوت"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="kokoro">Kokoro — محلي مجاني (إنجليزي)</SelectItem><SelectItem value="gemini">Gemini TTS — الخطة المجانية (عربي وغيره)</SelectItem></SelectContent>
+          <SelectContent>{TTS_PROVIDERS.map(p => <SelectItem key={p} value={p}>{TTS_PROVIDER_LABELS[p]}</SelectItem>)}</SelectContent>
         </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>الصوت</Label>
-        <Select value={f.voice} onValueChange={v => setF({ ...f, voice: v })}>
-          <SelectTrigger aria-label="الصوت"><SelectValue /></SelectTrigger>
-          <SelectContent>{voices.map(v => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}</SelectContent>
+        <Select value={customVoice ? "__custom" : f.voice} onValueChange={v => setF({ ...f, voice: v === "__custom" ? "" : v })}>
+          <SelectTrigger aria-label="الصوت"><SelectValue placeholder="اختر صوتًا" /></SelectTrigger>
+          <SelectContent>
+            {voices.map(v => <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>)}
+            {f.ttsProvider === "speech" && <SelectItem value="__custom">اسم صوت من خادمي (صوتي المستنسخ)…</SelectItem>}
+          </SelectContent>
         </Select>
+        {customVoice && <Input dir="ltr" placeholder="voice name registered on your speech server" value={f.voice} onChange={e => setF({ ...f, voice: e.target.value })} aria-label="اسم الصوت" />}
       </div>
       <div className="flex flex-col gap-1.5"><Label>سرعة الصوت %</Label><Input type="number" min={70} max={130} value={f.ttsSpeed} onChange={e => setF({ ...f, ttsSpeed: Number(e.target.value) })} /></div>
       <div className="flex flex-col gap-1.5">
@@ -366,7 +379,7 @@ export function EpisodePage() {
         <section className="min-w-0">
           {!script ? (
             <EmptyBlock title="الخطوة الأولى: السكربت" action={<Button onClick={() => generate.mutate({ id })} disabled={generate.isPending}><Sparkles /> ولّد السكربت</Button>}>
-              يكتب النموذج المجاني سكربتًا مشهدًا بمشهد بالخط التحريري للقناة: تعليق، عنوان على الشاشة، كلمات بحث للقطات، وفصول. بعدها تراجع كل مشهد وتغيّر ما تريد.
+              يكتب Claude سكربتًا مشهدًا بمشهد بالخط التحريري للقناة: تعليق، عنوان على الشاشة، كلمات بحث للقطات، وفصول. بعدها تراجع كل مشهد وتغيّر ما تريد.
             </EmptyBlock>
           ) : (
             <div className="space-y-3">

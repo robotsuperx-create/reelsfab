@@ -1,0 +1,8 @@
+# Install PyTorch first for your hardware (https://pytorch.org/get-started/locally/), then:
+numpy>=1.26
+soundfile>=0.12
+# VOICE_BACKEND=chatterbox (MIT, Arabic, zero-shot cloning)
+chatterbox-tts
+# VOICE_BACKEND=audio8 (Apache-2.0) additionally needs:
+# transformers>=4.57.0,<5
+# safetensors>=0.4

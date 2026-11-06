@@ -9,8 +9,8 @@ import { desc, eq, sql } from "drizzle-orm";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assets, channels, episodes, type Channel, type Episode } from "../../drizzle/schema";
-import { AI_DISCLOSURE } from "../../shared/domain";
+import { assets, channels, costEntries, episodes, type Channel, type Episode } from "../../drizzle/schema";
+import { AI_DISCLOSURE, CLAUDE_DEFAULT_MODEL } from "../../shared/domain";
 import { chaptersText, episodeProblems, episodeScriptSchema, newSceneId, type EpisodeScript, type Scene } from "../../shared/episodes";
 import { getSettings, requireDb } from "../db";
 import { writeOutput } from "../output";
@@ -58,10 +58,10 @@ const scriptJsonSchema = {
   required: ["title", "hook", "scenes", "outro", "description", "tags"],
 };
 
-/** Writes the scene-by-scene script with the channel's editorial line. Model comes from settings (free tier by default). */
+/** Writes the scene-by-scene script with the channel's editorial line. Model comes from settings (Claude by default). */
 export async function generateEpisodeScript(channel: Channel, topic: string, userId?: number): Promise<EpisodeScript> {
   const settings = await getSettings();
-  const model = settings.episodeModel || "gemini-3.8-flash";
+  const model = settings.episodeModel || CLAUDE_DEFAULT_MODEL;
   const minutes = channel.episodeTemplate.minutes;
   const words = Math.round(minutes * WORDS_PER_MINUTE[channel.language]);
   const sceneCount = Math.max(6, Math.min(40, Math.round(minutes * 3)));
@@ -93,7 +93,8 @@ export async function generateEpisodeScript(channel: Channel, topic: string, use
     ],
     schemaName: "episode_script",
     schema: scriptJsonSchema,
-    maxTokens: 12000,
+    // Arabic tokenizes at roughly 3 tokens per word; a 25-minute episode is ~3,500 words plus keywords and description.
+    maxTokens: Math.min(32_000, 4_000 + words * 4),
     description: `سكربت حلقة «${topic.slice(0, 60)}» لقناة ${channel.name}`,
     refType: "channel",
     refId: channel.id,
@@ -137,6 +138,7 @@ export async function prepareNarration(episodeId: number, onProgress?: (done: nu
   const speed = (Number(channel.ttsSpeed) || 100) / 100;
   try {
     let synthesized = 0;
+    let spentMilliCents = 0;
     for (let i = 0; i < script.scenes.length; i++) {
       const scene = script.scenes[i];
       const hash = narrationHash(scene.narration, channel.voice, channel.ttsProvider, speed);
@@ -146,6 +148,7 @@ export async function prepareNarration(episodeId: number, onProgress?: (done: nu
       }
       const wav = join(dir, `${scene.id}.wav`);
       const r = await synthesize({ text: scene.narration, voice: channel.voice, speed, outPath: wav, provider: channel.ttsProvider });
+      spentMilliCents += r.costMilliCents ?? 0;
       // Cached as AAC (≈1/6 of the WAV) so a 15-minute episode costs a few MB of storage, not 40+.
       const m4a = join(dir, `${scene.id}.m4a`);
       await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", r.wavPath, "-c:a", "aac", "-b:a", "72k", m4a]);
@@ -159,7 +162,10 @@ export async function prepareNarration(episodeId: number, onProgress?: (done: nu
       // Persist progressively so a quota error half-way keeps what was done.
       await db.update(episodes).set({ script, updatedAt: new Date() }).where(eq(episodes.id, episodeId));
     }
-    await db.update(episodes).set({ script, updatedAt: new Date() }).where(eq(episodes.id, episodeId));
+    await db.update(episodes).set({ script, updatedAt: new Date(), ...(spentMilliCents ? { costMilliCents: sql`${episodes.costMilliCents} + ${spentMilliCents}` } : {}) }).where(eq(episodes.id, episodeId));
+    if (spentMilliCents) {
+      await db.insert(costEntries).values({ category: "voice", amountMilliCents: spentMilliCents, description: `تعليق صوتي (${channel.ttsProvider}) لحلقة #${episodeId} — ${synthesized} مشهد`, refType: "episode", refId: episodeId }).catch(e => console.warn("[cost] tts", e));
+    }
     return { synthesized, scenes: script.scenes.length };
   } finally {
     await rm(dir, { recursive: true, force: true });

@@ -4,7 +4,7 @@ export type ProviderName = "openai" | "anthropic" | "gemini" | "ollama";
 export type ProviderRequest = { provider: ProviderName; model: string; system?: string; prompt: string; /** image URLs or data: URLs for vision checks */ images?: string[]; jsonSchema?: Record<string, unknown>; maxTokens?: number; timeoutMs?: number };
 export type ProviderResult = { provider: ProviderName; model: string; text: string; usage?: { inputTokens?: number; outputTokens?: number } };
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, process.env.AI_RETRY_FAST ? 1 : ms));
 const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -32,13 +32,59 @@ function anthropicImage(url: string) {
     : { type: "image", source: { type: "url", url } };
 }
 
+/** Anthropic retries on these: rate limit, overloaded, transient server errors. */
+const ANTHROPIC_RETRY_STATUS = new Set([408, 409, 429, 500, 502, 503, 529]);
+const ANTHROPIC_ATTEMPTS = 4;
+
+/**
+ * Claude Messages API. When a JSON schema is requested the answer comes through a forced tool call, so the
+ * output is parsed JSON by construction (no fences, no prose) and long scripts never break mid-string.
+ */
 async function callAnthropic(r: ProviderRequest): Promise<ProviderResult> {
   const config = await getIntegrationConfig("anthropic");
   const key = config.apiKey;
   if (!key) throw new Error("أضف مفتاح Claude من مركز التكاملات");
-  const res = await request("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", ...(config.workspaceId ? { "anthropic-workspace-id": config.workspaceId } : {}) }, body: JSON.stringify({ model: r.model, max_tokens: r.maxTokens ?? 1200, system: r.system, messages: [{ role: "user", content: [...(r.images ?? []).map(anthropicImage), { type: "text", text: `${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }] }) }, r.timeoutMs ?? 45000);
-  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = await res.json(); return { provider: r.provider, model: r.model, text: data.content?.map((x: any) => x.text ?? "").join("") ?? "", usage: { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens } };
+  const headers = { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", ...(config.workspaceId ? { "anthropic-workspace-id": config.workspaceId } : {}) };
+  const useTool = Boolean(r.jsonSchema && typeof r.jsonSchema === "object");
+  const body: Record<string, unknown> = {
+    model: r.model,
+    max_tokens: r.maxTokens ?? 1200,
+    system: r.system,
+    messages: [{ role: "user", content: [...(r.images ?? []).map(anthropicImage), { type: "text", text: useTool ? r.prompt : `${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }],
+  };
+  if (useTool) {
+    body.tools = [{ name: "emit_result", description: "Return the finished result exactly in the requested structure.", input_schema: anthropicInputSchema(r.jsonSchema!) }];
+    body.tool_choice = { type: "tool", name: "emit_result" };
+  }
+  // Long outputs (episode scripts) take minutes; the budget scales with the requested tokens.
+  const timeoutMs = Math.max(r.timeoutMs ?? 45_000, Math.min(600_000, ((r.maxTokens ?? 1200) / 40) * 1000));
+  let last: Error | null = null;
+  for (let attempt = 0; attempt < ANTHROPIC_ATTEMPTS; attempt++) {
+    const res = await request("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(body) }, timeoutMs);
+    if (res.ok) {
+      const data = await res.json();
+      const blocks: any[] = Array.isArray(data.content) ? data.content : [];
+      const tool = blocks.find(x => x?.type === "tool_use" && x.input && typeof x.input === "object");
+      const wrapped = useTool && r.jsonSchema!.type !== "object";
+      const text = tool ? JSON.stringify(wrapped ? tool.input.result : tool.input) : blocks.map(x => x?.text ?? "").join("");
+      if (useTool && !tool && !text.trim()) throw new Error("Claude لم يُرجع النتيجة المطلوبة (لا tool_use)");
+      return { provider: r.provider, model: r.model, text, usage: { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens } };
+    }
+    const detail = (await res.text()).slice(0, 300);
+    last = new Error(`Anthropic ${res.status}: ${detail}`);
+    if (!ANTHROPIC_RETRY_STATUS.has(res.status) || attempt === ANTHROPIC_ATTEMPTS - 1) break;
+    const retryAfter = Number(res.headers.get("retry-after")) || 0;
+    await sleep(Math.min(60_000, Math.max(retryAfter * 1000, 2_000 * 2 ** attempt)));
+  }
+  throw last ?? new Error("Anthropic request failed");
+}
+
+/** Claude's tool schemas must be plain JSON Schema objects of type object. */
+function anthropicInputSchema(schema: Record<string, unknown>) {
+  const s = { ...schema } as Record<string, unknown>;
+  if (s.type !== "object") return { type: "object", properties: { result: s }, required: ["result"] };
+  delete s.$schema;
+  return s;
 }
 
 async function callGemini(r: ProviderRequest): Promise<ProviderResult> {
@@ -71,11 +117,11 @@ async function callOllama(r: ProviderRequest): Promise<ProviderResult> {
 }
 
 export async function invokeProvider(r: ProviderRequest): Promise<ProviderResult> {
+  if (r.provider === "anthropic") return callAnthropic(r); // has its own backoff; a second blind retry would double a minutes-long request
   let last: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       if (r.provider === "openai") return await callOpenAI(r);
-      if (r.provider === "anthropic") return await callAnthropic(r);
       if (r.provider === "gemini") return await callGemini(r);
       if (r.provider === "ollama") return await callOllama(r);
       throw new Error(`Unknown AI provider: ${r.provider}`);
