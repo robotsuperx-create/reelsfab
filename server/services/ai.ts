@@ -81,13 +81,13 @@ export async function callJson<T>(opts: {
     if (target.provider === "anthropic" && /credit balance|insufficient_quota|billing/i.test(message)) {
       throw new Error("Claude رفض الطلب لأن رصيد Anthropic غير كافٍ. أضف رصيدًا من Plans & Billing في console.anthropic.com.");
     }
-    if (target.provider === "anthropic" && /404|not_found_error|model.*not found/i.test(message)) {
+    if (target.provider === "anthropic" && /Anthropic 404|not_found_error/i.test(message)) {
       throw new Error(`نموذج Claude «${target.model}» غير موجود أو أُوقف. اختر نموذجًا حاليًا من الإعدادات (claude-sonnet-5-5 مثلًا).`);
     }
-    if (target.provider === "anthropic" && /401|authentication_error|invalid x-api-key/i.test(message)) {
+    if (target.provider === "anthropic" && /Anthropic 401|authentication_error|invalid x-api-key/i.test(message)) {
       throw new Error("مفتاح Claude مرفوض (401). تحقق من المفتاح في مركز التكاملات.");
     }
-    if (target.provider === "gemini" && /404|no longer available|not found/i.test(message)) {
+    if (target.provider === "gemini" && /Gemini 404|no longer available|not found/i.test(message)) {
       throw new Error("نموذج Gemini المختار لم يعد متاحًا. الأفضل الانتقال إلى Claude من الإعدادات.");
     }
     throw new Error(`${target.provider} لم يتمكن من توليد النص: ${message.slice(0, 500)}`);

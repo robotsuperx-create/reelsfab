@@ -167,12 +167,20 @@ export function installFakes() {
         hit("anthropic");
         if (u.pathname.startsWith("/v1/models")) return json({ data: [{ id: "claude-sonnet-5-5", type: "model" }] });
         const body = JSON.parse(await bodyText());
-        const result = llmJson(promptOf(body));
-        // Structured requests arrive as a forced tool call and are answered with a tool_use block, like the real API.
-        if (body?.tool_choice?.type === "tool") {
-          return json({ content: [{ type: "tool_use", id: "toolu_fake", name: body.tool_choice.name, input: result }], stop_reason: "tool_use", usage: { input_tokens: 1200, output_tokens: 900 } });
+        // Like the real API: Sonnet/Opus 5.5 and Fable 5.1 refuse forced tool use.
+        if (["tool", "any"].includes(body?.tool_choice?.type) && /(sonnet|opus)-5-5|fable-5-1|mythos-5-1/.test(String(body.model))) {
+          return json({ type: "error", error: { type: "invalid_request_error", message: 'tool_choice: type "tool" and "any" are not supported for this model.' } }, 400);
         }
-        return json({ content: [{ type: "text", text: JSON.stringify(result) }], usage: { input_tokens: 1200, output_tokens: 900 } });
+        const format = body?.output_config?.format;
+        if (format) {
+          // Structured outputs accept only additionalProperties:false objects and no length/number limits.
+          const bad = JSON.stringify(format.schema).match(/"(minLength|maxLength|minimum|maximum|maxItems)"/);
+          const looseObject = (function walk(n: any): boolean { if (!n || typeof n !== "object") return false; if ((n.type === "object" || n.properties) && n.additionalProperties !== false) return true; return Object.values(n).some(walk); })(format.schema);
+          if (format.type !== "json_schema" || bad || looseObject) return json({ type: "error", error: { type: "invalid_request_error", message: `output_config.format.schema: unsupported ${bad?.[1] ?? "object without additionalProperties: false"}` } }, 400);
+          hit("anthropic.structured");
+        }
+        const result = llmJson(promptOf(body));
+        return json({ content: [{ type: "text", text: JSON.stringify(result) }], stop_reason: "end_turn", usage: { input_tokens: 1200, output_tokens: 900 } });
       }
       case "api.openai.com": {
         hit("openai");

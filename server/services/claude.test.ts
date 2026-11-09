@@ -20,19 +20,47 @@ function mockAnthropic(responses: (() => Response)[], seen: Seen[]) {
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", ...headers } });
 
 describe("Claude provider", () => {
-  it("asks for structured output through a forced tool call and returns its input as JSON", async () => {
+  it("asks for structured output via output_config.format (never a forced tool call) and returns the JSON text", async () => {
     const seen: Seen[] = [];
-    mockAnthropic([() => json({ content: [{ type: "tool_use", id: "t1", name: "emit_result", input: { title: "حلقة", scenes: [{ narration: "مرحبا" }] } }], usage: { input_tokens: 10, output_tokens: 20 } })], seen);
-    const r = await invokeProvider({ provider: "anthropic", model: CLAUDE_DEFAULT_MODEL, prompt: "Write", jsonSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] }, maxTokens: 20_000 });
+    mockAnthropic([() => json({ content: [{ type: "thinking", thinking: "…" }, { type: "text", text: '{"title":"حلقة","scenes":[{"narration":"مرحبا"}]}' }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 20 } })], seen);
+    const schema = { type: "object", properties: { title: { type: "string", maxLength: 160 }, score: { type: "integer", minimum: 0, maximum: 100 }, scenes: { type: "array", minItems: 3, items: { type: "object", properties: { narration: { type: "string" } } } } }, required: ["title"] };
+    const r = await invokeProvider({ provider: "anthropic", model: CLAUDE_DEFAULT_MODEL, prompt: "Write", jsonSchema: schema, maxTokens: 20_000 });
     expect(JSON.parse(r.text)).toEqual({ title: "حلقة", scenes: [{ narration: "مرحبا" }] });
     expect(r.usage).toEqual({ inputTokens: 10, outputTokens: 20 });
     const body = seen[0].body;
     expect(body.model).toBe("claude-sonnet-5-5");
     expect(body.max_tokens).toBe(20_000);
-    expect(body.tool_choice).toEqual({ type: "tool", name: "emit_result" });
-    expect(body.tools[0].input_schema).toEqual({ type: "object", properties: { title: { type: "string" } }, required: ["title"] });
-    expect(body.messages[0].content[0].text).toBe("Write"); // no "return JSON" boilerplate when the tool carries the schema
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.tools).toBeUndefined();
+    expect(body.output_config.format.type).toBe("json_schema");
+    expect(body.output_config.format.schema).toEqual({
+      type: "object",
+      additionalProperties: false,
+      required: ["title"],
+      properties: {
+        title: { type: "string", description: "(maxLength: 160)" },
+        score: { type: "integer", description: "(minimum: 0, maximum: 100)" },
+        scenes: { type: "array", description: "(minItems: 3)", items: { type: "object", additionalProperties: false, properties: { narration: { type: "string" } } } },
+      },
+    });
+    expect(body.messages[0].content[0].text).toBe("Write"); // no "return JSON" boilerplate when the format carries the schema
     expect(seen[0].headers["x-api-key"]).toBe("anthropic-key");
+  });
+
+  it("falls back to the schema in the prompt when the format is refused, and reports truncation", async () => {
+    const seen: Seen[] = [];
+    mockAnthropic([
+      () => json({ type: "error", error: { type: "invalid_request_error", message: "output_config.format: not supported for this model" } }, 400),
+      () => json({ content: [{ type: "text", text: '{"ok":true}' }], stop_reason: "end_turn", usage: {} }),
+    ], seen);
+    const r = await invokeProvider({ provider: "anthropic", model: "claude-some-old-model", prompt: "Q", jsonSchema: { type: "object", properties: { ok: { type: "boolean" } } } });
+    expect(JSON.parse(r.text)).toEqual({ ok: true });
+    expect(seen).toHaveLength(2);
+    expect(seen[1].body.output_config).toBeUndefined();
+    expect(seen[1].body.messages[0].content[0].text).toMatch(/JSON/);
+    expect(seen[0].body.max_tokens).toBe(4000); // floor so thinking never starves a short JSON answer
+    mockAnthropic([() => json({ content: [{ type: "text", text: '{"ti' }], stop_reason: "max_tokens", usage: {} })], []);
+    await expect(invokeProvider({ provider: "anthropic", model: CLAUDE_DEFAULT_MODEL, prompt: "Q", jsonSchema: { type: "object", properties: {} } })).rejects.toThrow(/max_tokens/);
   });
 
   it("backs off on 529/429 and succeeds, but does not retry a 400", async () => {
