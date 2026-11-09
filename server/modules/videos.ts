@@ -97,7 +97,10 @@ export const videosRouter = router({
       const db = await requireDb();
       const { episode, channel } = await loadEpisode(input.id).catch(e => { throw bad(e); });
       if (episode.status === "rendering") throw new TRPCError({ code: "BAD_REQUEST", message: "الرندر جارٍ" });
-      const script = await generateEpisodeScript(channel, episode.topic, ctx.user.id).catch(e => { throw bad(e); });
+      const script = await generateEpisodeScript(channel, episode.topic, ctx.user.id).catch(e => {
+        console.warn(`[episodes] script for #${input.id} failed:`, e instanceof Error ? e.message : e);
+        throw bad(e);
+      });
       await db.update(episodes).set({ script, title: script.title, status: "planned", error: null, videoUrl: null, thumbnailUrl: null, durationMs: null, updatedAt: new Date() }).where(eq(episodes.id, input.id));
       return { scenes: script.scenes.length, title: script.title };
     }),

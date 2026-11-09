@@ -1,8 +1,14 @@
 import { getIntegrationConfig } from "../integration-vault";
 
 export type ProviderName = "openai" | "anthropic" | "gemini" | "ollama";
-export type ProviderRequest = { provider: ProviderName; model: string; system?: string; prompt: string; /** image URLs or data: URLs for vision checks */ images?: string[]; jsonSchema?: Record<string, unknown>; maxTokens?: number; timeoutMs?: number };
+export type ProviderRequest = { provider: ProviderName; model: string; system?: string; prompt: string; /** image URLs or data: URLs for vision checks */ images?: string[]; jsonSchema?: Record<string, unknown>; maxTokens?: number; timeoutMs?: number; /** Claude 5.x reasoning effort; JSON generation defaults to "medium". */ effort?: "low" | "medium" | "high" };
 export type ProviderResult = { provider: ProviderName; model: string; text: string; usage?: { inputTokens?: number; outputTokens?: number } };
+/** A failed call the provider still billed (cut off at max_tokens, refused): callers log its cost. */
+export class BilledProviderError extends Error {
+  constructor(message: string, public usage: { inputTokens?: number; outputTokens?: number }) {
+    super(message);
+  }
+}
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, process.env.AI_RETRY_FAST ? 1 : ms));
 const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
@@ -48,39 +54,53 @@ async function callAnthropic(r: ProviderRequest): Promise<ProviderResult> {
   if (!key) throw new Error("أضف مفتاح Claude من مركز التكاملات");
   const headers = { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", ...(config.workspaceId ? { "anthropic-workspace-id": config.workspaceId } : {}) };
   const structured = Boolean(r.jsonSchema && typeof r.jsonSchema === "object");
-  // Newer models may think before answering and thinking counts against max_tokens: keep a floor so short JSON
-  // answers are never cut off (only the tokens actually used are billed).
-  const maxTokens = Math.max(r.maxTokens ?? 1200, 4000);
-  const timeoutMs = Math.max(r.timeoutMs ?? 45_000, Math.min(600_000, ((r.maxTokens ?? 1200) / 40) * 1000));
-  const build = (useFormat: boolean) => ({
-    model: r.model,
-    max_tokens: maxTokens,
-    system: r.system,
-    messages: [{ role: "user", content: [...(r.images ?? []).map(anthropicImage), { type: "text", text: useFormat ? r.prompt : `${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }],
-    ...(useFormat ? { output_config: { format: { type: "json_schema", schema: anthropicJsonSchema(r.jsonSchema!) } } } : {}),
-  });
+  // Claude 5.x thinks adaptively and thinking counts against max_tokens (only used tokens are billed): keep a floor
+  // so short JSON answers are never cut off, and ask for "medium" effort on JSON jobs (Sonnet 5.5 defaults to "high").
+  const maxTokens = Math.max(r.maxTokens ?? 1200, 8000);
+  const timeoutMs = Math.max(r.timeoutMs ?? 45_000, Math.min(840_000, (maxTokens / 40) * 1000));
+  const effort = r.effort ?? (structured ? "medium" : undefined);
+  const supportsEffort = /claude-(sonnet|opus|haiku)-5|claude-fable|claude-mythos/i.test(r.model);
+  const build = (useFormat: boolean, useEffort: boolean) => {
+    const outputConfig = {
+      ...(useFormat ? { format: { type: "json_schema", schema: anthropicJsonSchema(r.jsonSchema!) } } : {}),
+      ...(useEffort && effort && supportsEffort ? { effort } : {}),
+    };
+    return {
+      model: r.model,
+      max_tokens: maxTokens,
+      system: r.system,
+      messages: [{ role: "user", content: [...(r.images ?? []).map(anthropicImage), { type: "text", text: useFormat ? r.prompt : `${r.prompt}${jsonInstruction(r.jsonSchema)}` }] }],
+      ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
+    };
+  };
   let useFormat = structured;
+  let useEffort = true;
   let last: Error | null = null;
   for (let attempt = 0; attempt < ANTHROPIC_ATTEMPTS; attempt++) {
-    const res = await request("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(build(useFormat)) }, timeoutMs);
+    const started = Date.now();
+    const res = await request("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(build(useFormat, useEffort)) }, timeoutMs);
     if (res.ok) {
       const data = await res.json();
       const blocks: any[] = Array.isArray(data.content) ? data.content : [];
       const text = blocks.filter(x => x?.type === "text").map(x => x.text ?? "").join("");
-      if (data.stop_reason === "refusal") throw new Error("Claude رفض هذا الطلب (refusal) — أعد صياغة الموضوع");
-      if (data.stop_reason === "max_tokens" && structured) throw new Error("انقطع رد Claude قبل اكتماله (max_tokens) — قصّر المدة أو أعد المحاولة");
+      const usage = { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens };
+      console.log(`[anthropic] ${r.model} ${data.stop_reason} in ${((Date.now() - started) / 1000).toFixed(1)}s — ${usage.inputTokens ?? 0} in / ${usage.outputTokens ?? 0} out (max ${maxTokens})`);
+      if (data.stop_reason === "refusal") throw new BilledProviderError("Claude رفض هذا الطلب (refusal) — أعد صياغة الموضوع", usage);
+      if (data.stop_reason === "max_tokens" && structured) throw new BilledProviderError(`انقطع رد Claude قبل اكتماله (وصل إلى حد ${maxTokens} رمز) — أعد المحاولة أو قصّر مدة الحلقة`, usage);
       let out = text;
       if (useFormat && r.jsonSchema!.type !== "object") {
         try { out = JSON.stringify((JSON.parse(text) as { result?: unknown }).result); } catch { /* left for the caller's parser */ }
       }
-      return { provider: r.provider, model: r.model, text: out, usage: { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens } };
+      return { provider: r.provider, model: r.model, text: out, usage };
     }
     const detail = (await res.text()).slice(0, 400);
     last = new Error(`Anthropic ${res.status}: ${detail}`);
-    if (res.status === 400 && useFormat && /output_config|json_schema|schema|format/i.test(detail)) {
-      // The format itself was refused (model/account/schema feature): fall back to the schema in the prompt.
-      console.warn(`[anthropic] structured output refused for ${r.model}, retrying with the schema in the prompt: ${detail.slice(0, 200)}`);
-      useFormat = false;
+    if (res.status === 400 && (useFormat || useEffort) && /output_config|json_schema|schema|format|effort/i.test(detail)) {
+      // The format or effort was refused (model/account/schema feature): fall back to the schema in the prompt.
+      console.warn(`[anthropic] output_config refused for ${r.model}, retrying with the schema in the prompt: ${detail.slice(0, 200)}`);
+      if (useFormat) useFormat = false;
+      else useEffort = false;
+      if (!useFormat && /effort/i.test(detail)) useEffort = false;
       continue;
     }
     if (!ANTHROPIC_RETRY_STATUS.has(res.status) || attempt === ANTHROPIC_ATTEMPTS - 1) break;

@@ -33,6 +33,7 @@ describe("Claude provider", () => {
     expect(body.tool_choice).toBeUndefined();
     expect(body.tools).toBeUndefined();
     expect(body.output_config.format.type).toBe("json_schema");
+    expect(body.output_config.effort).toBe("medium"); // Sonnet 5.5 defaults to "high": JSON jobs do not need it
     expect(body.output_config.format.schema).toEqual({
       type: "object",
       additionalProperties: false,
@@ -58,9 +59,9 @@ describe("Claude provider", () => {
     expect(seen).toHaveLength(2);
     expect(seen[1].body.output_config).toBeUndefined();
     expect(seen[1].body.messages[0].content[0].text).toMatch(/JSON/);
-    expect(seen[0].body.max_tokens).toBe(4000); // floor so thinking never starves a short JSON answer
+    expect(seen[0].body.max_tokens).toBe(8000); // floor so thinking never starves a short JSON answer
     mockAnthropic([() => json({ content: [{ type: "text", text: '{"ti' }], stop_reason: "max_tokens", usage: {} })], []);
-    await expect(invokeProvider({ provider: "anthropic", model: CLAUDE_DEFAULT_MODEL, prompt: "Q", jsonSchema: { type: "object", properties: {} } })).rejects.toThrow(/max_tokens/);
+    await expect(invokeProvider({ provider: "anthropic", model: CLAUDE_DEFAULT_MODEL, prompt: "Q", jsonSchema: { type: "object", properties: {} } })).rejects.toThrow(/انقطع رد Claude/);
   });
 
   it("backs off on 529/429 and succeeds, but does not retry a 400", async () => {

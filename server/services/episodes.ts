@@ -97,8 +97,9 @@ export async function generateEpisodeScript(channel: Channel, topic: string, use
     ],
     schemaName: "episode_script",
     schema: scriptJsonSchema,
-    // Arabic tokenizes at roughly 3 tokens per word; a 25-minute episode is ~3,500 words plus keywords and description.
-    maxTokens: Math.min(32_000, 4_000 + words * 4),
+    // Room for adaptive thinking + the script: Arabic ≈ 3-4 tokens per word, ~150 tokens of keywords/image prompt/JSON
+    // per scene, plus description. Only used tokens are billed; the cap just prevents a cut-off script.
+    maxTokens: Math.min(64_000, 8_000 + words * 6 + sceneCount * 150),
     description: `سكربت حلقة «${topic.slice(0, 60)}» لقناة ${channel.name}`,
     refType: "channel",
     refId: channel.id,

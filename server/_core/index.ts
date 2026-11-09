@@ -19,6 +19,8 @@ import { ensureSchemaUpgrades } from "../db-upgrades";
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  // Long episode scripts can take several minutes; Node's default 5-minute request timeout would cut them off.
+  server.requestTimeout = 16 * 60_000;
   // Configure body parser with larger size limit for file uploads
   app.disable("x-powered-by");
   app.use(securityHeaders);

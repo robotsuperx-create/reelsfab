@@ -1,7 +1,7 @@
 import { costEntries, type Character } from "../../drizzle/schema";
 import { HOOK_TYPE_KEYS, LLM_PRICE_PER_MTOK, TEMPLATES, TEMPLATE_KEYS } from "../../shared/domain";
 import { requireDb } from "../db";
-import { invokeProvider, providerConfigured, type ProviderName } from "./ai-providers";
+import { BilledProviderError, invokeProvider, providerConfigured, type ProviderName } from "./ai-providers";
 
 type Message = { role: "system" | "user" | "assistant"; content: string | ContentPart | ContentPart[] };
 type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail?: string } };
@@ -78,6 +78,11 @@ export async function callJson<T>(opts: {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof BilledProviderError) {
+      // Billed even though unusable: keep the cost log honest.
+      await recordLlmCost(opts, target.model, error.usage.inputTokens ?? 0, error.usage.outputTokens ?? 0, " (فشل)");
+      throw new Error(message);
+    }
     if (target.provider === "anthropic" && /credit balance|insufficient_quota|billing/i.test(message)) {
       throw new Error("Claude رفض الطلب لأن رصيد Anthropic غير كافٍ. أضف رصيدًا من Plans & Billing في console.anthropic.com.");
     }
@@ -106,13 +111,18 @@ export async function callJson<T>(opts: {
     if (start === -1 || end === -1) throw new Error("لم يُرجع النموذج JSON صالحًا");
     parsed = JSON.parse(cleaned.slice(start, end + 1)) as T;
   }
+  await recordLlmCost(opts, billedModel, tokensIn, tokensOut);
+  return parsed;
+}
+
+async function recordLlmCost(opts: { description: string; refType?: string; refId?: number; userId?: number }, model: string, tokensIn: number, tokensOut: number, suffix = "") {
   try {
     const db = await requireDb();
     await db.insert(costEntries).values({
       category: "llm",
-      amountMilliCents: estimateMilliCents(billedModel, tokensIn, tokensOut),
-      description: opts.description.slice(0, 500),
-      model: billedModel,
+      amountMilliCents: estimateMilliCents(model, tokensIn, tokensOut),
+      description: `${opts.description}${suffix}`.slice(0, 500),
+      model,
       tokensIn,
       tokensOut,
       refType: opts.refType,
@@ -122,7 +132,6 @@ export async function callJson<T>(opts: {
   } catch (e) {
     console.warn("[cost] failed to record LLM cost", e);
   }
-  return parsed;
 }
 
 function characterBrief(c: Character) {
