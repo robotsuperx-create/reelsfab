@@ -68,6 +68,7 @@ export async function generateEpisodeScript(channel: Channel, topic: string, use
   const minutes = channel.episodeTemplate.minutes;
   const words = Math.round(minutes * WORDS_PER_MINUTE[channel.language]);
   const sceneCount = Math.max(6, Math.min(40, Math.round(minutes * 3)));
+  const perScene = Math.round(words / sceneCount);
   const lang = channel.language === "ar" ? "Arabic (Modern Standard, clear and warm)" : "English";
   const system = [
     `You write narrated YouTube documentary-style episodes for the channel "${channel.name}".`,
@@ -79,7 +80,8 @@ export async function generateEpisodeScript(channel: Channel, topic: string, use
   const prompt = [
     `Write the full episode script for the topic: "${topic}".`,
     `Language of narration, titles, outro and description: ${lang}.`,
-    `Target length: about ${minutes} minutes of narration ≈ ${words} words, split into ${sceneCount} scenes of 1-3 sentences each (scene-by-scene).`,
+    `Target length: ${minutes} minutes of narration = about ${words} words in total, split into ${sceneCount} scenes.`,
+    `Each scene's "narration" must be about ${perScene} words (${perScene < 30 ? "2-3" : "3-5"} full sentences) — not shorter: a scene that is too short makes the episode too short. Before answering, check that the narrations together reach about ${words} words.`,
     `Structure the episode in these sections, in order: ${channel.episodeTemplate.structure.join(" → ")}. Put the section name in "chapter" on the first scene of each section (same string for the section's scenes).`,
     `The first ${Math.max(1, Math.round(channel.episodeTemplate.hookSeconds / 7))} scene(s) are the hook: a surprising question or fact that makes the viewer stay.`,
     `For every scene give "keywords": 2-4 English search terms for free stock footage that visually matches the scene (concrete nouns, places, actions — never abstract words).`,
@@ -116,6 +118,8 @@ export async function generateEpisodeScript(channel: Channel, topic: string, use
       imagePrompt: typeof s.imagePrompt === "string" && s.imagePrompt.trim() ? s.imagePrompt.trim().slice(0, 600) : undefined,
       chapter: s.chapter?.trim().slice(0, 80) || undefined,
     }));
+  const wordCount = scenes.reduce((a, sc) => a + sc.narration.split(/\s+/).filter(Boolean).length, 0);
+  if (wordCount < words * 0.6) console.warn(`[episodes] script for "${topic.slice(0, 40)}" is short: ${wordCount}/${words} words`);
   const script = episodeScriptSchema.parse({
     title: String(raw.title ?? topic).trim().slice(0, 160) || topic.slice(0, 160),
     hook: String(raw.hook ?? "").slice(0, 400),
