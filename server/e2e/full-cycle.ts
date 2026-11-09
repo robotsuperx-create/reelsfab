@@ -306,7 +306,23 @@ async function main() {
   assert.equal(imageCosts.reduce((a, c) => a + c.amountMilliCents, 0), 6 * 1000);
   assert.equal((await planVisuals(ep3.id, { onlyMissing: false, source: "ai" })).picked, 6);
   assert.equal((await db.select().from(costEntries).where(eq(costEntries.category, "image"))).length, 6, "re-planning the same prompts reuses the pictures (no new cost)");
-  console.log(`  episode #${ep.id}: ${preparedScript.scenes.length} scenes, ${((epDone.durationMs ?? 0) / 1000).toFixed(1)}s, chapters: ${epDone.chaptersText?.split("\n").length}; episode #${ep2.id} (en, stills) prepared; episode #${ep3.id} (kids, AI pictures) prepared`);
+  // Pexels paused new API keys (2026-09-30): with only a Pixabay key the same flow picks Pixabay clips and stills.
+  await db.delete(integrations).where(eq(integrations.provider, "pexels"));
+  await db.insert(integrations).values({ provider: "pixabay", label: "Pixabay", capabilities: ["storage"], configKeys: ["apiKey"], encryptedConfig: encryptSecret(JSON.stringify({ apiKey: "test-pixabay-key" })) });
+  const science = allChannels.find(c => c.slug === "science-space")!;
+  const sciScript = await generateEpisodeScript(science, "لماذا السماء زرقاء");
+  const [ep4] = await db.insert(episodes).values({ channelId: science.id, topic: "لماذا السماء زرقاء", title: sciScript.title, script: sciScript }).returning({ id: episodes.id });
+  const pixBefore = calls.pixabay ?? 0;
+  const prep4 = await prepareEpisode(ep4.id, null);
+  assert.equal(prep4.picked, 6, "every scene gets a Pixabay clip");
+  assert.ok((calls.pixabay ?? 0) - pixBefore >= 1, "searched Pixabay");
+  const [epPrepared4] = await db.select().from(episodes).where(eq(episodes.id, ep4.id));
+  const clips4 = epPrepared4.script!.scenes.map(sc => sc.visual);
+  assert.ok(clips4.every(v => v?.kind === "video" && /on Pixabay$/.test(v.credit ?? "")), "Pixabay credits kept on every scene");
+  assert.equal(new Set(clips4.map(v => v?.assetId)).size, 6, "no clip reused inside the episode");
+  const pixAssets = await db.select().from(assets).where(sql`${assets.meta}->>'source' = 'pixabay'`);
+  assert.ok(pixAssets.length >= 6 && pixAssets.every(a => a.width === 1920 && a.height === 1080), "1080p rendition chosen (4K skipped), stored in the library");
+  console.log(`  episode #${ep.id}: ${preparedScript.scenes.length} scenes, ${((epDone.durationMs ?? 0) / 1000).toFixed(1)}s, chapters: ${epDone.chaptersText?.split("\n").length}; episode #${ep2.id} (en, stills) prepared; episode #${ep3.id} (kids, AI pictures) prepared; episode #${ep4.id} (Pixabay only) prepared`);
 
   step("autopilot tick (lease + full loop, nothing left to do)");
   await autopilotTick(new Date());

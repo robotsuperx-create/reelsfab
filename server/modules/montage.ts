@@ -8,13 +8,13 @@ import { requireDb } from "../db";
 import { memberProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 import { buildDefaultSpec, listMontages, loadMontageContext, montageMedia, renderMontageProject, savePreview } from "../services/montages";
-import { importStockVideo, searchStockVideos, type StockVideo } from "../services/stock";
+import { importStockVideo, isStockHost, searchStockVideos, type StockVideo } from "../services/stock";
 import { storageKeyFromUrl } from "../storage";
 import { enqueueMontage, runJobNow } from "../worker/jobs";
 
 const stockItem = z.object({
   id: z.string().min(1).max(40),
-  source: z.literal("pexels"),
+  source: z.enum(["pexels", "pixabay"]),
   thumb: z.string().url().max(1024),
   file: z.string().url().max(1024),
   width: z.number().int().min(1),
@@ -24,12 +24,8 @@ const stockItem = z.object({
   sourceUrl: z.string().url().max(1024),
 });
 
-const STOCK_HOSTS = ["pexels.com", "pexels.test"];
 function assertStockHost(url: string) {
-  const host = new URL(url).hostname;
-  if (!STOCK_HOSTS.some(h => host === h || host.endsWith(`.${h}`))) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "رابط المقطع ليس من Pexels" });
-  }
+  if (!isStockHost(url)) throw new TRPCError({ code: "BAD_REQUEST", message: "رابط المقطع ليس من Pexels أو Pixabay" });
 }
 
 /** Every source must be a file in our storage (the renderer downloads by key, never by arbitrary URL). */

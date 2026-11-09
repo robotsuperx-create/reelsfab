@@ -186,7 +186,7 @@ export function scenePrompt(scene: Scene, channel: Pick<Channel, "niche">) {
 }
 
 /**
- * Picks a visual for scenes without one. Source "stock" = free Pexels (one search per scene, no clip reused inside
+ * Picks a visual for scenes without one. Source "stock" = free Pexels/Pixabay (one search per scene, no clip reused inside
  * the episode); "ai" = a generated picture per scene (fal.ai, standard tier); "auto" = AI for illustration channels
  * when the image provider is configured, stock otherwise.
  */
@@ -241,7 +241,7 @@ export async function planVisuals(episodeId: number, opts?: { onlyMissing?: bool
         }
         if (chosen) break;
       } catch (e) {
-        if (/حد الطلبات|429|مفتاح Pexels/.test(e instanceof Error ? e.message : String(e))) throw e;
+        if (/حد الطلبات|429|مفتاح|لا يستجيب/.test(e instanceof Error ? e.message : String(e))) throw e;
       }
     }
     if (chosen) {

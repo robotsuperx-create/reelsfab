@@ -57,7 +57,7 @@ export default function MontageList() {
     <div>
       <PageHeader
         title="المونتاج"
-        subtitle="غرفة مونتاج داخل المصنع: لقطة Premium أو صور الشخصية، لقطات B-roll مجانية من Pexels، انتقالات، ترجمة بأسلوبك، وموسيقى تُخفَّض تلقائيًا تحت الصوت. الرندر على الخادم بـ ffmpeg مجانًا، والنتيجة تدخل فحص الجودة ثم التقويم."
+        subtitle="غرفة مونتاج داخل المصنع: لقطة Premium أو صور الشخصية، لقطات B-roll مجانية من Pixabay أو Pexels، انتقالات، ترجمة بأسلوبك، وموسيقى تُخفَّض تلقائيًا تحت الصوت. الرندر على الخادم بـ ffmpeg مجانًا، والنتيجة تدخل فحص الجودة ثم التقويم."
         actions={
           <Button onClick={() => setPicker(true)}>
             <Plus /> مونتاج جديد
@@ -397,7 +397,7 @@ function Stage({ spec, sel, previewUrl, poster, showPreview, setShowPreview, med
           <div className="rounded-xl border border-border p-3 text-[11px] text-muted-foreground">
             <div className="mb-1 font-semibold text-foreground/80">اعتمادات اللقطات</div>
             {spec.segments.filter(s => s.credit).map(s => <div key={s.id} dir="ltr" className="truncate text-left">{s.credit}</div>)}
-            {media.some(x => x.sourceUrl) && <a href="https://www.pexels.com" target="_blank" rel="noreferrer" className="mt-1 inline-block text-tally">Videos provided by Pexels</a>}
+            {media.some(x => x.sourceUrl) && <span className="mt-1 inline-block text-tally">Stock: Pixabay / Pexels</span>}
           </div>
         )}
       </div>
@@ -624,7 +624,7 @@ function MediaPanel({ media, characterId, onAdd, onImported }: { media: Media[];
     <div className="space-y-3 text-sm">
       <div className="flex gap-1.5">
         <Button size="sm" variant={tab === "library" ? "secondary" : "outline"} onClick={() => setTab("library")} className="flex-1">المكتبة</Button>
-        <Button size="sm" variant={tab === "stock" ? "secondary" : "outline"} onClick={() => setTab("stock")} className="flex-1"><Search /> Pexels مجاني</Button>
+        <Button size="sm" variant={tab === "stock" ? "secondary" : "outline"} onClick={() => setTab("stock")} className="flex-1"><Search /> لقطات مجانية</Button>
       </div>
       {tab === "library" ? (
         <>
@@ -636,7 +636,7 @@ function MediaPanel({ media, characterId, onAdd, onImported }: { media: Media[];
             </SelectContent>
           </Select>
           {visual.length === 0 ? (
-            <p className="text-xs text-muted-foreground">لا توجد وسائط من هذا النوع. ارفع من مكتبة الأصول أو ابحث في Pexels.</p>
+            <p className="text-xs text-muted-foreground">لا توجد وسائط من هذا النوع. ارفع من مكتبة الأصول أو ابحث في اللقطات المجانية.</p>
           ) : (
             <div className="grid max-h-[46vh] grid-cols-3 gap-1.5 overflow-y-auto pr-0.5">
               {visual.slice(0, 120).map(a => (
@@ -677,11 +677,16 @@ function StockPanel({ characterId, onAdd, onImported }: { characterId: number; o
   return (
     <div className="space-y-3">
       <form className="flex gap-1.5" onSubmit={e => { e.preventDefault(); setSubmitted(query.trim()); }}>
-        <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="مثال: garden sunrise, city night, cooking" dir="ltr" aria-label="بحث Pexels" />
+        <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="مثال: garden sunrise, city night, cooking" dir="ltr" aria-label="بحث اللقطات المجانية" />
         <Button type="submit" size="sm" disabled={!query.trim() || search.isFetching}><Search /></Button>
       </form>
       <p className="text-[11px] text-muted-foreground">
-        لقطات عمودية مجانية للاستخدام التجاري. يُحفظ المقطع في مكتبتك مع اسم المصوّر. <a href="https://www.pexels.com" target="_blank" rel="noreferrer" className="text-tally">Videos provided by Pexels</a>
+        لقطات مجانية للاستخدام التجاري (العمودية أولًا). يُحفظ المقطع في مكتبتك مع اسم المصوّر.{" "}
+        {search.data?.source === "pixabay" ? (
+          <a href="https://pixabay.com" target="_blank" rel="noreferrer" className="text-tally">Videos provided by Pixabay</a>
+        ) : search.data?.source === "pexels" ? (
+          <a href="https://www.pexels.com" target="_blank" rel="noreferrer" className="text-tally">Videos provided by Pexels</a>
+        ) : null}
       </p>
       {search.error && <p className="text-xs text-stop">{search.error.message}</p>}
       {search.isFetching && <p className="text-xs text-muted-foreground">جارٍ البحث…</p>}

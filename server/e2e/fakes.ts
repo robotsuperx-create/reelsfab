@@ -300,6 +300,36 @@ export function installFakes() {
         }
         return new Response(new Uint8Array(PNG), { headers: { "content-type": "image/png" } });
       }
+      case "pixabay.com": {
+        hit("pixabay");
+        if (u.searchParams.get("key") !== "test-pixabay-key") return new Response('[ERROR 400] "key" is invalid', { status: 400 });
+        const q = u.searchParams.get("q") ?? "";
+        const seed = [...q].reduce((a, c) => a + c.charCodeAt(0), 0) % 40;
+        if (u.pathname === "/api/videos/") {
+          const mk = (id: number, d: number) => ({
+            id, pageURL: `https://pixabay.com/videos/clip-${id}/`, type: "film", tags: q, duration: d, user: `Pixa${id}`,
+            videos: {
+              large: { url: `https://cdn.pixabay.com/video/2026/${id}_large.mp4`, width: 3840, height: 2160, size: 9_000_000, thumbnail: `https://cdn.pixabay.com/video/2026/${id}_large.jpg` },
+              medium: { url: `https://cdn.pixabay.com/video/2026/${id}_medium.mp4`, width: 1920, height: 1080, size: 3_000_000, thumbnail: `https://cdn.pixabay.com/video/2026/${id}_medium.jpg` },
+              small: { url: `https://cdn.pixabay.com/video/2026/${id}_small.mp4`, width: 1280, height: 720, size: 1_000_000, thumbnail: `https://cdn.pixabay.com/video/2026/${id}_small.jpg` },
+            },
+          });
+          return json({ total: 3, totalHits: 3, hits: q ? [mk(7000 + seed * 3, 9), mk(7001 + seed * 3, 14), mk(7002 + seed * 3, 70)] : [] });
+        }
+        const photo = (id: number) => ({ id, pageURL: `https://pixabay.com/photos/still-${id}/`, user: `Pixa${id}`, imageWidth: 6000, imageHeight: 3375, webformatURL: `https://cdn.pixabay.com/photo/2026/${id}_640.jpg`, largeImageURL: `https://cdn.pixabay.com/photo/2026/${id}_1280.jpg` });
+        return json({ total: 3, totalHits: 3, hits: q ? [photo(8000 + seed * 3), photo(8001 + seed * 3), photo(8002 + seed * 3)] : [] });
+      }
+      case "cdn.pixabay.com": {
+        hit("pixabay.cdn");
+        if (u.pathname.startsWith("/video/") && u.pathname.endsWith(".mp4")) {
+          const { readFile } = await import("node:fs/promises");
+          const file = process.env.E2E_SAMPLE_MP4;
+          return new Response(new Uint8Array(file ? await readFile(file) : Buffer.alloc(4096)), { headers: { "content-type": "video/mp4" } });
+        }
+        const { execFileSync } = await import("node:child_process");
+        const img = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=1", "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"], { maxBuffer: 4 * 1024 * 1024 });
+        return new Response(new Uint8Array(img), { headers: { "content-type": "image/jpeg" } });
+      }
       case "fal.run": {
         hit("fal");
         if (new Headers(init?.headers).get("authorization") !== "Key test-fal-id:test-fal-secret-0000") return json({ detail: "Unauthorized" }, 401);

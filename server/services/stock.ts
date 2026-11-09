@@ -1,7 +1,8 @@
 /**
- * Free stock footage for B-roll (Pexels — free for commercial use, API key from the Integrations vault).
- * Pexels asks API users to link back to Pexels and credit the videographer; the credit is kept in the
- * asset's meta and the editor shows the "Videos provided by Pexels" link.
+ * Free stock footage and stills for B-roll and episodes — Pexels or Pixabay (both free for commercial use, keys in
+ * the Integrations vault). Pexels paused new API keys on 2026-09-30, so Pixabay works as an equal provider: whichever
+ * key exists is used, Pexels first, and the other one takes over when a provider hits its rate limit or fails.
+ * Credits (photographer + source) are kept in the asset's meta; the editors show where the media comes from.
  */
 import { and, eq, sql } from "drizzle-orm";
 import { assets } from "../../drizzle/schema";
@@ -10,10 +11,14 @@ import { storagePut } from "../storage";
 import { getIntegrationConfig } from "./integration-vault";
 
 export type StockOrientation = "portrait" | "landscape";
+export type StockSource = "pexels" | "pixabay";
+export const STOCK_SOURCES: StockSource[] = ["pexels", "pixabay"];
+/** Hosts a stock file may be downloaded from (checked again before import). */
+export const STOCK_HOSTS = ["pexels.com", "pexels.test", "pixabay.com", "pixabay.test"];
 
 export type StockVideo = {
   id: string;
-  source: "pexels";
+  source: StockSource;
   thumb: string;
   /** Direct link of the chosen file (≤1080 wide portrait / ≤1920 wide landscape keeps downloads small). */
   file: string;
@@ -26,7 +31,7 @@ export type StockVideo = {
 
 export type StockPhoto = {
   id: string;
-  source: "pexels";
+  source: StockSource;
   thumb: string;
   file: string;
   width: number;
@@ -49,11 +54,53 @@ type PexelsVideo = {
 const cache = new Map<string, { at: number; items: StockVideo[]; total: number }>();
 const CACHE_MS = 10 * 60_000;
 
-async function pexelsKey() {
-  const cfg = await getIntegrationConfig("pexels");
-  const key = cfg.apiKey?.trim();
-  if (!key) throw new Error("أضف مفتاح Pexels من مركز التكاملات أولًا (مجاني من pexels.com/api)");
-  return key;
+/** Configured stock providers in order of preference (Pexels first when both keys exist). */
+export async function stockProviders(): Promise<{ source: StockSource; key: string }[]> {
+  const out: { source: StockSource; key: string }[] = [];
+  for (const source of STOCK_SOURCES) {
+    const key = (await getIntegrationConfig(source)).apiKey?.trim();
+    if (key) out.push({ source, key });
+  }
+  if (!out.length) throw new Error("أضف مفتاح Pixabay (مجاني من pixabay.com/api/docs) أو Pexels من مركز التكاملات أولًا");
+  return out;
+}
+
+class StockQuotaError extends Error {}
+
+/** Runs a search on the first provider and falls back to the next one on a rate limit or a server error. */
+async function withProviders<T>(run: (p: { source: StockSource; key: string }) => Promise<T>): Promise<T> {
+  const providers = await stockProviders();
+  let last: unknown;
+  for (const p of providers) {
+    try {
+      return await run(p);
+    } catch (e) {
+      last = e;
+      if (!(e instanceof StockQuotaError)) throw e;
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last));
+}
+
+async function stockFetch(source: StockSource, url: URL, headers?: Record<string, string>) {
+  const r = await fetch(url, headers ? { headers } : undefined);
+  const name = source === "pexels" ? "Pexels" : "Pixabay";
+  if (r.status === 429) throw new StockQuotaError(`${name}: تجاوزت حد الطلبات (${source === "pexels" ? "200 في الساعة" : "100 في الدقيقة"}) — انتظر قليلًا`);
+  if (r.status >= 500) throw new StockQuotaError(`${name} لا يستجيب الآن (${r.status})`);
+  if (!r.ok) {
+    const text = (await r.text()).slice(0, 160);
+    if (r.status === 400 && /key/i.test(text)) throw new Error(`مفتاح ${name} مرفوض — تحقق منه في مركز التكاملات`);
+    throw new Error(`${name} رفض الطلب (${r.status})`);
+  }
+  return r.json();
+}
+
+/** Pixabay requires responses to be cached for 24 hours; Pexels results are kept 10 minutes. */
+const cacheMs = (source: StockSource) => (source === "pixabay" ? 24 * 3_600_000 : CACHE_MS);
+const MAX_CACHE = 600;
+function remember<V>(map: Map<string, V>, key: string, value: V) {
+  if (map.size >= MAX_CACHE) map.delete(map.keys().next().value as string);
+  map.set(key, value);
 }
 
 /** Picks the rendition closest to the target size without exceeding it; falls back to the smallest file. */
@@ -85,26 +132,89 @@ export function normalizePexels(v: PexelsVideo, orientation: StockOrientation = 
 }
 
 export async function searchStockVideos(query: string, page = 1, orientation: StockOrientation = "portrait") {
-  const q = query.trim();
-  if (!q) return { items: [] as StockVideo[], total: 0 };
-  const cacheKey = `v|${orientation}|${q.toLowerCase()}|${page}`;
-  const hit = cache.get(cacheKey);
-  if (hit && Date.now() - hit.at < CACHE_MS) return { items: hit.items, total: hit.total };
-  const key = await pexelsKey();
-  const url = new URL("https://api.pexels.com/v1/videos/search");
-  url.searchParams.set("query", q);
-  url.searchParams.set("orientation", orientation);
-  url.searchParams.set("size", "medium");
-  url.searchParams.set("per_page", "24");
-  url.searchParams.set("page", String(Math.max(1, page)));
-  const r = await fetch(url, { headers: { Authorization: key } });
-  if (r.status === 429) throw new Error("Pexels: تجاوزت حد الطلبات (200 في الساعة) — انتظر قليلًا");
-  if (!r.ok) throw new Error(`Pexels رفض الطلب (${r.status})`);
-  const data = (await r.json()) as { videos?: PexelsVideo[]; total_results?: number };
-  const items = (data.videos ?? []).map(v => normalizePexels(v, orientation)).filter((x): x is StockVideo => !!x && x.durationSec >= 2 && x.durationSec <= 60);
-  const total = Number(data.total_results) || items.length;
-  cache.set(cacheKey, { at: Date.now(), items, total });
-  return { items, total };
+  const q = query.trim().slice(0, 100);
+  if (!q) return { items: [] as StockVideo[], total: 0, source: null as StockSource | null };
+  return withProviders(async ({ source, key }) => {
+    const cacheKey = `v|${source}|${orientation}|${q.toLowerCase()}|${page}`;
+    const hit = cache.get(cacheKey);
+    if (hit && Date.now() - hit.at < cacheMs(source)) return { items: hit.items, total: hit.total, source };
+    let items: StockVideo[];
+    let total: number;
+    if (source === "pexels") {
+      const url = new URL("https://api.pexels.com/v1/videos/search");
+      url.searchParams.set("query", q);
+      url.searchParams.set("orientation", orientation);
+      url.searchParams.set("size", "medium");
+      url.searchParams.set("per_page", "24");
+      url.searchParams.set("page", String(Math.max(1, page)));
+      const data = (await stockFetch(source, url, { Authorization: key })) as { videos?: PexelsVideo[]; total_results?: number };
+      items = (data.videos ?? []).map(v => normalizePexels(v, orientation)).filter((x): x is StockVideo => !!x);
+      total = Number(data.total_results) || items.length;
+    } else {
+      const url = new URL("https://pixabay.com/api/videos/");
+      url.searchParams.set("key", key);
+      url.searchParams.set("q", q);
+      url.searchParams.set("safesearch", "true");
+      url.searchParams.set("per_page", "24");
+      url.searchParams.set("page", String(Math.max(1, page)));
+      const data = (await stockFetch(source, url)) as { hits?: PixabayVideo[]; totalHits?: number };
+      // Pixabay has no orientation filter for video: matching clips first, the rest are center-cropped by the renderer.
+      const all = (data.hits ?? []).map(normalizePixabayVideo).filter((x): x is StockVideo => !!x);
+      const fits = (x: StockVideo) => (orientation === "portrait" ? x.height > x.width : x.width >= x.height);
+      items = [...all.filter(fits), ...all.filter(x => !fits(x))];
+      total = Number(data.totalHits) || items.length;
+    }
+    items = items.filter(x => x.durationSec >= 2 && x.durationSec <= 60);
+    remember(cache, cacheKey, { at: Date.now(), items, total });
+    return { items, total, source };
+  });
+}
+
+type PixabayVariant = { url?: string; width?: number; height?: number; size?: number; thumbnail?: string };
+type PixabayVideo = { id: number; pageURL: string; duration: number; user?: string; tags?: string; videos?: Partial<Record<"large" | "medium" | "small" | "tiny", PixabayVariant>> };
+
+/** Largest Pixabay rendition within 1920×1080 (landscape) / 1080×1920 (portrait); the 4K "large" one is skipped. */
+export function normalizePixabayVideo(v: PixabayVideo): StockVideo | null {
+  const variants = Object.values(v.videos ?? {}).filter((f): f is Required<Pick<PixabayVariant, "url" | "width" | "height">> & PixabayVariant => !!f?.url && !!f.width && !!f.height);
+  if (!variants.length) return null;
+  const portrait = variants[0].height > variants[0].width;
+  const maxW = portrait ? 1080 : 1920;
+  const maxH = portrait ? 1920 : 1080;
+  const fit = variants.filter(f => f.width <= maxW && f.height <= maxH).sort((a, b) => b.width - a.width);
+  const file = fit[0] ?? [...variants].sort((a, b) => a.width - b.width)[0];
+  const thumb = variants.find(f => f.thumbnail)?.thumbnail ?? "";
+  return {
+    id: String(v.id),
+    source: "pixabay",
+    thumb,
+    file: file.url,
+    width: file.width,
+    height: file.height,
+    durationSec: Number(v.duration) || 0,
+    credit: `Video by ${v.user?.trim() || "Pixabay"} on Pixabay`,
+    sourceUrl: v.pageURL,
+  };
+}
+
+type PixabayPhoto = { id: number; pageURL: string; user?: string; webformatURL?: string; largeImageURL?: string; fullHDURL?: string; imageWidth: number; imageHeight: number };
+
+/** Pixabay stills: the 1920px "fullHD" link when the key has full access, else the 1280px "large" one. */
+export function normalizePixabayPhoto(p: PixabayPhoto): StockPhoto | null {
+  const file = p.fullHDURL || p.largeImageURL;
+  if (!file) return null;
+  const longest = p.fullHDURL ? 1920 : 1280;
+  const landscape = p.imageWidth >= p.imageHeight;
+  const scale = Math.min(1, longest / Math.max(p.imageWidth, p.imageHeight, 1));
+  return {
+    id: String(p.id),
+    source: "pixabay",
+    thumb: p.webformatURL || file,
+    file,
+    width: Math.round(p.imageWidth * scale) || (landscape ? longest : Math.round(longest * 0.5625)),
+    height: Math.round(p.imageHeight * scale) || (landscape ? Math.round(longest * 0.5625) : longest),
+    credit: `Photo by ${p.user?.trim() || "Pixabay"} on Pixabay`,
+    sourceUrl: p.pageURL,
+  };
 }
 
 const photoCache = new Map<string, { at: number; items: StockPhoto[]; total: number }>();
@@ -126,27 +236,52 @@ export function normalizePexelsPhoto(p: PexelsPhoto, orientation: StockOrientati
   };
 }
 
-/** Free stills (Ken Burns material) from Pexels photos. */
+/** Free stills (Ken Burns material) from Pexels or Pixabay photos. */
 export async function searchStockPhotos(query: string, page = 1, orientation: StockOrientation = "landscape") {
-  const q = query.trim();
-  if (!q) return { items: [] as StockPhoto[], total: 0 };
-  const cacheKey = `p|${orientation}|${q.toLowerCase()}|${page}`;
-  const hit = photoCache.get(cacheKey);
-  if (hit && Date.now() - hit.at < CACHE_MS) return { items: hit.items, total: hit.total };
-  const key = await pexelsKey();
-  const url = new URL("https://api.pexels.com/v1/search");
-  url.searchParams.set("query", q);
-  url.searchParams.set("orientation", orientation);
-  url.searchParams.set("per_page", "24");
-  url.searchParams.set("page", String(Math.max(1, page)));
-  const r = await fetch(url, { headers: { Authorization: key } });
-  if (r.status === 429) throw new Error("Pexels: تجاوزت حد الطلبات (200 في الساعة) — انتظر قليلًا");
-  if (!r.ok) throw new Error(`Pexels رفض الطلب (${r.status})`);
-  const data = (await r.json()) as { photos?: PexelsPhoto[]; total_results?: number };
-  const items = (data.photos ?? []).map(p => normalizePexelsPhoto(p, orientation)).filter((x): x is StockPhoto => !!x);
-  const total = Number(data.total_results) || items.length;
-  photoCache.set(cacheKey, { at: Date.now(), items, total });
-  return { items, total };
+  const q = query.trim().slice(0, 100);
+  if (!q) return { items: [] as StockPhoto[], total: 0, source: null as StockSource | null };
+  return withProviders(async ({ source, key }) => {
+    const cacheKey = `p|${source}|${orientation}|${q.toLowerCase()}|${page}`;
+    const hit = photoCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < cacheMs(source)) return { items: hit.items, total: hit.total, source };
+    let items: StockPhoto[];
+    let total: number;
+    if (source === "pexels") {
+      const url = new URL("https://api.pexels.com/v1/search");
+      url.searchParams.set("query", q);
+      url.searchParams.set("orientation", orientation);
+      url.searchParams.set("per_page", "24");
+      url.searchParams.set("page", String(Math.max(1, page)));
+      const data = (await stockFetch(source, url, { Authorization: key })) as { photos?: PexelsPhoto[]; total_results?: number };
+      items = (data.photos ?? []).map(p => normalizePexelsPhoto(p, orientation)).filter((x): x is StockPhoto => !!x);
+      total = Number(data.total_results) || items.length;
+    } else {
+      const url = new URL("https://pixabay.com/api/");
+      url.searchParams.set("key", key);
+      url.searchParams.set("q", q);
+      url.searchParams.set("image_type", "photo");
+      url.searchParams.set("orientation", orientation === "landscape" ? "horizontal" : "vertical");
+      url.searchParams.set("safesearch", "true");
+      url.searchParams.set("min_width", orientation === "landscape" ? "1280" : "720");
+      url.searchParams.set("per_page", "24");
+      url.searchParams.set("page", String(Math.max(1, page)));
+      const data = (await stockFetch(source, url)) as { hits?: PixabayPhoto[]; totalHits?: number };
+      items = (data.hits ?? []).map(normalizePixabayPhoto).filter((x): x is StockPhoto => !!x);
+      total = Number(data.totalHits) || items.length;
+    }
+    remember(photoCache, cacheKey, { at: Date.now(), items, total });
+    return { items, total, source };
+  });
+}
+
+/** True when a stock file URL is on a known provider host (imports never fetch arbitrary URLs). */
+export function isStockHost(url: string) {
+  try {
+    const host = new URL(url).hostname;
+    return STOCK_HOSTS.some(h => host === h || host.endsWith(`.${h}`));
+  } catch {
+    return false;
+  }
 }
 
 const MAX_DOWNLOAD_BYTES = 60 * 1024 * 1024;

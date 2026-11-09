@@ -34,9 +34,11 @@ three caption styles (karaoke / classic / boxed), a music bed ducked under the v
 CTA card. "Quick preview" renders 540×960 synchronously; "Final render" goes through `render_jobs` (`montageId`), lands
 in QC as a `montage` render and supersedes the script's automatic reel so the scheduler never posts both.
 
-Free B-roll comes from Pexels (API key in the Integrations page; 200 requests/hour): portrait clips are imported into
-the library as `broll` assets with the videographer credit in `assets.meta`, and the editor shows the required
-"Videos provided by Pexels" link.
+Free B-roll comes from Pixabay or Pexels (API keys in the Integrations page). Pexels paused new API keys on
+2026-09-30, so Pixabay is a first-class provider (100 requests/minute, responses cached 24 hours as its terms require,
+1080p rendition chosen, 1280px stills — 1920px with full API access); with both keys Pexels is tried first and Pixabay
+takes over on a rate limit or outage. Clips are imported into the library as `broll` assets and stills as
+`background` assets, with the creator credit in `assets.meta`; the editors show the provider's attribution link.
 
 ## Long-form pillar: full videos at zero cost (`/videos`)
 
@@ -53,7 +55,7 @@ An episode goes through three steps:
    Kokoro locally for English; for Arabic the `speech` vault provider, which is any OpenAI-compatible
    `POST {baseUrl}/audio/speech` endpoint — OpenAI's `gpt-4o-mini-tts` (≈$0.015 per minute, charged to the episode) or a
    self-hosted voice-clone server (Audio8 / Chatterbox / Qwen3-TTS behind an OpenAI-compatible API; `extraJson` carries
-   reference-audio or language fields the server expects). Gemini TTS remains selectable per channel. Plus a free Pexels
+   reference-audio or language fields the server expects). Gemini TTS remains selectable per channel. Plus a free Pixabay/Pexels
    clip or still per scene (landscape, deduplicated inside the episode, credit kept). The editor reviews and swaps any scene.
 3. **Render** — `server/worker/episode-render.ts`: every scene becomes a 1920×1080 clip (trimmed/padded to its
    narration, Ken Burns for stills), clips are joined without re-encoding, then one pass burns intro card, lower-thirds,
@@ -72,11 +74,11 @@ Schema upgrades for this pillar run idempotently at startup (`server/db-upgrades
 
 ## Runtime services
 
-Every service key (Claude, OpenAI, the `speech` endpoint, fal.ai, Gemini, Higgsfield, ElevenLabs, Instagram/Meta, TikTok, YouTube, Telegram, Pexels) is entered in the Integrations page and stored encrypted with `INTEGRATION_ENCRYPTION_KEY` — `.env` holds infrastructure only. All text generation (reel scripts, review, episode scripts, character builder) runs on Claude (older Gemini/Ollama/Claude 4.x choices in settings are migrated to the current Claude models on read), transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
+Every service key (Claude, OpenAI, the `speech` endpoint, fal.ai, Gemini, Higgsfield, ElevenLabs, Instagram/Meta, TikTok, YouTube, Telegram, Pixabay, Pexels) is entered in the Integrations page and stored encrypted with `INTEGRATION_ENCRYPTION_KEY` — `.env` holds infrastructure only. All text generation (reel scripts, review, episode scripts, character builder) runs on Claude (older Gemini/Ollama/Claude 4.x choices in settings are migrated to the current Claude models on read), transcription calls OpenAI Whisper, owner alerts go to Telegram, scheduling is the in-process autopilot (or an external cron calling `/api/scheduled/*` with `Authorization: Bearer $CRON_SECRET`), and sign-in is Supabase Auth or the local admin (`SESSION_SECRET`).
 
 ## Full-cycle test
 
-`pnpm e2e` runs the whole studio against a throwaway local Postgres with every external service (Claude, Supabase Storage, Instagram) faked at the network boundary: seed + reference images → daily batch → render queue (real ffmpeg) → QC → scheduling (connected platforms only) → concurrent publishing (no double posts) → premium clip pipeline → montage (fake Pexels B-roll, preview, queued final render that supersedes the automatic reel) → long-form episode (10 seeded channels, Claude script via a fake forced tool call, OpenAI-compatible narration cached per scene, stock per scene, 1080p render with chapters) → autopilot tick. It refuses to run unless `DATABASE_URL` points at localhost.
+`pnpm e2e` runs the whole studio against a throwaway local Postgres with every external service (Claude, Supabase Storage, Instagram) faked at the network boundary: seed + reference images → daily batch → render queue (real ffmpeg) → QC → scheduling (connected platforms only) → concurrent publishing (no double posts) → premium clip pipeline → montage (fake stock B-roll, preview, queued final render that supersedes the automatic reel) → long-form episode (10 seeded channels, Claude script via a fake forced tool call, OpenAI-compatible narration cached per scene, stock per scene, AI pictures for the kids channel, a Pixabay-only episode, 1080p render with chapters) → autopilot tick. It refuses to run unless `DATABASE_URL` points at localhost.
 
 ```
 createdb reelsfab_e2e && psql reelsfab_e2e -f drizzle/supabase/0000_*.sql -f drizzle/supabase/0001_*.sql -f drizzle/supabase/0002_*.sql -f drizzle/supabase/0003_*.sql

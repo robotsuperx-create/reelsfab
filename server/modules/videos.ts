@@ -7,25 +7,23 @@ import { requireDb } from "../db";
 import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 import { channelStats, finishEpisodeRender, generateEpisodeScript, listEpisodes, loadEpisode, planVisuals, prepareEpisode } from "../services/episodes";
-import { importStockPhoto, importStockVideo, searchStockPhotos, searchStockVideos, type StockPhoto, type StockVideo } from "../services/stock";
+import { type StockPhoto, type StockVideo, importStockPhoto, importStockVideo, isStockHost, searchStockPhotos, searchStockVideos } from "../services/stock";
 import { storageKeyFromUrl } from "../storage";
 import { generateImageAsset, imageProviderReady, resolveImageModel } from "../services/ai-images";
 import { IMAGE_TIERS, IMAGE_TIER_DEFAULTS, imagePromptFor } from "../../shared/images";
 import { enqueueEpisode, runJobNow } from "../worker/jobs";
 
 const bad = (e: unknown) => new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
-const STOCK_HOSTS = ["pexels.com", "pexels.test"];
 function assertStockHost(url: string) {
-  const host = new URL(url).hostname;
-  if (!STOCK_HOSTS.some(h => host === h || host.endsWith(`.${h}`))) throw new TRPCError({ code: "BAD_REQUEST", message: "الرابط ليس من Pexels" });
+  if (!isStockHost(url)) throw new TRPCError({ code: "BAD_REQUEST", message: "الرابط ليس من Pexels أو Pixabay" });
 }
 
 const stockVideoItem = z.object({
-  id: z.string().min(1).max(40), source: z.literal("pexels"), thumb: z.string().url().max(1024), file: z.string().url().max(1024),
+  id: z.string().min(1).max(40), source: z.enum(["pexels", "pixabay"]), thumb: z.string().url().max(1024), file: z.string().url().max(1024),
   width: z.number().int().min(1), height: z.number().int().min(1), durationSec: z.number().min(0).max(600), credit: z.string().max(200), sourceUrl: z.string().url().max(1024),
 });
 const stockPhotoItem = z.object({
-  id: z.string().min(1).max(40), source: z.literal("pexels"), thumb: z.string().url().max(1024), file: z.string().url().max(1024),
+  id: z.string().min(1).max(40), source: z.enum(["pexels", "pixabay"]), thumb: z.string().url().max(1024), file: z.string().url().max(1024),
   width: z.number().int().min(1), height: z.number().int().min(1), credit: z.string().max(200), sourceUrl: z.string().url().max(1024),
 });
 

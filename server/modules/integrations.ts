@@ -7,7 +7,7 @@ import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 
 const CAPABILITIES = ["text", "review", "image", "video", "voice", "transcription", "social_publish", "analytics", "storage"] as const;
-const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "ollama", "speech", "fal", "custom"] as const;
+const PROVIDERS = ["openai", "anthropic", "gemini", "higgsfield", "elevenlabs", "elevenlabs-speech", "instagram", "tiktok", "youtube", "cloudinary", "replicate", "telegram", "pexels", "pixabay", "ollama", "speech", "fal", "custom"] as const;
 
 async function getRow(id: number) {
   const db = await requireDb();
@@ -83,6 +83,13 @@ async function probe(provider: string, config: Record<string, string>) {
     if (config.model && !names.some(n => n === config.model || n.startsWith(`${config.model}:`))) {
       throw new Error(`النموذج ${config.model} غير منزّل. النماذج المتاحة: ${names.join(", ") || "لا شيء"} — نزّله بـ ollama pull`);
     }
+  } else if (provider === "pixabay") {
+    const u = new URL("https://pixabay.com/api/");
+    u.searchParams.set("key", key!);
+    u.searchParams.set("q", "nature");
+    u.searchParams.set("per_page", "3");
+    const r = await fetch(u);
+    if (!r.ok) throw new Error(r.status === 400 ? "Pixabay رفض المفتاح — انسخه من pixabay.com/api/docs بعد تسجيل الدخول" : `Pixabay رفض الطلب (${r.status})`);
   } else if (provider === "pexels") {
     const r = await fetch("https://api.pexels.com/v1/videos/search?query=nature&per_page=1", { headers: { Authorization: key! } });
     if (!r.ok) throw new Error(`Pexels رفض المفتاح (${r.status})`);

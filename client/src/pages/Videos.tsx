@@ -549,6 +549,13 @@ function SceneCard({ scene, index, start, count, language, disabled, onChange, o
   );
 }
 
+/** Where the search results come from (both providers ask for a visible credit). */
+function StockAttribution({ source }: { source: "pexels" | "pixabay" | null }) {
+  if (source === "pixabay") return <p className="text-[11px] text-muted-foreground"><a href="https://pixabay.com" target="_blank" rel="noreferrer" className="text-tally">Videos and photos provided by Pixabay</a></p>;
+  if (source === "pexels") return <p className="text-[11px] text-muted-foreground"><a href="https://www.pexels.com" target="_blank" rel="noreferrer" className="text-tally">Videos and photos provided by Pexels</a></p>;
+  return <p className="text-[11px] text-muted-foreground">لقطات مجانية للاستخدام التجاري من Pixabay أو Pexels (حسب المفتاح في مركز التكاملات).</p>;
+}
+
 function VisualPicker({ episodeId, sceneId, sceneKeywords, scenePrompt, media, onClose, onChoose }: { episodeId: number; sceneId: string; sceneKeywords: string[]; scenePrompt: string; media: Media[]; onClose: () => void; onChoose: (v: NonNullable<Scene["visual"]>) => void }) {
   const [tab, setTab] = useState<"stock" | "ai" | "library">("stock");
   const [prompt, setPrompt] = useState(scenePrompt);
@@ -573,10 +580,10 @@ function VisualPicker({ episodeId, sceneId, sceneKeywords, scenePrompt, media, o
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>لقطة المشهد</DialogTitle>
-          <DialogDescription>لقطات مجانية من Pexels (تُحفظ في مكتبتك مع اسم المصوّر)، صورة تولّدها بالذكاء الاصطناعي، أو ملفات مكتبتك.</DialogDescription>
+          <DialogDescription>لقطات مجانية من Pixabay أو Pexels (تُحفظ في مكتبتك مع اسم المصوّر)، صورة تولّدها بالذكاء الاصطناعي، أو ملفات مكتبتك.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-wrap gap-1.5">
-          <Button size="sm" variant={tab === "stock" ? "secondary" : "outline"} onClick={() => setTab("stock")}><Search /> Pexels مجاني</Button>
+          <Button size="sm" variant={tab === "stock" ? "secondary" : "outline"} onClick={() => setTab("stock")}><Search /> لقطات مجانية</Button>
           <Button size="sm" variant={tab === "ai" ? "secondary" : "outline"} onClick={() => setTab("ai")}><Sparkles /> صورة AI</Button>
           <Button size="sm" variant={tab === "library" ? "secondary" : "outline"} onClick={() => setTab("library")}>المكتبة</Button>
         </div>
@@ -634,7 +641,7 @@ function VisualPicker({ episodeId, sceneId, sceneKeywords, scenePrompt, media, o
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground"><a href="https://www.pexels.com" target="_blank" rel="noreferrer" className="text-tally">Videos and photos provided by Pexels</a></p>
+            <StockAttribution source={search.data?.source ?? null} />
           </>
         ) : (
           <div className="grid max-h-[50vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 md:grid-cols-4">

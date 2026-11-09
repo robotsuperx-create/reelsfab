@@ -140,7 +140,7 @@ export default function Library() {
         <div className="text-sm text-muted-foreground">جارٍ التحميل…</div>
       ) : rows.length === 0 ? (
         <EmptyBlock title={`لا توجد ${KIND_LABELS[kind]}`}>
-          {kind === "broll" ? "ارفع مقاطع فيديو قصيرة من هنا، أو ابحث في Pexels من صفحة المونتاج وستُحفظ هنا تلقائيًا." : canUpload ? "ارفع ملفات من الزر أعلاه. اختر شخصية من القائمة قبل الرفع لربط الملفات بها مباشرة." : "تظهر هنا تلقائيًا عند الرفع أو الرندر."}
+          {kind === "broll" ? "ارفع مقاطع فيديو قصيرة من هنا، أو ابحث في اللقطات المجانية (Pixabay / Pexels) من صفحة المونتاج وستُحفظ هنا تلقائيًا." : canUpload ? "ارفع ملفات من الزر أعلاه. اختر شخصية من القائمة قبل الرفع لربط الملفات بها مباشرة." : "تظهر هنا تلقائيًا عند الرفع أو الرندر."}
         </EmptyBlock>
       ) : (
         <div className={isImage || isVideo ? "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-7" : "panel divide-y"}>
@@ -185,7 +185,7 @@ export default function Library() {
                     {a.width && a.height ? `${a.width}×${a.height}` : ""} {fmtSize(a.sizeBytes)}
                   </div>
                   {a.meta?.credit && (
-                    <a href={a.meta.sourceUrl ?? "https://www.pexels.com"} target="_blank" rel="noreferrer" dir="ltr" className="truncate text-left text-[10px] text-muted-foreground hover:text-tally" title={a.meta.credit}>
+                    <a href={a.meta.sourceUrl ?? (a.meta.source === "pixabay" ? "https://pixabay.com" : "https://www.pexels.com")} target="_blank" rel="noreferrer" dir="ltr" className="truncate text-left text-[10px] text-muted-foreground hover:text-tally" title={a.meta.credit}>
                       {a.meta.credit}
                     </a>
                   )}
