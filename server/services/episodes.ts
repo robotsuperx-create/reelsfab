@@ -373,7 +373,10 @@ export async function finishEpisodeRender(episodeId: number, opts?: { preview?: 
       musicVolume: 0.16,
       font: "IBM Plex Sans Arabic",
       colors: channel.colors,
-      disclosure: channel.language === "ar" ? "تعليق صوتي مولَّد بالذكاء الاصطناعي" : AI_DISCLOSURE,
+      disclosure:
+        channel.ttsProvider === "none"
+          ? channel.language === "ar" ? "النص مكتوب بمساعدة الذكاء الاصطناعي" : "Script written with AI assistance"
+          : channel.language === "ar" ? "تعليق صوتي مولَّد بالذكاء الاصطناعي" : AI_DISCLOSURE,
       preview: opts?.preview,
       onProgress: opts?.onProgress,
     });
