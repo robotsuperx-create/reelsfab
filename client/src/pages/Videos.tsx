@@ -214,8 +214,9 @@ function ChannelSettings({ c, media, onSaved }: { c: RouterOutputs["videos"]["ch
   const voices =
     f.ttsProvider === "kokoro" ? KOKORO_VOICES.map(v => ({ id: v.id, label: v.label }))
     : f.ttsProvider === "speech" ? OPENAI_VOICES.map(v => ({ id: v.id, label: v.label }))
+    : f.ttsProvider === "none" ? [{ id: "none", label: "بلا صوت — كل مشهد يبقى بقدر قراءة نصه" }]
     : GEMINI_VOICES.map(v => ({ id: v.id, label: v.label }));
-  const defaultVoice = (p: (typeof TTS_PROVIDERS)[number]) => (p === "kokoro" ? "af_heart" : p === "speech" ? "onyx" : "Charon");
+  const defaultVoice = (p: (typeof TTS_PROVIDERS)[number]) => (p === "kokoro" ? "af_heart" : p === "speech" ? "onyx" : p === "none" ? "none" : "Charon");
   // A self-hosted clone server registers its own voice names, so the field also accepts free text.
   const customVoice = f.ttsProvider === "speech" && !voices.some(v => v.id === f.voice);
   const music = media.filter(m => m.kind === "music");

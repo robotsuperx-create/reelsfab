@@ -1,3 +1,4 @@
+import { readingSeconds } from "../../shared/episodes";
 import { execFile } from "node:child_process";
 import { rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
@@ -6,7 +7,7 @@ import { getIntegrationConfig } from "../services/integration-vault";
 const run = promisify(execFile);
 
 export type TtsResult = { wavPath: string; durationSec: number; costMilliCents?: number };
-export type TtsProvider = "kokoro" | "gemini" | "speech";
+export type TtsProvider = "kokoro" | "gemini" | "speech" | "none";
 
 /** OpenAI's public endpoint; any server implementing the same /audio/speech contract (self-hosted voice clones) works too. */
 export const OPENAI_SPEECH_BASE = "https://api.openai.com/v1";
@@ -147,6 +148,12 @@ async function loadKokoro() {
  */
 export async function synthesize(opts: { text: string; voice: string; speed: number; outPath: string; provider?: TtsProvider }): Promise<TtsResult> {
   const provider = process.env.TTS_PROVIDER ?? "kokoro";
+  if (opts.provider === "none") {
+    // No voice: silence as long as the text needs to be read on screen (captions carry every word).
+    const seconds = readingSeconds(opts.text);
+    await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", seconds.toFixed(2), opts.outPath]);
+    return { wavPath: opts.outPath, durationSec: await probeDuration(opts.outPath), costMilliCents: 0 };
+  }
   const remote = opts.provider === "gemini" || opts.provider === "speech";
   // The test tone replaces the local model only; remote providers keep their real code path (the e2e fakes the network).
   if (provider === "test" && !remote) {

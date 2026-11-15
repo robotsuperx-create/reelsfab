@@ -16,13 +16,24 @@ export const VISUAL_STYLE_LABELS: Record<(typeof VISUAL_STYLES)[number], string>
   illustration: "رسوم توضيحية",
 };
 
-export const TTS_PROVIDERS = ["kokoro", "gemini", "speech"] as const;
+export const TTS_PROVIDERS = ["kokoro", "gemini", "speech", "none"] as const;
 export type TtsProvider = (typeof TTS_PROVIDERS)[number];
 export const TTS_PROVIDER_LABELS: Record<TtsProvider, string> = {
   kokoro: "Kokoro — محلي مجاني (إنجليزي فقط)",
   speech: "OpenAI TTS أو خادم صوت متوافق (صوتك المستنسخ)",
   gemini: "Gemini TTS — الخطة المجانية",
+  none: "بلا صوت — النص كاملًا على الشاشة (مجاني)",
 };
+
+/**
+ * Silent episodes: each scene stays on screen long enough to read its text (Arabic ≈ 2.2 words/s, Latin ≈ 2.8),
+ * with a short pause to breathe. Used instead of a narration length when the channel has no voice.
+ */
+export function readingSeconds(text: string) {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const rate = /[\u0600-\u06FF]/.test(text) ? 2.2 : 2.8;
+  return Math.max(3.5, Math.min(30, words / rate + 0.8));
+}
 
 /** OpenAI built-in voices (gpt-4o-mini-tts); a self-hosted clone server uses whatever voice names it registers. */
 export const OPENAI_VOICES = [
