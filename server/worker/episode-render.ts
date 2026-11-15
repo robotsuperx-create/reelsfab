@@ -4,9 +4,9 @@
  * pass burns the captions / lower-thirds / intro / outro and mixes narration with a ducked music bed.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { EPISODE_INTRO_SECONDS, EPISODE_OUTRO_SECONDS, SCENE_GAP, episodeTimeline, type EpisodeLanguage, type Scene } from "../../shared/episodes";
 import { assColor, assEscape, assTime, chunkWords } from "./ass";
@@ -270,13 +270,16 @@ export async function renderEpisode(req: EpisodeRenderRequest): Promise<EpisodeR
       musicIndex = 2;
       args.push("-stream_loop", "-1", "-i", req.musicFile);
     }
+    await mkdir(join(dir, "fonts"), { recursive: true });
+    for (const f of await readdir(FONTS_DIR)) if (/\.(ttf|otf)$/i.test(f)) await copyFile(join(FONTS_DIR, f), join(dir, "fonts", f));
     const audioGraph = buildEpisodeAudioGraph({ narrationIndex: 1, musicIndex, introSec: tl.intro, total: tl.total, musicVolume: req.musicVolume, duck: true });
     const out = join(dir, "episode.mp4");
     await run(
       "ffmpeg",
       [
         ...args,
-        "-filter_complex", `[0:v]ass=${ass}:fontsdir=${FONTS_DIR}[v];\n${audioGraph}`,
+        // Relative names (ffmpeg runs in the work dir): a Windows path's "C:" would break the filter syntax.
+        "-filter_complex", `[0:v]ass=${basename(ass)}:fontsdir=fonts[v];\n${audioGraph}`,
         "-map", "[v]", "-map", "[a]",
         "-c:v", "libx264", "-preset", preview ? "ultrafast" : "veryfast", "-crf", preview ? "30" : "21", "-r", String(FPS),
         "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
