@@ -9,7 +9,7 @@ import { assets, costEntries } from "../../drizzle/schema";
 import { IMAGE_MODEL_USD, IMAGE_TIER_DEFAULTS, falImageBody, type ImageAspect, type ImageTier } from "../../shared/images";
 import { milliCentsFromUsd } from "../../shared/domain";
 import { requireDb } from "../db";
-import { storagePut } from "../storage";
+import { mediaPut, storagePut } from "../storage";
 import { getIntegrationConfig } from "./integration-vault";
 
 const FAL_RUN = "https://fal.run";
@@ -104,7 +104,7 @@ export async function generateImageAsset(opts: {
   if (existing) return { asset: existing, reused: true as const, usd: 0, model };
   const out = await falGenerate(model, key, falImageBody(model, prompt, aspect), opts.fetchImpl);
   const ext = out.type.includes("png") ? "png" : out.type.includes("webp") ? "webp" : "jpg";
-  const put = await storagePut(`ai-images/${sourceId}.${ext}`, out.buf, out.type);
+  const put = await mediaPut(`ai-images/${sourceId}.${ext}`, out.buf, out.type);
   const [row] = await db
     .insert(assets)
     .values({

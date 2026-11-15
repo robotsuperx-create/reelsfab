@@ -14,7 +14,7 @@ import { AI_DISCLOSURE, CLAUDE_DEFAULT_MODEL } from "../../shared/domain";
 import { chaptersText, episodeProblems, episodeScriptSchema, newSceneId, type EpisodeScript, type Scene } from "../../shared/episodes";
 import { getSettings, requireDb } from "../db";
 import { writeOutput } from "../output";
-import { storageDownload, storageKeyFromUrl, storagePut } from "../storage";
+import { mediaPut, storageDownload, storageKeyFromUrl, storagePut } from "../storage";
 import { wordTimings } from "../worker/ass";
 import { renderEpisode, type SceneSource } from "../worker/episode-render";
 import { synthesize } from "../worker/tts";
@@ -163,7 +163,7 @@ export async function prepareNarration(episodeId: number, onProgress?: (done: nu
       const m4a = join(dir, `${scene.id}.m4a`);
       await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", r.wavPath, "-c:a", "aac", "-b:a", "72k", m4a]);
       const { readFile } = await import("node:fs/promises");
-      const put = await storagePut(`episodes/${episodeId}/narration/${scene.id}-${hash}.m4a`, await readFile(m4a), "audio/mp4");
+      const put = await mediaPut(`episodes/${episodeId}/narration/${scene.id}-${hash}.m4a`, await readFile(m4a), "audio/mp4");
       scene.narrationKey = put.key;
       scene.narrationHash = hash;
       scene.durationSec = Number(r.durationSec.toFixed(2));

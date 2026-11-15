@@ -8,7 +8,7 @@ import { runDailyAutomation } from "../services/batch";
 import { publishDueInstagramPosts, publishDueSocialPosts } from "../services/publishing";
 import { syncHiggsfieldClips } from "../services/higgsfield-jobs";
 import { syncPublishedMetrics } from "../services/analytics-sync";
-import { storageGetSignedUrl, storagePut } from "../storage";
+import { LOCAL_MEDIA_PREFIX, localMediaPath, storageGetSignedUrl, storagePut } from "../storage";
 import { hasValidCronSecret, UPLOAD_MAX_BYTES, UPLOAD_MIME_ALLOWLIST } from "../_core/security";
 
 const ASSET_KINDS = [
@@ -125,6 +125,22 @@ export function registerMediaRoutes(app: Express) {
     const key = (req.params as Record<string, string>)[0];
     if (!key || key.includes("..")) {
       res.status(400).send("bad key");
+      return;
+    }
+    if (key.startsWith(LOCAL_MEDIA_PREFIX)) {
+      let path: string;
+      try {
+        path = localMediaPath(key);
+      } catch {
+        res.status(400).send("bad key");
+        return;
+      }
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+      res.setHeader("Cache-Control", "private, max-age=600");
+      res.sendFile(path, { dotfiles: "deny" }, err => {
+        if (err && !res.headersSent) res.status((err as { statusCode?: number }).statusCode === 404 ? 404 : 500).send("not found");
+      });
       return;
     }
     try {

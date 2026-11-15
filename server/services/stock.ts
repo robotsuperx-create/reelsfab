@@ -7,7 +7,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { assets } from "../../drizzle/schema";
 import { requireDb } from "../db";
-import { storagePut } from "../storage";
+import { mediaPut, storagePut } from "../storage";
 import { getIntegrationConfig } from "./integration-vault";
 
 export type StockOrientation = "portrait" | "landscape";
@@ -300,7 +300,7 @@ export async function importStockPhoto(item: StockPhoto, opts: { query: string; 
   const buf = Buffer.from(await r.arrayBuffer());
   if (!buf.length || buf.length > 25 * 1024 * 1024) throw new Error("حجم الصورة غير مناسب");
   const type = r.headers.get("content-type")?.split(";")[0] || "image/jpeg";
-  const put = await storagePut(`stills/${item.source}-${item.id}.${type.includes("png") ? "png" : "jpg"}`, buf, type);
+  const put = await mediaPut(`stills/${item.source}-${item.id}.${type.includes("png") ? "png" : "jpg"}`, buf, type);
   const [row] = await db
     .insert(assets)
     .values({
@@ -334,7 +334,7 @@ export async function importStockVideo(item: StockVideo, opts: { characterId: nu
   if (!r.ok) throw new Error(`تعذر تنزيل المقطع من ${item.source} (${r.status})`);
   const buf = Buffer.from(await r.arrayBuffer());
   if (!buf.length || buf.length > MAX_DOWNLOAD_BYTES) throw new Error("حجم المقطع غير مناسب (فارغ أو أكبر من 60MB)");
-  const put = await storagePut(`broll/${item.source}-${item.id}.mp4`, buf, "video/mp4");
+  const put = await mediaPut(`broll/${item.source}-${item.id}.mp4`, buf, "video/mp4");
   const [row] = await db
     .insert(assets)
     .values({

@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
 import { ENV } from "./_core/env";
 
 /**
@@ -81,8 +83,47 @@ export async function storageGetSignedUrl(relKey: string, expiresIn = 3600): Pro
   return signed.startsWith("http") ? signed : `${url}/storage/v1${signed.startsWith("/") ? signed : `/${signed}`}`;
 }
 
-/** Downloads an object through a short-lived signed URL (used by the render worker). */
+/** Keys of files kept on this machine's disk instead of Supabase Storage. */
+export const LOCAL_MEDIA_PREFIX = "local/";
+
+/**
+ * Heavy media (stock clips and stills, AI pictures, narration) stays on the local disk when the app runs on the
+ * owner's computer: no slow uploads, no 1 GB free-tier storage limit. MEDIA_STORAGE=local|supabase overrides;
+ * by default local outside production.
+ */
+export function localMediaEnabled() {
+  const mode = (process.env.MEDIA_STORAGE ?? "").trim().toLowerCase();
+  if (mode) return mode === "local";
+  return process.env.NODE_ENV !== "production";
+}
+
+export function localMediaDir() {
+  return resolve(process.env.MEDIA_DIR || join(process.cwd(), "output", "media"));
+}
+
+/** Absolute path of a local media key, refusing anything that would leave the media folder. */
+export function localMediaPath(key: string) {
+  const k = normalizeKey(key);
+  if (!k.startsWith(LOCAL_MEDIA_PREFIX)) throw new Error("not a local media key");
+  const root = localMediaDir();
+  const path = resolve(root, ...k.slice(LOCAL_MEDIA_PREFIX.length).split("/"));
+  if (!path.startsWith(root + sep)) throw new Error("Invalid storage key");
+  return path;
+}
+
+/** Like storagePut, but for heavy media: local disk when enabled, Supabase Storage otherwise. */
+export async function mediaPut(relKey: string, data: Buffer | Uint8Array, contentType = "application/octet-stream"): Promise<{ key: string; url: string }> {
+  if (!localMediaEnabled()) return storagePut(relKey, data, contentType);
+  const key = `${LOCAL_MEDIA_PREFIX}${appendHashSuffix(normalizeKey(relKey))}`;
+  const path = localMediaPath(key);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, Buffer.from(data));
+  return { key, url: `/api/media/${key}` };
+}
+
+/** Downloads an object through a short-lived signed URL (used by the render worker); local media is read from disk. */
 export async function storageDownload(relKey: string): Promise<Buffer> {
+  if (relKey.startsWith(LOCAL_MEDIA_PREFIX)) return readFile(localMediaPath(relKey));
   const signed = await storageGetSignedUrl(relKey, 300);
   const response = await fetch(signed);
   if (!response.ok) throw new Error(`Storage download failed (${response.status})`);
