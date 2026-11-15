@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { EPISODE_INTRO_SECONDS, EPISODE_OUTRO_SECONDS, SCENE_GAP, episodeTimeline, type EpisodeLanguage, type Scene } from "../../shared/episodes";
-import { assColor, assEscape, assTime, chunkWords } from "./ass";
+import { assColor, assEscape, assTime, captionChunks, chunkWords } from "./ass";
 import { motionExpr } from "./renderer";
 import { probeDuration } from "./tts";
 
@@ -34,6 +34,8 @@ export type EpisodeAssInput = {
   font: string;
   colors: { primary: string; accent: string; text: string };
   disclosure: string;
+  /** Silent episode: the text is read, not heard — whole sentences (up to two lines) over a soft dark band. */
+  reading?: boolean;
 };
 
 /** Subtitle/graphics track for a 16:9 episode. Arabic uses phrase captions (inline colour tags break RTL runs in libass). */
@@ -56,13 +58,16 @@ export function buildEpisodeAss(input: EpisodeAssInput) {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Cap,${font},56,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,3,1,2,160,160,70,1`,
-    `Style: Title,${font},40,${text},${text},${primary},${primary},-1,0,0,0,100,100,0,0,3,14,0,${titleAlign},90,90,170,1`,
-    `Style: Chapter,${font},34,${primary},${primary},${accent},${accent},-1,0,0,0,100,100,0,0,3,12,0,${chapterAlign},90,90,90,1`,
-    `Style: Intro,${font},84,${text},${text},&H00000000&,&H96000000&,-1,0,0,0,100,100,0,0,1,4,2,5,120,120,0,1`,
-    `Style: IntroSub,${font},36,${accent},${accent},&H00000000&,&H96000000&,0,0,0,0,100,100,0,0,1,2,1,5,120,120,-150,1`,
-    `Style: Outro,${font},58,${primary},${primary},${accent},${accent},-1,0,0,0,100,100,0,0,3,22,0,5,160,160,0,1`,
-    `Style: Badge,${font},22,${text},${text},&H00000000&,&H80000000&,0,0,0,0,100,100,0,0,3,8,0,${badgeAlign},40,40,32,1`,
+    input.reading
+      ? `Style: Cap,${font},52,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,3,1,2,240,240,62,-1`
+      : `Style: Cap,${font},56,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,3,1,2,160,160,70,-1`,
+    `Style: Band,${font},20,&H00000000&,&H00000000&,&H00000000&,&H00000000&,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,-1`,
+    `Style: Title,${font},40,${text},${text},${primary},${primary},-1,0,0,0,100,100,0,0,3,14,0,${titleAlign},90,90,170,-1`,
+    `Style: Chapter,${font},34,${primary},${primary},${accent},${accent},-1,0,0,0,100,100,0,0,3,12,0,${chapterAlign},90,90,90,-1`,
+    `Style: Intro,${font},84,${text},${text},&H00000000&,&H96000000&,-1,0,0,0,100,100,0,0,1,4,2,5,120,120,0,-1`,
+    `Style: IntroSub,${font},36,${accent},${accent},&H00000000&,&H96000000&,0,0,0,0,100,100,0,0,1,2,1,5,120,120,-150,-1`,
+    `Style: Outro,${font},58,${primary},${primary},${accent},${accent},-1,0,0,0,100,100,0,0,3,22,0,5,160,160,0,-1`,
+    `Style: Badge,${font},22,${text},${text},&H00000000&,&H80000000&,0,0,0,0,100,100,0,0,3,8,0,${badgeAlign},40,40,32,-1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -94,8 +99,14 @@ export function buildEpisodeAss(input: EpisodeAssInput) {
   // Captions: phrases for Arabic, three-word karaoke for English.
   const outroStart = Math.max(0, total - input.outro.seconds);
   const words = input.words.filter(w => w.word.trim());
-  const style = rtl ? "classic" : "karaoke";
-  for (const group of chunkWords(words, style)) {
+  const style = rtl || input.reading ? "classic" : "karaoke";
+  const groups = input.reading ? captionChunks(words, 16, { mergeShort: true }) : chunkWords(words, style);
+  if (input.reading && groups.length) {
+    // Soft dark band behind the reading area so white text stays legible over bright footage.
+    const top = EP_H - 300;
+    push("Band", groups[0][0].start, outroStart, `{\\pos(0,${top})\\1a&H68&\\blur36\\p1}m 0 0 l ${EP_W} 0 l ${EP_W} 360 l 0 360{\\p0}`, 0);
+  }
+  for (const group of groups) {
     const start = group[0].start;
     if (start >= outroStart) continue;
     if (style === "classic") {
@@ -176,6 +187,8 @@ export type EpisodeRenderRequest = {
   font: string;
   colors: { primary: string; accent: string; text: string };
   disclosure: string;
+  /** Silent episode (no voice): captions show whole sentences to read. */
+  reading?: boolean;
   /** Word timings per scene relative to the scene's own narration (seconds). */
   sceneWords: { word: string; start: number; end: number }[][];
   preview?: boolean;
@@ -260,6 +273,7 @@ export async function renderEpisode(req: EpisodeRenderRequest): Promise<EpisodeR
         font: req.font,
         colors: req.colors,
         disclosure: req.disclosure,
+        reading: req.reading,
       }),
     );
 

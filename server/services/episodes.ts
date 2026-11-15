@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assets, channels, costEntries, episodes, type Channel, type Episode } from "../../drizzle/schema";
 import { AI_DISCLOSURE, CLAUDE_DEFAULT_MODEL } from "../../shared/domain";
-import { chaptersText, episodeProblems, episodeScriptSchema, newSceneId, type EpisodeScript, type Scene } from "../../shared/episodes";
+import { chaptersText, episodeProblems, episodeScriptSchema, newSceneId, readingSeconds, type EpisodeScript, type Scene } from "../../shared/episodes";
 import { getSettings, requireDb } from "../db";
 import { writeOutput } from "../output";
 import { mediaPut, storageDownload, storageKeyFromUrl, storagePut } from "../storage";
@@ -132,7 +132,9 @@ export async function generateEpisodeScript(channel: Channel, topic: string, use
 }
 
 export function narrationHash(text: string, voice: string, provider: string, speed: number) {
-  return createHash("sha1").update(`${provider}|${voice}|${speed}|${text.trim()}`).digest("hex").slice(0, 10);
+  // Silent scenes last as long as their text takes to read, so a change in that pace re-times them.
+  const kind = provider === "none" ? `none@${readingSeconds(text).toFixed(1)}` : provider;
+  return createHash("sha1").update(`${kind}|${voice}|${speed}|${text.trim()}`).digest("hex").slice(0, 10);
 }
 
 /**
@@ -377,6 +379,7 @@ export async function finishEpisodeRender(episodeId: number, opts?: { preview?: 
         channel.ttsProvider === "none"
           ? channel.language === "ar" ? "النص مكتوب بمساعدة الذكاء الاصطناعي" : "Script written with AI assistance"
           : channel.language === "ar" ? "تعليق صوتي مولَّد بالذكاء الاصطناعي" : AI_DISCLOSURE,
+      reading: channel.ttsProvider === "none",
       preview: opts?.preview,
       onProgress: opts?.onProgress,
     });

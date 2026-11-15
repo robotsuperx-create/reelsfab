@@ -105,7 +105,7 @@ describe("caption styles", () => {
     const base = { words, hook: "Hook", cta: "Follow", disclosure: "AI-generated character", durationSec: 14, font: "Montserrat", colors: { primary: "#112233", accent: "#DFFF00", text: "#FFFFFF" } };
     const boxed = buildAss({ ...base, captionStyle: "boxed", captionPosition: "center" });
     expect(boxed).toContain("Style: Cap,Montserrat,80");
-    expect(boxed).toMatch(/Style: Cap,[^\n]*,3,18,0,5,60,60,0,1/);
+    expect(boxed).toMatch(/Style: Cap,[^\n]*,3,18,0,5,60,60,0,-1/);
     const classic = buildAss({ ...base, captionStyle: "classic" });
     expect(classic).toContain("Water deeply twice a week.");
     expect(classic).not.toContain("\\c&H00FFDF&");

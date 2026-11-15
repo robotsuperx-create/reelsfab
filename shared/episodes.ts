@@ -32,7 +32,7 @@ export const TTS_PROVIDER_LABELS: Record<TtsProvider, string> = {
 export function readingSeconds(text: string) {
   const words = text.split(/\s+/).filter(Boolean).length;
   const rate = /[\u0600-\u06FF]/.test(text) ? 2.2 : 2.8;
-  return Math.max(3.5, Math.min(30, words / rate + 0.8));
+  return Math.max(3.5, Math.min(90, words / rate + 0.8));
 }
 
 /** OpenAI built-in voices (gpt-4o-mini-tts); a self-hosted clone server uses whatever voice names it registers. */

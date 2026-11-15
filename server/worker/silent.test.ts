@@ -12,7 +12,7 @@ describe("silent episodes (no voice)", () => {
     expect(readingSeconds(ar)).toBeCloseTo(22 / 2.2 + 0.8, 5);
     const en = Array(28).fill("word").join(" ");
     expect(readingSeconds(en)).toBeCloseTo(28 / 2.8 + 0.8, 5);
-    expect(readingSeconds(Array(400).fill("w").join(" "))).toBe(30);
+    expect(readingSeconds(Array(400).fill("w").join(" "))).toBe(90);
   });
 
   it("writes silence of that length with no cost, whatever TTS_PROVIDER says", async () => {

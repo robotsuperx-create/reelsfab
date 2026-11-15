@@ -44,7 +44,7 @@ export function assEscape(text: string) {
 export function wordTimings(text: string, start: number, duration: number) {
   const tokens = text.split(/\s+/).filter(Boolean);
   if (!tokens.length) return [];
-  const weights = tokens.map(t => t.replace(/[^\p{L}\p{N}]/gu, "").length + 1 + (/[.!?]$/.test(t) ? 2.5 : /[,;:]$/.test(t) ? 1.2 : 0));
+  const weights = tokens.map(t => t.replace(/[^\p{L}\p{N}]/gu, "").length + 1 + (/[.!?؟…]$/.test(t) ? 2.5 : /[,;:،؛]$/.test(t) ? 1.2 : 0));
   const sum = weights.reduce((a, b) => a + b, 0);
   let cursor = start;
   return tokens.map((word, i) => {
@@ -57,21 +57,60 @@ export function wordTimings(text: string, start: number, duration: number) {
 
 const CTA_SECONDS = 2.6;
 
-/** Groups caption words into display chunks: 3 for word-by-word styles, up to 5 (or a sentence end) for classic. */
-export function chunkWords<T extends { word: string }>(words: T[], style: CaptionStyle) {
-  const groups: T[][] = [];
-  if (style === "classic") {
-    let cur: T[] = [];
-    for (const w of words) {
-      cur.push(w);
-      if (cur.length >= 5 || /[.!?]$/.test(w.word)) {
-        groups.push(cur);
-        cur = [];
-      }
+const SENTENCE_END = /[.!?؟…][\"'»”)]*$/;
+const SOFT_BREAK = /[،,؛;:][\"'»”)]*$/;
+
+/**
+ * Readable caption chunks: never across a sentence end, at most `max` words, long sentences split into equal parts
+ * (no one-word leftovers like «لها.»), preferring a cut after a comma near the middle. With `mergeShort`, a short
+ * sentence shares the screen with the next one when both fit — silent episodes read better in whole thoughts.
+ */
+export function captionChunks<T extends { word: string }>(words: T[], max: number, opts?: { mergeShort?: boolean }): T[][] {
+  const limit = Math.max(2, Math.floor(max));
+  const sentences: T[][] = [];
+  let cur: T[] = [];
+  for (const w of words) {
+    cur.push(w);
+    if (SENTENCE_END.test(w.word)) {
+      sentences.push(cur);
+      cur = [];
     }
-    if (cur.length) groups.push(cur);
-    return groups;
   }
+  if (cur.length) sentences.push(cur);
+  const out: T[][] = [];
+  for (const sentence of sentences) {
+    let rest = sentence;
+    while (rest.length > limit) {
+      const parts = Math.ceil(rest.length / limit);
+      const target = Math.round(rest.length / parts);
+      let cut = target;
+      let best = Infinity;
+      for (let k = Math.max(2, target - 2); k <= Math.min(limit, rest.length - 2, target + 2); k++) {
+        if (SOFT_BREAK.test(rest[k - 1].word) && Math.abs(k - target) < best) {
+          best = Math.abs(k - target);
+          cut = k;
+        }
+      }
+      out.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    if (rest.length) out.push(rest);
+  }
+  if (!opts?.mergeShort) return out;
+  const merged: T[][] = [];
+  for (const chunk of out) {
+    const prev = merged[merged.length - 1];
+    const short = (g: T[]) => g.length < Math.ceil(limit / 3);
+    if (prev && (short(prev) || short(chunk)) && prev.length + chunk.length <= limit) merged[merged.length - 1] = [...prev, ...chunk];
+    else merged.push(chunk);
+  }
+  return merged;
+}
+
+/** Groups caption words into display chunks: 3 for word-by-word styles, balanced phrases of up to 5 for classic. */
+export function chunkWords<T extends { word: string }>(words: T[], style: CaptionStyle) {
+  if (style === "classic") return captionChunks(words, 5);
+  const groups: T[][] = [];
   for (let g = 0; g < words.length; g += 3) groups.push(words.slice(g, g + 3));
   return groups;
 }
@@ -89,10 +128,10 @@ export function buildAss(input: AssInput) {
   const place = position === "center" ? "5,60,60,0" : "2,60,60,430";
   const capStyle =
     style === "boxed"
-      ? `Style: Cap,${safeFont},80,${text},${text},${primary},${primary},-1,0,0,0,100,100,0,0,3,18,0,${place},1`
+      ? `Style: Cap,${safeFont},80,${text},${text},${primary},${primary},-1,0,0,0,100,100,0,0,3,18,0,${place},-1`
       : style === "classic"
-        ? `Style: Cap,${safeFont},76,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,6,2,${place},1`
-        : `Style: Cap,${safeFont},86,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,7,2,${place},1`;
+        ? `Style: Cap,${safeFont},76,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,6,2,${place},-1`
+        : `Style: Cap,${safeFont},86,${text},${text},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,7,2,${place},-1`;
   const lines: string[] = [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -104,9 +143,9 @@ export function buildAss(input: AssInput) {
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     capStyle,
-    `Style: Hook,${safeFont},74,${text},${text},&H00000000&,&H96000000&,-1,0,0,0,100,100,0,0,1,6,3,8,70,70,250,1`,
-    `Style: Badge,${safeFont},32,${text},${text},&H00000000&,&H78000000&,-1,0,0,0,100,100,1,0,3,10,0,7,40,40,56,1`,
-    `Style: Cta,${safeFont},68,${primary},${primary},${accent},${accent},-1,0,0,0,100,100,0,0,3,26,0,2,60,60,200,1`,
+    `Style: Hook,${safeFont},74,${text},${text},&H00000000&,&H96000000&,-1,0,0,0,100,100,0,0,1,6,3,8,70,70,250,-1`,
+    `Style: Badge,${safeFont},32,${text},${text},&H00000000&,&H78000000&,-1,0,0,0,100,100,1,0,3,10,0,7,40,40,56,-1`,
+    `Style: Cta,${safeFont},68,${primary},${primary},${accent},${accent},-1,0,0,0,100,100,0,0,3,26,0,2,60,60,200,-1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

@@ -61,9 +61,9 @@ describe("episode graphics (ASS 16:9)", () => {
     const ass = buildEpisodeAss({ ...base, language: "ar", words });
     expect(ass).toContain("PlayResX: 1920");
     expect(ass).not.toContain("\\c&H00FFDF&");
-    expect(ass).toMatch(/Style: Title,[^\n]*,3,90,90,170,1/);
-    expect(ass).toMatch(/Style: Badge,[^\n]*,7,40,40,32,1/);
-    expect(ass).toMatch(/Style: Chapter,[^\n]*,9,90,90,90,1/);
+    expect(ass).toMatch(/Style: Title,[^\n]*,3,90,90,170,-1/);
+    expect(ass).toMatch(/Style: Badge,[^\n]*,7,40,40,32,-1/);
+    expect(ass).toMatch(/Style: Chapter,[^\n]*,9,90,90,90,-1/);
     expect(ass.split("\n").filter(l => l.includes(",Cap,")).length).toBeGreaterThan(0);
     expect(ass).toContain(",Intro,,0,0,0,,{\\fad(200,300)}لماذا سقطت الإمبراطورية؟");
     expect(ass).toContain(",Chapter,,0,0,0,,{\\fad(200,250)}السياق");
@@ -74,7 +74,7 @@ describe("episode graphics (ASS 16:9)", () => {
     const words = wordTimings("Why did the empire fall so fast", 3.05, 6);
     const ass = buildEpisodeAss({ ...base, language: "en", words: [...words, { word: "late", start: 21, end: 22 }] });
     expect(ass).toContain("\\c&H00FFDF&");
-    expect(ass).toMatch(/Style: Title,[^\n]*,1,90,90,170,1/);
+    expect(ass).toMatch(/Style: Title,[^\n]*,1,90,90,170,-1/);
     const capStarts = ass.split("\n").filter(l => l.includes(",Cap,")).map(l => l.split(",")[1]);
     expect(capStarts.every(t => t < "0:00:19.55")).toBe(true);
   });
