@@ -15,6 +15,7 @@ import { registerSetupRoutes, setupComplete } from "./setup";
 import { sql } from "drizzle-orm";
 import { describeDbError, ensureSeed, getDb, looksLikePausedProject } from "../db";
 import { ensureSchemaUpgrades } from "../db-upgrades";
+import { resumeCodeVideoQueue } from "../services/code-videos";
 
 async function startServer() {
   const app = express();
@@ -96,6 +97,7 @@ async function bootstrapDatabase() {
     try {
       await ensureSchemaUpgrades();
       await ensureSeed();
+      await resumeCodeVideoQueue().catch(e => console.warn("[code-video] resume", e));
       if (attempt) console.log("[database] connected — schema and seed are in place");
       return;
     } catch (e) {

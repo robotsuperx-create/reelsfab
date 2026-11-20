@@ -61,6 +61,32 @@ const STATEMENTS = [
   `ALTER TABLE "episodes" ENABLE ROW LEVEL SECURITY`,
 ];
 
+/** "Code → video" room (drizzle/supabase/0004_code_videos.sql). */
+const CODE_VIDEO_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS "code_videos" (
+    "id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "title" varchar(160) NOT NULL,
+    "html" text NOT NULL,
+    "width" integer NOT NULL,
+    "height" integer NOT NULL,
+    "durationSec" integer NOT NULL,
+    "fps" integer DEFAULT 30 NOT NULL,
+    "status" text DEFAULT 'queued' NOT NULL,
+    "progress" integer DEFAULT 0 NOT NULL,
+    "videoUrl" varchar(1024),
+    "storageKey" varchar(512),
+    "posterUrl" varchar(1024),
+    "assetId" integer,
+    "sizeBytes" integer,
+    "error" text,
+    "createdBy" integer,
+    "createdAt" timestamp DEFAULT now() NOT NULL,
+    "updatedAt" timestamp DEFAULT now() NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS "code_videos_status_idx" ON "code_videos" USING btree ("status", "id")`,
+  `ALTER TABLE "code_videos" ENABLE ROW LEVEL SECURITY`,
+];
+
 let done = false;
 
 /** Runs once per process; cheap when everything already exists. */
@@ -70,10 +96,15 @@ export async function ensureSchemaUpgrades() {
   if (!db) return;
   const [probe] = (await db.execute(sql`select
       to_regclass('public.channels') is not null as channels,
-      exists(select 1 from information_schema.columns where table_schema='public' and table_name='render_jobs' and column_name='episodeId') as episode_jobs`)) as unknown as { channels: boolean; episode_jobs: boolean }[];
+      exists(select 1 from information_schema.columns where table_schema='public' and table_name='render_jobs' and column_name='episodeId') as episode_jobs,
+      to_regclass('public.code_videos') is not null as code_videos`)) as unknown as { channels: boolean; episode_jobs: boolean; code_videos: boolean }[];
   if (!probe?.channels || !probe?.episode_jobs) {
     for (const statement of STATEMENTS) await db.execute(sql.raw(statement));
     console.log("[database] long-form schema upgrade applied (channels, episodes, episode render jobs)");
+  }
+  if (!probe?.code_videos) {
+    for (const statement of CODE_VIDEO_STATEMENTS) await db.execute(sql.raw(statement));
+    console.log("[database] code → video table added (code_videos)");
   }
   done = true;
 }

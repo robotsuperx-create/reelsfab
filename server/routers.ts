@@ -24,6 +24,7 @@ import { integrationsRouter } from "./modules/integrations";
 import { mediaGenerationRouter } from "./modules/media-generation";
 import { montageRouter } from "./modules/montage";
 import { videosRouter } from "./modules/videos";
+import { codeVideosRouter } from "./modules/code-videos";
 
 export const appRouter = router({
   // All APIs live under /api/ so the gateway routes them to the server.
@@ -69,6 +70,7 @@ export const appRouter = router({
   renders: rendersRouter,
   montage: montageRouter,
   videos: videosRouter,
+  codeVideos: codeVideosRouter,
   posts: postsRouter,
   analytics: analyticsRouter,
   assets: assetsRouter,

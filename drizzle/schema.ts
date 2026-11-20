@@ -489,3 +489,31 @@ export const montages = pgTable(
   t => [index("montages_script_idx").on(t.scriptId), index("montages_status_idx").on(t.status)],
 );
 export type Montage = typeof montages.$inferSelect;
+
+/** "Code → video": an HTML animation (from any AI) rendered to MP4. The table doubles as the render queue. */
+export const codeVideos = pgTable(
+  "code_videos",
+  {
+    id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+    title: varchar("title", { length: 160 }).notNull(),
+    html: text("html").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    durationSec: integer("durationSec").notNull(),
+    fps: integer("fps").default(30).notNull(),
+    status: text("status").$type<"queued" | "running" | "done" | "failed">().default("queued").notNull(),
+    /** 0–100 while rendering. */
+    progress: integer("progress").default(0).notNull(),
+    videoUrl: varchar("videoUrl", { length: 1024 }),
+    storageKey: varchar("storageKey", { length: 512 }),
+    posterUrl: varchar("posterUrl", { length: 1024 }),
+    assetId: integer("assetId"),
+    sizeBytes: integer("sizeBytes"),
+    error: text("error"),
+    createdBy: integer("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  t => [index("code_videos_status_idx").on(t.status, t.id)],
+);
+export type CodeVideo = typeof codeVideos.$inferSelect;
