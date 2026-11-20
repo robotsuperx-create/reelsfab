@@ -58,6 +58,8 @@ export const codeAgentInputSchema = z.object({
   engine: z.enum(CODE_AGENT_ENGINES),
   /** Queue the render as soon as the code is written. */
   autoConvert: z.boolean(),
+  /** One of STYLE_RECIPES; empty = the agent picks a look that suits the idea. */
+  styleId: z.string().max(40).optional(),
 });
 export type CodeAgentInput = z.infer<typeof codeAgentInputSchema>;
 
@@ -147,3 +149,124 @@ export function sizeForSource(width: number, height: number) {
   if (r > 1.25) return CODE_VIDEO_SIZES[1];
   return CODE_VIDEO_SIZES[2];
 }
+
+/* ------------------------------------------------------------ quality: style recipes, motion rules, strong prompt */
+
+/** Named looks the owner picks; each is a precise recipe an AI can follow (palette, type, motion, texture). */
+export const STYLE_RECIPES = [
+  {
+    id: "documentary",
+    label: "وثائقي داكن",
+    recipe: "Near-black background (#0b0d10) with a faint 90px grid; one accent red #ff3b30 plus warm gold #e8c26a, paper white #f2ede3 for text. Alexandria 800–900 for titles, IBM Plex Sans Arabic for body. Motion: measured, power3.out entrances 0.6–0.8 s, numbers count up, thin red rules draw in, soft vignette. Mood: serious investigation.",
+  },
+  {
+    id: "kinetic",
+    label: "كلمات متحركة (Kinetic)",
+    recipe: "Solid bold background that changes colour per beat (#111 → #ffe14d → #1d4ed8); huge words (160–260px) slam in one word or line at a time with back.out(1.7) and quick 0.25–0.4 s cuts, scale punches on stressed words, hard cuts on beats. Cairo 900. Mood: energetic social reel.",
+  },
+  {
+    id: "neon",
+    label: "تقني نيون",
+    recipe: "Deep navy #070b1a background with a subtle animated gradient blob; neon cyan #22d3ee and magenta #e879f9 glows (text-shadow 0 0 24px), JetBrains Mono for labels and Space Grotesk / Tajawal for titles, terminal-style typing, scanlines at 3% opacity, elements glide with expo.out. Mood: tech, AI, hacking.",
+  },
+  {
+    id: "infographic",
+    label: "إنفوجرافيك نظيف",
+    recipe: "Off-white #f7f5f0 background, ink #14161a, one brand colour #2563eb and one alert #f97316. IBM Plex Sans Arabic 600/700. Charts and icons drawn in inline SVG with stroke-dashoffset draw-ons, bars grow from zero, labels fade in after their shape, generous white space, sine.inOut motion. Mood: clear explainer.",
+  },
+  {
+    id: "storybook",
+    label: "قصة مرسومة",
+    recipe: "Warm gradient sky (#ffd6a5 → #ffadad), rounded flat shapes with 6px dark outlines (#2b2d42), simple SVG characters built from circles and rounded rects with blinking eyes and gentle bobbing (sine.inOut yoyo), Baloo Bhaijaan 2 or Cairo 700, soft drop shadows, page-turn transitions. Mood: friendly, for kids and stories.",
+  },
+] as const;
+export type StyleRecipeId = (typeof STYLE_RECIPES)[number]["id"];
+
+/** What separates a pro motion piece from a demo — given to every writer (our agent and the copied prompt). */
+export const MOTION_QUALITY_RULES = [
+  "Every element enters and leaves with intent: ease power3.out / expo.out for entrances, power2.in for exits; never linear except for counters and progress bars.",
+  "Stagger related items by 0.06–0.12 s; nothing important pops in all at once.",
+  "Hold each text on screen long enough to read: at least 0.35 s per word + 0.6 s, before it moves on.",
+  "No dead air: something moves at all times (a slow 2–4% push-in on the scene, drifting background shapes, a counter, a pulse), but only one focal motion at a time.",
+  "Clear hierarchy per moment: one headline, at most one supporting line, one visual. Max 2–3 colours plus neutrals, from the style recipe only.",
+  "Depth: layered backgrounds (gradient + subtle texture or shapes) with parallax drift of 10–40px; soft shadows under cards.",
+  "Transitions between scenes: a deliberate wipe, mask reveal, zoom-through or match cut — never a hard swap of everything at once unless the style asks for hard cuts.",
+  "Typography: Arabic line-height ≥ 1.5, never letter-spacing on Arabic, never split Arabic words into letters; animate whole words or lines.",
+  "Finish strong: the last 1.5 s is a composed end frame (key message or question), not a fade to empty black.",
+] as const;
+
+/**
+ * The strong request for Gemini, DeepSeek or any AI: a fixed skeleton to fill (size, duration and the timeline
+ * guard are already in it), hard rules, the quality rules, and a two-step flow (storyboard first, then code).
+ */
+export function strongPrompt(width: number, height: number, seconds: number, styleId: StyleRecipeId = "documentary", idea = "[اكتب الفكرة هنا]") {
+  const style = STYLE_RECIPES.find(s => s.id === styleId) ?? STYLE_RECIPES[0];
+  const vertical = height > width;
+  const safe = vertical ? "اترك 180 بكسل فارغة أعلى الشاشة و320 أسفلها (واجهة المنصة)، و60 على كل جانب" : "اترك 60 بكسل على كل حافة";
+  return `أنت مصمم موشن جرافيك محترف. اكتب ملف HTML واحداً يُصوَّر فيديو فريماً بفريم بساعة مضبوطة.
+
+المواصفات الثابتة (لا تغيّرها):
+- المقاس: ${width}×${height} بكسل بالضبط. المدة: ${seconds} ثانية بالضبط.
+- ابدأ من هذا الهيكل واملأ الأماكن المعلَّمة [1] و[2] فقط:
+
+\`\`\`html
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@600;800;900&family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=Cairo:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=block" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<style>
+html,body{margin:0;width:${width}px;height:${height}px;overflow:hidden;background:#0b0d10;color:#fff;font-family:"IBM Plex Sans Arabic",sans-serif}
+.scene{position:absolute;inset:0;opacity:0}
+/* [1] التنسيق هنا */
+</style></head><body>
+<!-- [2] المشاهد هنا -->
+<script>
+const DURATION = ${seconds};
+const tl = gsap.timeline();
+/* [2] كل الحركة على tl بأوقات مطلقة بالثواني، مثال: tl.to('#a', {opacity: 1, y: 0, duration: .6, ease: 'power3.out'}, 2.0) */
+tl.set({}, {}, DURATION); // لا تحذف هذا السطر: يضمن أن المدة ${seconds} ثانية بالضبط
+</script></body></html>
+\`\`\`
+
+قواعد إلزامية (الكود الذي يخالفها يُرفض):
+1. خط زمني واحد (tl) لكل الحركة بأوقات مطلقة. لا setInterval ولا Date ولا انتظار نقرة أو تمرير، ولا repeat:-1 على الخط الزمني الرئيسي.
+2. لا صور ولا فيديو ولا صوت من روابط خارجية؛ ارسم بـ CSS أو SVG داخل الملف أو إيموجي. المكتبات من cdnjs أو jsdelivr فقط، والخطوط من Google Fonts فقط. لا fetch.
+3. العربي: لا تقسّمه حرفاً بحرف، لا letter-spacing عليه، line-height ≥ 1.5؛ حرّك الكلمة أو السطر كاملاً.
+4. لا شيء يخرج من الإطار. ${safe}.
+5. أحجام الهاتف: النص ≥ ${vertical ? 44 : 36}px، العناوين ≥ ${vertical ? 90 : 72}px.
+6. لا يتراكب نصّان أبداً: كل نص يخرج قبل أن يدخل الذي بعده في نفس المكان.
+7. لا تخترع أرقاماً أو نسباً أو تواريخ؛ استعمل فقط ما في الفكرة.
+
+الأسلوب (التزم به حرفياً):
+${style.recipe}
+
+قواعد الجودة:
+${MOTION_QUALITY_RULES.map((r, i) => `${i + 1}. ${r}`).join("\n")}
+
+اعمل على خطوتين:
+الخطوة 1: اكتب جدول ستوري بورد فقط بأعمدة: الوقت (من–إلى بالثواني) | ما يظهر | النص الحرفي | الحركة والانتقال. مجموع الأوقات = ${seconds} ثانية. ثم توقف وانتظر موافقتي.
+الخطوة 2: بعد موافقتي، حوّل الجدول نفسه إلى الكود داخل الهيكل بالضبط. أرجع الملف كاملاً فقط، بلا شرح.
+
+الفكرة: ${idea}`;
+}
+
+/* ------------------------------------------------------------ inspection of pasted code */
+
+export type CodeIssue = { code: string; severity: "error" | "warn"; message: string };
+export type CodeInspection = {
+  issues: CodeIssue[];
+  /** Length of the GSAP timeline(s) / CSS animations the page declares, when it can be read. */
+  timelineSec: number | null;
+  loops: boolean;
+  stills: string[];
+  stillTimes: number[];
+  /** Ready to paste back into the AI that wrote the code. */
+  fixPrompt: string;
+};
+
+export const inspectInputSchema = z.object({
+  html: codeVideoInputSchema.shape.html,
+  size: codeVideoInputSchema.shape.size,
+  durationSec: codeVideoInputSchema.shape.durationSec,
+});
+
+export const fixInputSchema = inspectInputSchema.extend({ engine: z.enum(CODE_AGENT_ENGINES), styleId: z.string().max(40).optional() });

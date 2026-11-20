@@ -2,12 +2,13 @@ import { TRPCError } from "@trpc/server";
 import { desc, eq, like } from "drizzle-orm";
 import { z } from "zod";
 import { assets, codeVideos } from "../../drizzle/schema";
-import { codeAgentInputSchema, codeVideoInputSchema, overlayInputSchema } from "../../shared/code-video";
+import { codeAgentInputSchema, codeVideoInputSchema, fixInputSchema, inspectInputSchema, overlayInputSchema } from "../../shared/code-video";
 import { requireDb } from "../db";
 import { memberProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 import { enqueueCodeVideo, kickCodeVideoQueue, listCodeVideos } from "../services/code-videos";
 import { agentEngines, retryAgentVideo, startAgentVideo, startOverlayVideo } from "../services/code-agent";
+import { fixPasted, inspectPasted } from "../services/code-inspect";
 
 export const codeVideosRouter = router({
   list: memberProcedure.query(() => listCodeVideos()),
@@ -26,6 +27,27 @@ export const codeVideosRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: "هذا لا يبدو ملف HTML — ألصق الملف كاملًا كما أعطاك الذكاء الاصطناعي" });
     }
     return enqueueCodeVideo(input, ctx.user?.id);
+  }),
+
+  /** Runs pasted code like the renderer and reports measured problems + a message to paste back into the AI. */
+  inspect: memberProcedure.input(inspectInputSchema).mutation(async ({ input }) => {
+    try {
+      return await inspectPasted(input);
+    } catch (e) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `تعذر تشغيل الكود: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }),
+
+  /** Claude fixes pasted code from the measured problems; the result is inspected again. */
+  fix: memberProcedure.input(fixInputSchema).mutation(async ({ input, ctx }) => {
+    const engines = await agentEngines();
+    if (input.engine === "api" && !engines.api) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد مفتاح Claude في مركز التكاملات — أو اختر Claude Code على هذا الجهاز" });
+    if (input.engine === "claude-code" && !engines.claudeCode) throw new TRPCError({ code: "BAD_REQUEST", message: "لم أجد Claude Code على هذا الجهاز" });
+    try {
+      return await fixPasted(input, ctx.user?.id);
+    } catch (e) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+    }
   }),
 
   /** Which writers are available: the vault's Claude API key and/or Claude Code on this computer. */

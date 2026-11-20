@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { assets, codeVideos } from "../../drizzle/schema";
 import { CLAUDE_DEFAULT_MODEL } from "../../shared/domain";
-import { CODE_VIDEO_SEGMENT_MAX, CODE_VIDEO_SINGLE_MAX, codeVideoSize, formatDuration, sizeForSource, type CodeAgentEngine, type CodeAgentInput, type CodeVideoPlan, type OverlayInput } from "../../shared/code-video";
+import { CODE_VIDEO_SEGMENT_MAX, CODE_VIDEO_SINGLE_MAX, MOTION_QUALITY_RULES, STYLE_RECIPES, codeVideoSize, formatDuration, sizeForSource, type CodeAgentEngine, type CodeAgentInput, type CodeVideoPlan, type OverlayInput } from "../../shared/code-video";
 import { storageDownload, storageKeyFromUrl } from "../storage";
 import { detectScenes, frameTimes, grabFrames, mapForPrompt, probeVideo, sceneIndex, sentencesFrom, transcribeLocal, transcribeOpenAI, type FrameNote, type VideoMap, type Word } from "./video-understanding";
 import { getDb, getSettings, requireDb } from "../db";
@@ -119,7 +119,7 @@ async function askClaudeCode(system: string, prompt: string, images: Buffer[] = 
   }
 }
 
-async function ask(engine: CodeAgentEngine, system: string, prompt: string, ref: { id: number; userId?: number | null; what: string }, images: Buffer[] = []) {
+export async function ask(engine: CodeAgentEngine, system: string, prompt: string, ref: { id: number; userId?: number | null; what: string }, images: Buffer[] = []) {
   if (engine === "claude-code") return askClaudeCode(system, prompt, images);
   const settings = await getSettings().catch(() => null);
   const model = (settings as { episodeModel?: string } | null)?.episodeModel || CLAUDE_DEFAULT_MODEL;
@@ -128,8 +128,9 @@ async function ask(engine: CodeAgentEngine, system: string, prompt: string, ref:
 
 /* ------------------------------------------------------------ prompts */
 
-function rules(width: number, height: number) {
+export function rules(width: number, height: number, styleId?: string | null) {
   const vertical = height > width;
+  const style = STYLE_RECIPES.find(s => s.id === styleId);
   return `You write ONE self-contained HTML file that plays an animation recorded into a video, frame by frame, by a headless browser.
 Hard rules:
 - Canvas exactly ${width}x${height}: html, body { width:${width}px; height:${height}px; margin:0; overflow:hidden }. Background covers everything.
@@ -142,10 +143,15 @@ Hard rules:
 - Facts: NO specific numbers, percentages, prices, dates or quotes unless they appear in the idea or the brief — use qualitative words instead ("prices keep climbing"). If numbers are given, use them exactly.
 - Layout: use the whole frame — compose each moment centred in the safe area, never a small cluster at the top. No element may overlap another at any moment (when one text replaces another, fade the old one out first). Keep ≥ 32px between text blocks and ≥ 60px from the edges.
 - Visual quality: a deliberate palette (2–3 colours + neutrals), real hierarchy, smooth eased motion, no clutter, no lorem ipsum.
+- Never letter-spacing on Arabic, never split Arabic words into letters (it breaks the joined script): animate whole words or lines.
+- The main timeline must not repeat forever; end it with tl.set({}, {}, <the duration in seconds>) so its length is exactly the requested duration.
+${style ? `STYLE (follow exactly): ${style.recipe}
+` : ""}Motion quality (what separates a pro piece from a demo):
+${MOTION_QUALITY_RULES.map(r => `- ${r}`).join("\n")}
 Output ONLY the HTML document, starting with <!doctype html> and ending with </html>. No explanations, no markdown fences.`;
 }
 
-function extractHtml(text: string) {
+export function extractHtml(text: string) {
   const fenced = /```(?:html)?\s*([\s\S]*?)```/i.exec(text);
   const body = (fenced ? fenced[1] : text).trim();
   const start = body.search(/<!doctype html|<html[\s>]/i);
@@ -164,12 +170,13 @@ function extractJson<T>(text: string): T {
 }
 
 /** Plans a long video: one style guide and segments of 30–60 s whose lengths add up to the total. */
-function planPrompt(idea: string, durationSec: number, width: number, height: number) {
+function planPrompt(idea: string, durationSec: number, width: number, height: number, styleId?: string | null) {
   const n = Math.ceil(durationSec / CODE_VIDEO_SEGMENT_MAX);
+  const chosen = STYLE_RECIPES.find(s => s.id === styleId);
   return `Plan an animated explainer video of exactly ${durationSec} seconds (${formatDuration(durationSec)}), ${width}x${height}, made of ${n} consecutive segments.
 Idea (from the owner): """${idea}"""
 Return ONLY JSON: {"style": "...", "segments": [{"title": "...", "seconds": 45, "brief": "..."}]}
-- "style": a precise visual style guide every segment must follow — palette as hex values, fonts, background treatment, motion language, recurring motifs, how titles and numbers look. Same language as the idea for any on-screen words.
+- "style": ${chosen ? `based on this chosen look (keep its palette, fonts and motion): ${chosen.recipe} — expanded into ` : ""}a precise visual style guide every segment must follow — palette as hex values, fonts, background treatment, motion language, recurring motifs, how titles and numbers look. Same language as the idea for any on-screen words.
 - exactly ${n} segments; each "seconds" between 30 and 60; the sum must be exactly ${durationSec}.
 - each "brief": what appears on screen second by second in that segment (texts to show, shapes, transitions), 60–140 words, so a separate writer can build it without seeing the others. The first segment opens with a strong hook title; the last closes the story.
 - a clear narrative arc across segments; no repetition between segments.`;
@@ -201,7 +208,7 @@ async function log(id: number, line: string) {
 }
 
 /** A one-second test render: script errors and requests that were blocked go back to the agent. */
-async function testRender(html: string, width: number, height: number) {
+export async function testRender(html: string, width: number, height: number) {
   try {
     const r = await renderCodeVideo({ html, width: Math.round(width / 2), height: Math.round(height / 2), durationSec: 1, fps: 30 });
     const errors = r.consoleErrors.filter(e => !/favicon/i.test(e));
@@ -257,7 +264,7 @@ export async function startAgentVideo(input: CodeAgentInput, userId?: number | n
   const title = input.idea.replace(/\s+/g, " ").trim().slice(0, 80);
   const [row] = await db
     .insert(codeVideos)
-    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, status: "writing", idea: input.idea, engine: input.engine, agentLog: [], createdBy: userId ?? null })
+    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: input.styleId ? { styleId: input.styleId } : null, createdBy: userId ?? null })
     .returning({ id: codeVideos.id });
   queue.push(row.id);
   void drainAgent(input.autoConvert);
@@ -280,7 +287,7 @@ async function writeVideo(id: number, autoConvert: boolean) {
   if (!job?.idea || !job.engine) return;
   if (job.sourceKey) return writeOverlay(id, autoConvert);
   const engine = job.engine as CodeAgentEngine;
-  const system = rules(job.width, job.height);
+  const system = rules(job.width, job.height, (job.analysis as { styleId?: string } | null)?.styleId);
   const ref = { id, userId: job.createdBy, what: "" };
   try {
     await log(id, `$ agent --engine ${engine} --duration ${job.durationSec}s --size ${job.width}x${job.height}`);
@@ -294,7 +301,7 @@ async function writeVideo(id: number, autoConvert: boolean) {
       let plan = job.plan?.segments?.length ? job.plan : null; // a retry keeps the plan and the segments already written
       if (!plan) {
         await log(id, "› يخطّط المقاطع ودليل الأسلوب…");
-        const raw = extractJson<CodeVideoPlan>(await ask(engine, "You are a senior motion designer and documentary editor. Answer with JSON only.", planPrompt(job.idea, job.durationSec, job.width, job.height), { ...ref, what: "خطة المقاطع" }));
+        const raw = extractJson<CodeVideoPlan>(await ask(engine, "You are a senior motion designer and documentary editor. Answer with JSON only.", planPrompt(job.idea, job.durationSec, job.width, job.height, (job.analysis as { styleId?: string } | null)?.styleId), { ...ref, what: "خطة المقاطع" }));
         plan = normalizePlan(raw, job.durationSec);
         await db.update(codeVideos).set({ plan, updatedAt: new Date() }).where(eq(codeVideos.id, id));
         await log(id, `✓ الخطة: ${plan.segments.length} مقطع`);

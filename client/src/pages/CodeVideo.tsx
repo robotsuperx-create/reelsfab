@@ -13,7 +13,11 @@ import {
   CODE_VIDEO_MAX_SECONDS,
   CODE_VIDEO_SIZES,
   CODE_VIDEO_STATUS_LABELS,
-  codeVideoPrompt,
+  STYLE_RECIPES,
+  strongPrompt,
+  type CodeInspection,
+  type CodeIssue,
+  type StyleRecipeId,
   codeVideoSize,
   estimateAgentUsd,
   formatDuration,
@@ -26,7 +30,7 @@ import {
   type CodeVideoSizeId,
 } from "@shared/code-video";
 import { Switch } from "@/components/ui/switch";
-import { Bot, Code2, Download, Eye, Film, Lock, RefreshCw, Scissors, ShieldCheck, Terminal, Trash2, Upload, Wand2, WifiOff } from "lucide-react";
+import { Bot, CircleAlert, CircleCheck, Code2, Download, Eye, Film, Lock, RefreshCw, ScanSearch, Scissors, ShieldCheck, Sparkles, Terminal, Trash2, TriangleAlert, Undo2, Upload, Wand2, WifiOff } from "lucide-react";
 import { uploadBlob } from "@/lib/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
@@ -39,7 +43,7 @@ const DRAFT_KEY = "code-video-draft";
 
 function readDraft() {
   try {
-    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean } | null;
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | "" } | null;
   } catch {
     return null;
   }
@@ -65,6 +69,8 @@ export default function CodeVideoPage() {
   const [preview, setPreview] = useState<{ html: string; key: number } | null>(null);
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [mode, setMode] = useState<"idea" | "video">("idea");
+  const [styleId, setStyleId] = useState<StyleRecipeId | "">(draft?.styleId ?? "");
+  const [inspection, setInspection] = useState<{ result: CodeInspection; fixedFrom?: { html: string; before: CodeIssue[] } } | null>(null);
   const size = codeVideoSize(sizeId);
   const seconds = Math.round(Number(duration));
   const durationOk = Number.isFinite(seconds) && seconds >= 1 && seconds <= CODE_VIDEO_MAX_SECONDS;
@@ -72,10 +78,10 @@ export default function CodeVideoPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto })); } catch { /* private mode */ }
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId })); } catch { /* private mode */ }
     }, 400);
     return () => clearTimeout(t);
-  }, [html, sizeId, seconds, fps, idea, engine, auto]);
+  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId]);
 
   const utils = trpc.useUtils();
   const engines = trpc.codeVideos.engines.useQuery(undefined, { staleTime: 60_000 });
@@ -109,6 +115,30 @@ export default function CodeVideoPage() {
     onError: e => toast.error(e.message),
   });
 
+  const inspect = trpc.codeVideos.inspect.useMutation({
+    onSuccess: r => {
+      setInspection({ result: r });
+      toast[r.issues.length ? "warning" : "success"](r.issues.length ? `وجدت ${r.issues.length} مشكلة` : "الكود سليم في كل ما فحصته");
+    },
+    onError: e => toast.error(e.message),
+  });
+  const fix = trpc.codeVideos.fix.useMutation({
+    onSuccess: (r, vars) => {
+      setHtml(r.html);
+      setInspection({ result: r.after, fixedFrom: { html: vars.html, before: r.before } });
+      setPreview(null);
+      toast.success(`أصلحه Claude: ${r.before.length} مشكلة قبل ← ${r.after.issues.length} بعد`);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const pasted = () => {
+    if (html.trim().length < 20) { toast.error("ألصق ملف HTML أولًا"); return false; }
+    if (!durationOk) { toast.error("اختر مدة بين ثانية و40 دقيقة"); return false; }
+    return true;
+  };
+  const startInspect = () => pasted() && inspect.mutate({ html, size: sizeId, durationSec: seconds });
+  const startFix = () => pasted() && fix.mutate({ html, size: sizeId, durationSec: seconds, engine, styleId: styleId || undefined });
+
   const startPreview = () => {
     if (html.trim().length < 20) return toast.error("ألصق ملف HTML أولًا");
     setPreview({ html: withCodeVideoCsp(html), key: Date.now() });
@@ -122,7 +152,7 @@ export default function CodeVideoPage() {
   const startAgent = () => {
     if (idea.trim().length < 8) return toast.error("اكتب الفكرة بجملة على الأقل");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
-    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto });
+    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined });
   };
   const e = engines.data;
 
@@ -131,7 +161,7 @@ export default function CodeVideoPage() {
       <PageHeader
         title="كود ← فيديو"
         subtitle="اكتب الفكرة فيكتب الوكيل الأنيميشن، أو ألصق ملف HTML من أي ذكاء اصطناعي. يتحول إلى MP4 فريمًا بفريم حتى 40 دقيقة، مجانًا على جهازك، والكود يشتغل معزولًا بلا وصول للاستوديو أو مفاتيحه. الفيديو يدخل مكتبة الأصول لتستعمله غرفة المونتاج."
-        actions={<CopyButton text={codeVideoPrompt(size.width, size.height, durationOk ? seconds : 15)} label="نسخ قالب الطلب" variant="secondary" />}
+        actions={<CopyButton text={strongPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || "documentary", idea.trim() || undefined)} label="نسخ القالب القوي" variant="secondary" />}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
@@ -164,6 +194,13 @@ export default function CodeVideoPage() {
                 <Label htmlFor="code-video-duration" className="sr-only">المدة بالثواني</Label>
                 <Input id="code-video-duration" type="number" inputMode="numeric" min={1} max={CODE_VIDEO_MAX_SECONDS} value={duration} onChange={ev => setDuration(ev.target.value)} className="num h-8 w-24" aria-invalid={!durationOk} title="أو اكتب المدة بالثواني" />
                 <span className="text-[11px] text-muted-foreground">ثانية</span>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">الأسلوب — للوكيل وللقالب القوي</span>
+              <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="الأسلوب">
+                <Chip on={styleId === ""} onClick={() => setStyleId("")} title="الوكيل يختار ما يناسب الفكرة؛ القالب المنسوخ يأخذ الوثائقي">يختار الوكيل</Chip>
+                {STYLE_RECIPES.map(st => <Chip key={st.id} on={styleId === st.id} onClick={() => setStyleId(st.id)} title={st.recipe}>{st.label}</Chip>)}
               </div>
             </div>
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -243,10 +280,13 @@ export default function CodeVideoPage() {
             />
             <div className="flex flex-wrap gap-2 border-t border-border p-3" dir="rtl">
               <Button variant="outline" onClick={startPreview}><Eye /> معاينة</Button>
+              <Button variant="outline" onClick={startInspect} disabled={inspect.isPending || fix.isPending}><ScanSearch /> {inspect.isPending ? "يفحص…" : "افحص الكود"}</Button>
+              <Button variant="outline" onClick={startFix} disabled={fix.isPending || inspect.isPending} title={`يصلحه ${CODE_AGENT_ENGINE_LABELS[engine]} ثم يفحصه من جديد`}><Sparkles /> {fix.isPending ? "Claude يصلح…" : "أصلحه لي"}</Button>
               <Button onClick={startConvert} disabled={convert.isPending || queueDraft.isPending}><Wand2 /> تحويل لفيديو</Button>
               {current?.segments && current.segments > 1 ? <span className="self-center text-[11px] text-muted-foreground">فيديو من {current.segments} مقطعًا — المحرر يعرض المقطع الأول</span> : null}
             </div>
           </div>
+          {inspection && <InspectPanel data={inspection} onUndo={inspection.fixedFrom ? () => { setHtml(inspection.fixedFrom!.html); setInspection(null); toast("رجع الكود الأصلي"); } : undefined} onClose={() => setInspection(null)} />}
         </section>
 
         <section className="flex min-w-0 flex-col gap-4" aria-label="المعاينة والنتيجة">
@@ -277,7 +317,7 @@ export default function CodeVideoPage() {
       {list.isLoading ? (
         <div className="text-sm text-muted-foreground">جارٍ التحميل…</div>
       ) : rows.length === 0 ? (
-        <EmptyBlock title="لا توجد فيديوهات من الكود بعد">اكتب فكرة للوكيل، أو انسخ قالب الطلب وأعطه لأي ذكاء اصطناعي ثم ألصق الملف الذي يكتبه هنا.</EmptyBlock>
+        <EmptyBlock title="لا توجد فيديوهات من الكود بعد">اكتب فكرة للوكيل، أو انسخ القالب القوي وأعطه لأي ذكاء اصطناعي ثم ألصق الملف الذي يكتبه هنا.</EmptyBlock>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
           {rows.map(r => (
@@ -548,5 +588,57 @@ function VideoMapView({ id }: { id: number }) {
         </div>
       </div>
     </details>
+  );
+}
+
+/** What «افحص الكود» measured: problems with numbers, frames at sample times, and the message to paste back. */
+function InspectPanel({ data, onUndo, onClose }: { data: { result: CodeInspection; fixedFrom?: { html: string; before: CodeIssue[] } }; onUndo?: () => void; onClose: () => void }) {
+  const r = data.result;
+  const errors = r.issues.filter(i => i.severity === "error").length;
+  const warns = r.issues.length - errors;
+  return (
+    <div className="cv-term" aria-label="نتيجة الفحص">
+      <div className="cv-bar">
+        <ScanSearch className="size-3.5" />
+        <span className="truncate">inspect animation.html — {errors} errors · {warns} warnings{r.timelineSec !== null ? ` · timeline ${r.timelineSec.toFixed(1)}s` : ""}</span>
+        <button type="button" onClick={onClose} className="ms-auto text-[11px] opacity-70 hover:opacity-100">إغلاق</button>
+      </div>
+      <div className="flex flex-col gap-3 p-4" dir="rtl">
+        {data.fixedFrom && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="cv-chip"><Sparkles className="size-3.5" /> أصلحه Claude: {data.fixedFrom.before.length} مشكلة قبل ← {r.issues.length} بعد</span>
+            {onUndo && <Button size="sm" variant="ghost" onClick={onUndo}><Undo2 /> رجّع الأصلي</Button>}
+          </div>
+        )}
+        {r.issues.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm"><CircleCheck className="size-4 text-tally" /> لا مشاكل فيما فحصته: المدة، الأخطاء، الإطار، التراكب، حجم النص، العربي، الحركة.</div>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {r.issues.map((i, n) => (
+              <li key={n} className="flex gap-2 text-[13px] leading-6">
+                {i.severity === "error" ? <CircleAlert className="mt-1 size-4 shrink-0 text-[var(--stop,#ff5a4f)]" aria-label="خطأ" /> : <TriangleAlert className="mt-1 size-4 shrink-0 text-amber-400" aria-label="ملاحظة" />}
+                <span className="min-w-0 break-words">{i.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {r.stills.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1" aria-label="لقطات من الفيديو">
+            {r.stills.map((src, n) => (
+              <figure key={n} className="shrink-0">
+                <img src={src} alt={`لقطة عند ${r.stillTimes[n]} ثانية`} className="h-40 w-auto rounded-md border border-border" loading="lazy" />
+                <figcaption className="num mt-1 text-center text-[10px] text-muted-foreground">{r.stillTimes[n]}s</figcaption>
+              </figure>
+            ))}
+          </div>
+        )}
+        {r.fixPrompt && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <CopyButton text={r.fixPrompt} label="انسخ رسالة الإصلاح" variant="secondary" />
+            <span className="text-[11px] leading-5 text-muted-foreground">ألصقها في Gemini أو DeepSeek مع نفس المحادثة، أو اضغط «أصلحه لي».</span>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

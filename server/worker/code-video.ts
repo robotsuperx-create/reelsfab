@@ -329,3 +329,120 @@ export async function overlayStills(opts: { html: string; videoPath: string; wid
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
+
+
+/** Runs inside the page (kept as plain JS text so bundler helpers never leak into it). */
+const INSPECT_FRAME = `function (W, H, minPx) {
+        const AR = /[؀-ۿ]/;
+        const visible = (el) => {
+          const s = getComputedStyle(el);
+          if (s.display === "none" || s.visibility === "hidden") return false;
+          let op = 1;
+          for (let e = el; e; e = e.parentElement) op *= Number(getComputedStyle(e).opacity);
+          return op > 0.15;
+        };
+        const label = (el) => (el.id ? \`#\${el.id}\` : el.className && typeof el.className === "string" ? \`.\${el.className.trim().split(/\\s+/)[0]}\` : el.tagName.toLowerCase()) + ((el.textContent ?? "").trim() ? \` «\${(el.textContent ?? "").trim().slice(0, 24)}»\` : "");
+        const texts = [];
+        const overflow = [];
+        const small = [];
+        const spaced = [];
+        let split = 0;
+        for (const el of Array.from(document.body.querySelectorAll("*"))) {
+          if (!visible(el)) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 2 || r.height < 2) continue;
+          const own = Array.from(el.childNodes).filter(c => c.nodeType === 3).map(c => c.textContent ?? "").join("").trim();
+          const out = Math.max(-r.left, -r.top, r.right - W, r.bottom - H);
+          if (own && out > 8) overflow.push(\`\${label(el)} يخرج \${Math.round(out)}px\`);
+          if (own) {
+            texts.push({ el, r });
+            const fs = parseFloat(getComputedStyle(el).fontSize);
+            if (fs < minPx) small.push(\`\${label(el)} حجمه \${Math.round(fs)}px\`);
+            if (AR.test(own)) {
+              if (own.replace(/\\s/g, "").length <= 2 && el.parentElement && el.parentElement.children.length > 3) split++;
+              const ls = getComputedStyle(el).letterSpacing;
+              if (ls !== "normal" && parseFloat(ls) !== 0) spaced.push(label(el));
+            }
+          }
+        }
+        const overlaps = [];
+        for (let i = 0; i < texts.length; i++) {
+          for (let j = i + 1; j < texts.length; j++) {
+            const a = texts[i], b = texts[j];
+            if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+            if ((a.el.textContent ?? "").trim() === (b.el.textContent ?? "").trim()) continue;
+            const x = Math.max(0, Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left));
+            const y = Math.max(0, Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top));
+            if (x * y > 0.25 * Math.min(a.r.width * a.r.height, b.r.width * b.r.height)) overlaps.push(\`\${label(a.el)} ↔ \${label(b.el)}\`);
+          }
+        }
+        return { overflow: overflow.slice(0, 4), overlaps: overlaps.slice(0, 4), small: small.slice(0, 4), splitArabic: split, spacedArabic: spaced.slice(0, 3), visibleTexts: texts.length };
+      }`;
+
+export type RawInspection = {
+  consoleErrors: string[];
+  blocked: string[];
+  timelineSec: number | null;
+  loops: boolean;
+  stills: Buffer[];
+  stillTimes: number[];
+  /** Per sampled moment: elements out of the frame, overlapping texts, small text, split Arabic, letter-spaced Arabic. */
+  findings: { t: number; overflow: string[]; overlaps: string[]; small: string[]; splitArabic: number; spacedArabic: string[]; visibleTexts: number }[];
+  /** Moments (s) where two consecutive samples look identical: nothing moved. */
+  still: number[];
+};
+
+/**
+ * Runs pasted code the way the renderer will and measures what usually goes wrong with AI-written animations:
+ * script errors, blocked requests, the real timeline length, loops, elements outside the frame, overlapping text,
+ * text too small for a phone, Arabic split into letters or letter-spaced, and stretches where nothing moves.
+ */
+export async function inspectCode(opts: { html: string; width: number; height: number; durationSec: number }): Promise<RawInspection> {
+  const { width, height } = opts;
+  const browser = await launchBrowser();
+  try {
+    const { page, blocked, consoleErrors, advance } = await openIsolatedPage(browser, opts.html, width, height, 0.4);
+    const timing = await page.evaluate(() => {
+      const w = window as unknown as { gsap?: { globalTimeline: { getChildren: (a: boolean, b: boolean, c: boolean) => { endTime: () => number; totalDuration: () => number; repeat?: () => number }[] } } };
+      let end = 0;
+      let loops = false;
+      let seen = false;
+      if (w.gsap) {
+        for (const c of w.gsap.globalTimeline.getChildren(false, true, true)) {
+          seen = true;
+          if ((c.repeat?.() ?? 0) < 0 || c.totalDuration() > 1e6) loops = true;
+          else end = Math.max(end, c.endTime());
+        }
+      }
+      for (const a of document.getAnimations()) {
+        const t = a.effect?.getComputedTiming();
+        if (!t) continue;
+        seen = true;
+        if (t.iterations === Infinity) loops = true;
+        else end = Math.max(end, Number(t.endTime ?? 0) / 1000);
+      }
+      return { end: seen ? end : null, loops };
+    });
+    const n = Math.min(10, Math.max(4, Math.round(opts.durationSec / 3)));
+    const times = Array.from({ length: n }, (_, i) => +((opts.durationSec * (i + 0.5)) / n).toFixed(2));
+    const stills: Buffer[] = [];
+    const findings: RawInspection["findings"] = [];
+    let t = 0;
+    for (const target of times) {
+      const ms = target * 1000;
+      while (t < ms) {
+        const dt = Math.min(50, ms - t);
+        await advance(dt);
+        t += dt;
+      }
+      const f = (await page.evaluate(`(${INSPECT_FRAME})(${width}, ${height}, ${height > width ? 34 : 28})`)) as Omit<RawInspection["findings"][number], "t">;
+      findings.push({ t: target, ...f });
+      stills.push(await page.screenshot({ type: "jpeg", quality: 70, scale: "device" }));
+    }
+    const still: number[] = [];
+    for (let i = 1; i < stills.length; i++) if (stills[i].equals(stills[i - 1])) still.push(times[i]);
+    return { consoleErrors, blocked, timelineSec: timing.end, loops: timing.loops, stills, stillTimes: times, findings, still };
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
