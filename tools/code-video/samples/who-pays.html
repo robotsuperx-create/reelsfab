@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>من يدفع فاتورة النظام المالي العالمي؟</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@600;800;900&family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=block" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<style>
+  :root { --red: #ff3b30; --paper: #f2ede3; --ink: #0b0d10; --mute: #8a8f98; --gold: #e8c26a; }
+  html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; position: relative; background: var(--ink); color: var(--paper); font-family: "IBM Plex Sans Arabic", sans-serif; }
+  .grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px); background-size: 90px 90px; }
+  .grain { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 40%, transparent 40%, rgba(0,0,0,.75)); z-index: 40; }
+  .scene { position: absolute; inset: 0; opacity: 0; overflow: hidden; }
+  .center { display: grid; place-content: center; text-align: center; padding: 0 90px; }
+  .kicker { font-size: 34px; color: var(--red); font-weight: 700; letter-spacing: 1px; }
+  .big { font-family: "Alexandria", sans-serif; font-weight: 900; line-height: 1.15; }
+  .num { font-family: "Alexandria", sans-serif; font-weight: 900; direction: ltr; unicode-bidi: isolate; }
+  .src { position: absolute; bottom: 120px; left: 90px; right: 90px; text-align: center; font-size: 24px; color: var(--mute); }
+
+  /* 1 hook */
+  #s1 h1 { margin: 0; font-size: 104px; }
+  #s1 h1 em { font-style: normal; color: var(--red); }
+  #s1 .line { width: 0; height: 8px; background: var(--red); margin: 50px auto 0; }
+
+  /* 2 debt */
+  #s2 .num { font-size: 210px; color: var(--paper); line-height: 1; }
+  #s2 .unit { font-size: 54px; font-weight: 700; margin-top: 18px; }
+  #s2 p { margin: 60px 0 0; font-size: 46px; line-height: 1.6; color: #d9d3c7; }
+  #s2 p b { color: var(--red); }
+
+  /* 3 inflation */
+  #s3 .bills { display: flex; justify-content: center; align-items: flex-end; gap: 80px; margin: 70px 0 40px; direction: ltr; }
+  .bill { width: 300px; border-radius: 22px; border: 4px solid var(--gold); display: grid; place-content: center; text-align: center; background: rgba(232,194,106,.08); }
+  .bill .num { font-size: 96px; color: var(--gold); }
+  .bill small { display: block; font-size: 30px; color: var(--paper); margin-top: 6px; }
+  #b1 { height: 420px; }
+  #b2 { height: 420px; transform-origin: 50% 100%; }
+  #s3 h2 { margin: 0; font-size: 70px; }
+  #s3 p { margin: 34px 0 0; font-size: 44px; line-height: 1.6; color: #d9d3c7; }
+
+  /* 4 billionaires */
+  #s4 h2 { margin: 0 0 70px; font-size: 64px; line-height: 1.35; }
+  .bars { display: flex; flex-direction: column; gap: 60px; text-align: right; }
+  .bar-row .label { font-size: 40px; font-weight: 700; margin-bottom: 18px; }
+  .bar-row .track { height: 120px; border-radius: 16px; background: rgba(255,255,255,.06); position: relative; overflow: hidden; }
+  .bar-row .fill { position: absolute; right: 0; top: 0; bottom: 0; width: 0; border-radius: 16px; }
+  #f1 { background: var(--red); }
+  #f2 { background: var(--paper); }
+  .bar-row .tag { font-size: 34px; color: var(--mute); margin-top: 14px; }
+  #s4 .eq { margin-top: 70px; font-size: 58px; font-weight: 800; font-family: "Alexandria", sans-serif; color: var(--red); }
+
+  /* 5 flow */
+  #s5 h2 { margin: 0; font-size: 62px; line-height: 1.4; }
+  .pyr { position: relative; width: 860px; height: 900px; margin: 60px auto 0; }
+  .tier { position: absolute; z-index: 2; left: 50%; transform: translateX(-50%); height: 120px; border-radius: 12px; display: grid; place-items: center; font-size: 38px; font-weight: 700; opacity: 0; }
+  #t1 { top: 0; width: 220px; background: var(--red); color: #fff; }
+  #t2 { top: 190px; width: 460px; background: #2b2d31; }
+  #t3 { top: 380px; width: 700px; background: #212327; }
+  #t4 { top: 570px; width: 860px; background: #1a1c1f; color: var(--paper); }
+  .arrow { position: absolute; left: 50%; width: 8px; margin-left: -4px; background: linear-gradient(to top, transparent, var(--red)); height: 0; bottom: 210px; }
+
+  /* 6 close */
+  #s6 h1 { margin: 0; font-size: 92px; }
+  #s6 h1 em { font-style: normal; color: var(--red); }
+  #s6 p { margin: 50px 0 0; font-size: 44px; color: #d9d3c7; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="grid"></div>
+
+<section class="scene center" id="s1">
+  <div class="kicker">النظام المالي العالمي</div>
+  <h1 class="big">مَن يدفع<br><em>الفاتورة؟</em></h1>
+  <div class="line"></div>
+</section>
+
+<section class="scene center" id="s2">
+  <div class="kicker">ديون العالم — منتصف 2026</div>
+  <div class="num" id="debt">$0</div>
+  <div class="unit">تريليون دولار</div>
+  <p>ديون حكومات وشركات وبنوك…<br>والفوائد تُسدَّد من <b>الضرائب والأسعار</b></p>
+  <div class="src">المصدر: معهد التمويل الدولي IIF، سبتمبر 2026</div>
+</section>
+
+<section class="scene center" id="s3">
+  <h2 class="big">راتبك لم يتغيّر…<br>قيمته تغيّرت</h2>
+  <div class="bills">
+    <div class="bill" id="b1"><span class="num">$100</span><small>في 2020</small></div>
+    <div class="bill" id="b2"><span class="num" id="pp">$100</span><small>نفس الورقة اليوم</small></div>
+  </div>
+  <p>التضخم ضريبة لا يصوّت عليها أحد</p>
+  <div class="src">المصدر: مؤشر أسعار المستهلك الأمريكي BLS، 2020 → 2026</div>
+</section>
+
+<section class="scene" id="s4" style="padding: 300px 90px 0;">
+  <h2 class="big">في سنة واحدة (2025)…</h2>
+  <div class="bars">
+    <div class="bar-row"><div class="label">زيادة ثروة المليارديرات</div><div class="track"><div class="fill" id="f1"></div></div><div class="tag num">+ $2.5T</div></div>
+    <div class="bar-row"><div class="label">كل ما يملكه أفقر 4.1 مليار إنسان</div><div class="track"><div class="fill" id="f2"></div></div><div class="tag num">≈ $2.5T</div></div>
+  </div>
+  <div class="eq">نفس الحجم تقريباً</div>
+  <div class="src">المصدر: أوكسفام، يناير 2026</div>
+</section>
+
+<section class="scene center" id="s5">
+  <h2 class="big">الدين يُطبع… التضخم يأكل الأجور<br>والأرباح تصعد للأعلى</h2>
+  <div class="pyr">
+    <div class="tier" id="t1">القمّة</div>
+    <div class="tier" id="t2">البنوك والأسواق</div>
+    <div class="tier" id="t3">الشركات الكبرى</div>
+    <div class="tier" id="t4">نحن: الأجور والضرائب والمدّخرات</div>
+    <div class="arrow" id="ar"></div>
+  </div>
+</section>
+
+<section class="scene center" id="s6">
+  <h1 class="big">الأرقام تصعد للأعلى<br><em>والفاتورة تنزل إلينا</em></h1>
+  <p>اعرف كيف يعمل المال…<br>قبل أن يعمل بك</p>
+</section>
+
+<div class="grain"></div>
+
+<script>
+const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+const show = (id, at) => tl.to(id, { opacity: 1, duration: 0.25 }, at);
+const hide = (id, at) => tl.to(id, { opacity: 0, duration: 0.25 }, at);
+
+// 1 — hook (0 → 4)
+show('#s1', 0);
+tl.from('#s1 .kicker', { y: 30, opacity: 0, duration: 0.5 }, 0.1)
+  .from('#s1 h1', { y: 60, opacity: 0, duration: 0.7 }, 0.3)
+  .to('#s1 .line', { width: 420, duration: 0.8 }, 1.0)
+  .to('#s1 h1 em', { scale: 1.08, duration: 0.25, yoyo: true, repeat: 3, ease: 'sine.inOut' }, 2.0);
+hide('#s1', 3.8);
+
+// 2 — global debt (4 → 10)
+show('#s2', 4.0);
+const d = { v: 0 };
+tl.to(d, { v: 365, duration: 2.0, ease: 'power2.out', onUpdate: () => { document.getElementById('debt').textContent = '$' + Math.round(d.v); } }, 4.2)
+  .from('#s2 .unit', { opacity: 0, y: 20, duration: 0.4 }, 4.6)
+  .from('#s2 p', { opacity: 0, y: 30, duration: 0.6 }, 6.4)
+  .from('#s2 .src', { opacity: 0, duration: 0.4 }, 6.8);
+hide('#s2', 9.8);
+
+// 3 — inflation (10 → 16): $100 of 2020 buys what ~$77 bought then (CPI 258.8 → 337.5)
+show('#s3', 10.0);
+const pp = { v: 100 };
+tl.from('#s3 h2', { y: 40, opacity: 0, duration: 0.6 }, 10.1)
+  .from('.bill', { y: 80, opacity: 0, duration: 0.5, stagger: 0.2 }, 10.5)
+  .to('#b2', { scaleY: 0.767, scaleX: 0.92, duration: 1.6, ease: 'power2.inOut' }, 11.6)
+  .to(pp, { v: 77, duration: 1.6, ease: 'power2.inOut', onUpdate: () => { document.getElementById('pp').textContent = '$' + Math.round(pp.v); } }, 11.6)
+  .to('#b2', { borderColor: '#ff3b30', duration: 0.4 }, 13.0)
+  .from('#s3 p', { opacity: 0, y: 30, duration: 0.5 }, 13.3)
+  .from('#s3 .src', { opacity: 0, duration: 0.4 }, 13.6);
+hide('#s3', 15.8);
+
+// 4 — billionaires vs the poorest 4.1 billion (16 → 22)
+show('#s4', 16.0);
+tl.from('#s4 h2', { y: 40, opacity: 0, duration: 0.5 }, 16.1)
+  .from('.bar-row', { opacity: 0, y: 40, duration: 0.5, stagger: 0.25 }, 16.5)
+  .to('#f1', { width: '100%', duration: 1.2, ease: 'power2.out' }, 17.2)
+  .to('#f2', { width: '100%', duration: 1.2, ease: 'power2.out' }, 17.7)
+  .from('#s4 .eq', { scale: 1.4, opacity: 0, duration: 0.5, ease: 'back.out(2)' }, 19.2)
+  .from('#s4 .src', { opacity: 0, duration: 0.4 }, 19.5);
+hide('#s4', 21.8);
+
+// 5 — the flow upward (22 → 27)
+show('#s5', 22.0);
+tl.from('#s5 h2', { y: 40, opacity: 0, duration: 0.6 }, 22.1)
+  .to('#t4', { opacity: 1, duration: 0.35 }, 22.6)
+  .to('#t3', { opacity: 1, duration: 0.35 }, 23.0)
+  .to('#t2', { opacity: 1, duration: 0.35 }, 23.4)
+  .to('#t1', { opacity: 1, duration: 0.35 }, 23.8)
+  .to('#ar', { height: 560, duration: 1.4, ease: 'power2.inOut' }, 24.1)
+  .to('#t1', { scale: 1.12, duration: 0.3, yoyo: true, repeat: 1 }, 25.4);
+hide('#s5', 26.8);
+
+// 6 — close (27 → 30)
+show('#s6', 27.0);
+tl.from('#s6 h1', { y: 50, opacity: 0, duration: 0.6 }, 27.1)
+  .from('#s6 p', { y: 30, opacity: 0, duration: 0.6 }, 27.8);
+</script>
+</body>
+</html>
