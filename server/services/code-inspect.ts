@@ -102,6 +102,17 @@ ${input.html}`;
     const retry = `${prompt}\n\nYour corrected file still failed the test render:\n- ${errors.slice(0, 6).join("\n- ")}\nReturn the corrected complete file.\n\n${html}`;
     html = extractHtml(await ask(input.engine, rules(width, height, input.styleId), retry, { ...ref, what: "إصلاح كود ملصوق (ثانية)" }));
   }
-  const after = await inspectPasted({ html, size: input.size, durationSec: input.durationSec });
+  let after = await inspectPasted({ html, size: input.size, durationSec: input.durationSec });
+  const left = after.issues.filter(x => x.severity === "error");
+  if (left.length) {
+    // One more round on what is still measurably wrong; kept only if it is better.
+    const again = `Your corrected file still has these measured problems:\n${left.map(x => `- [${x.code}] ${x.message}`).join("\n")}\nFix only these, change nothing else. Return the complete file.\n\n${html}`;
+    const html2 = extractHtml(await ask(input.engine, rules(width, height, input.styleId), again, { ...ref, what: "إصلاح كود ملصوق (تشطيب)" }));
+    const after2 = await inspectPasted({ html: html2, size: input.size, durationSec: input.durationSec });
+    if (after2.issues.filter(x => x.severity === "error").length < left.length) {
+      html = html2;
+      after = after2;
+    }
+  }
   return { html, before, after };
 }
