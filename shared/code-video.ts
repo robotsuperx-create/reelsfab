@@ -77,7 +77,7 @@ export function codeVideoSize(id: string) {
   return CODE_VIDEO_SIZES.find(s => s.id === id) ?? CODE_VIDEO_SIZES[0];
 }
 
-export const CODE_VIDEO_STATUS_LABELS = { writing: "الوكيل يكتب", draft: "مكتوب — جاهز للتحويل", queued: "في الطابور", running: "جارٍ التحويل", done: "جاهز", failed: "فشل" } as const;
+export const CODE_VIDEO_STATUS_LABELS = { analyzing: "الوكيل يحلّل الفيديو", writing: "الوكيل يكتب", draft: "مكتوب — جاهز للتحويل", queued: "في الطابور", running: "جارٍ التحويل", done: "جاهز", failed: "فشل" } as const;
 export type CodeVideoStatus = keyof typeof CODE_VIDEO_STATUS_LABELS;
 
 /** Hosts the animation may load from (libraries and fonts). Everything else is blocked. */
@@ -119,4 +119,31 @@ export function codeVideoPrompt(width: number, height: number, seconds: number, 
 (مثل GSAP)، الخطوط من Google Fonts، والخلفية تغطي الشاشة كاملة.
 اجعل body بالمقاس نفسه تماماً (width: ${width}px; height: ${height}px; margin: 0; overflow: hidden).
 الفكرة: ${idea}`;
+}
+
+/** Animation written on top of the owner's own video. */
+export const TRANSCRIBERS = ["local", "openai"] as const;
+export type TranscriberId = (typeof TRANSCRIBERS)[number];
+export const TRANSCRIBER_LABELS: Record<TranscriberId, string> = {
+  local: "تفريغ على هذا الجهاز — Whisper مجاني",
+  openai: "تفريغ OpenAI Whisper — أدق للعربية (مفتاحك)",
+};
+export const overlayInputSchema = z.object({
+  /** A library asset (video) to write on. */
+  assetId: z.number().int(),
+  instruction: z.string().trim().min(4, "اكتب ماذا تريد فوق الفيديو").max(4000),
+  engine: z.enum(CODE_AGENT_ENGINES),
+  transcriber: z.enum(TRANSCRIBERS),
+  language: z.enum(["ar", "en", "fr", "es", "auto"]),
+  fps: z.union([z.literal(30), z.literal(60)]),
+  autoConvert: z.boolean(),
+});
+export type OverlayInput = z.infer<typeof overlayInputSchema>;
+
+/** Output size from the source's shape: vertical → 1080×1920, horizontal → 1920×1080, near-square → 1080×1080. */
+export function sizeForSource(width: number, height: number) {
+  const r = width / Math.max(1, height);
+  if (r < 0.8) return CODE_VIDEO_SIZES[0];
+  if (r > 1.25) return CODE_VIDEO_SIZES[1];
+  return CODE_VIDEO_SIZES[2];
 }

@@ -13,7 +13,15 @@ import { assets, codeVideos } from "../../drizzle/schema";
 import { codeVideoSize, type CodeVideoInput } from "../../shared/code-video";
 import { getDb, requireDb } from "../db";
 import { mediaPut } from "../storage";
-import { renderCodeVideo, type CodeVideoRender } from "../worker/code-video";
+import { renderCodeVideo, renderOverlay, type CodeVideoRender } from "../worker/code-video";
+import { storageDownload } from "../storage";
+
+async function sourceFile(key: string) {
+  const dir = await mkdtemp(join(tmpdir(), "overlay-src-"));
+  const path = join(dir, "source.mp4");
+  await writeFile(path, await storageDownload(key));
+  return { path, cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => undefined) };
+}
 
 const run = promisify(execFile);
 
@@ -86,7 +94,11 @@ export async function processCodeVideo(id: number) {
       }
     };
     const segments = job.plan?.segments?.filter(s => s.html) ?? [];
-    const r = segments.length > 1
+    const overlayOn = job.sourceKey ? await sourceFile(job.sourceKey) : null;
+    const duration = Number((job.analysis as { map?: { duration?: number } } | null)?.map?.duration) || job.durationSec;
+    const r = overlayOn
+      ? await renderOverlay({ html: job.html, videoPath: overlayOn.path, width: job.width, height: job.height, durationSec: duration, fps: job.fps, onProgress: report }).finally(() => overlayOn.cleanup())
+      : segments.length > 1
       ? await renderSegments(segments.map(s => ({ html: s.html!, seconds: s.seconds })), job.width, job.height, job.fps, report)
       : await renderCodeVideo({ html: job.html, width: job.width, height: job.height, durationSec: job.durationSec, fps: job.fps, onProgress: report });
     const video = await mediaPut(`code-videos/code-video-${id}.mp4`, r.video, "video/mp4");
@@ -171,6 +183,7 @@ export async function listCodeVideos(limit = 60) {
       sizeBytes: codeVideos.sizeBytes,
       error: codeVideos.error,
       engine: codeVideos.engine,
+      sourceKey: codeVideos.sourceKey,
       agentLog: codeVideos.agentLog,
       segments: sql<number>`coalesce(jsonb_array_length(${codeVideos.plan}->'segments'), 0)`,
       createdAt: codeVideos.createdAt,

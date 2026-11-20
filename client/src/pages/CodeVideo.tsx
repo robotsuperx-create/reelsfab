@@ -20,17 +20,21 @@ import {
   segmentCount,
   withCodeVideoCsp,
   type CodeAgentEngine,
+  TRANSCRIBER_LABELS,
+  TRANSCRIBERS,
+  type TranscriberId,
   type CodeVideoSizeId,
 } from "@shared/code-video";
 import { Switch } from "@/components/ui/switch";
-import { Bot, Code2, Download, Eye, Film, Lock, RefreshCw, Scissors, ShieldCheck, Terminal, Trash2, Wand2, WifiOff } from "lucide-react";
+import { Bot, Code2, Download, Eye, Film, Lock, RefreshCw, Scissors, ShieldCheck, Terminal, Trash2, Upload, Wand2, WifiOff } from "lucide-react";
+import { uploadBlob } from "@/lib/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { CopyButton, EmptyBlock, PageHeader, Tally, type RouterOutputs } from "@/components/fab/common";
 
 type Row = RouterOutputs["codeVideos"]["list"][number];
-const TONE: Record<string, "go" | "hold" | "stop" | "idle"> = { writing: "hold", draft: "idle", queued: "idle", running: "hold", done: "go", failed: "stop" };
+const TONE: Record<string, "go" | "hold" | "stop" | "idle"> = { analyzing: "hold", writing: "hold", draft: "idle", queued: "idle", running: "hold", done: "go", failed: "stop" };
 const DRAFT_KEY = "code-video-draft";
 
 function readDraft() {
@@ -60,6 +64,7 @@ export default function CodeVideoPage() {
   const [auto, setAuto] = useState(draft?.auto ?? true);
   const [preview, setPreview] = useState<{ html: string; key: number } | null>(null);
   const [currentId, setCurrentId] = useState<number | null>(null);
+  const [mode, setMode] = useState<"idea" | "video">("idea");
   const size = codeVideoSize(sizeId);
   const seconds = Math.round(Number(duration));
   const durationOk = Number.isFinite(seconds) && seconds >= 1 && seconds <= CODE_VIDEO_MAX_SECONDS;
@@ -81,7 +86,7 @@ export default function CodeVideoPage() {
     if (engine === "api" && !e.api && e.claudeCode) setEngine("claude-code");
   }, [engines.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const list = trpc.codeVideos.list.useQuery(undefined, {
-    refetchInterval: q => ((q.state.data ?? []).some(r => ["queued", "running", "writing"].includes(r.status)) ? 1500 : 10000),
+    refetchInterval: q => ((q.state.data ?? []).some(r => ["queued", "running", "writing", "analyzing"].includes(r.status)) ? 1500 : 10000),
   });
   const rows = list.data ?? [];
   const current = rows.find(r => r.id === currentId) ?? null;
@@ -136,6 +141,14 @@ export default function CodeVideoPage() {
             <span className="cv-chip"><WifiOff className="size-3.5" /> الشبكة: CDN والخطوط فقط</span>
             <span className="cv-chip"><Lock className="size-3.5" /> بلا وصول لمفاتيح الاستوديو</span>
           </div>
+
+          <div className="flex gap-1.5" role="tablist" aria-label="طريقة العمل">
+            <Chip on={mode === "idea"} onClick={() => setMode("idea")}>من فكرة أو كود</Chip>
+            <Chip on={mode === "video"} onClick={() => setMode("video")}>على فيديوك</Chip>
+          </div>
+
+          {mode === "video" && <OverlayPanel engine={engine} setEngine={setEngine} engines={e} auto={auto} setAuto={setAuto} fps={fps} setFps={setFps} onStarted={id => { setCurrentId(id); loadedFor.current = null; setPreview(null); done(); }} />}
+          {mode === "idea" && (<>
 
           <div className="panel flex flex-col gap-4 p-4" aria-label="الإعدادات">
             <div className="flex flex-col gap-1.5">
@@ -202,6 +215,7 @@ export default function CodeVideoPage() {
               </div>
             </div>
           </div>
+          </>)}
 
           <div className="cv-term">
             <div className="cv-bar">
@@ -253,6 +267,7 @@ export default function CodeVideoPage() {
                 </div>
               )}
               {current && current.status !== "done" && <JobProgress row={current} />}
+              {current?.sourceKey && !["analyzing"].includes(current.status) && <VideoMapView id={current.id} />}
             </div>
           </div>
         </section>
@@ -331,7 +346,7 @@ function JobProgress({ row }: { row: Row }) {
   const frames = row.durationSec * row.fps;
   const shot = Math.min(frames, Math.round((Math.min(row.progress, 95) / 95) * frames));
   const lines: { t: string; cls?: string }[] = (row.agentLog ?? []).slice(-12).map(t => ({ t, cls: t.includes("✗") ? "err" : t.includes("✓") ? "ok" : undefined }));
-  if (row.status !== "writing") lines.push({ t: `$ code2video --size ${row.width}x${row.height} --duration ${row.durationSec}s --fps ${row.fps}${row.segments > 1 ? ` --segments ${row.segments}` : ""}`, cls: "dim" });
+  if (row.status !== "writing" && row.status !== "analyzing") lines.push({ t: `$ code2video --size ${row.width}x${row.height} --duration ${row.durationSec}s --fps ${row.fps}${row.segments > 1 ? ` --segments ${row.segments}` : ""}`, cls: "dim" });
   if (row.status === "draft") lines.push({ t: "› written — review it in the editor, then press convert" });
   if (row.status === "queued") lines.push({ t: "› waiting in queue…" });
   if (row.status === "running" || (row.status === "failed" && !(row.agentLog ?? []).some(l => l.includes("✗")))) {
@@ -343,10 +358,10 @@ function JobProgress({ row }: { row: Row }) {
   return (
     <div className="mt-3 flex flex-col gap-3" aria-live="polite">
       <div className="flex items-center justify-between" dir="rtl">
-        <Tally tone={TONE[row.status]} live={row.status === "running" || row.status === "writing"} label={CODE_VIDEO_STATUS_LABELS[row.status]} />
+        <Tally tone={TONE[row.status]} live={["running", "writing", "analyzing"].includes(row.status)} label={CODE_VIDEO_STATUS_LABELS[row.status]} />
         {row.status === "running" && <span className="num text-xs text-muted-foreground">{row.progress}%</span>}
       </div>
-      {row.status !== "writing" && row.status !== "draft" && <Progress value={row.status === "queued" ? 0 : row.progress} />}
+      {!["writing", "draft", "analyzing"].includes(row.status) && <Progress value={row.status === "queued" ? 0 : row.progress} />}
       <div className="cv-log rounded-lg bg-black/60 p-3">
         {lines.map((l, i) => (
           <div key={i} className={cn("break-all", l.cls)}>
@@ -373,7 +388,7 @@ function HistoryCard({ row, active, onOpen }: { row: Row; active: boolean; onOpe
       <div className="flex flex-col gap-1.5 p-2.5">
         <div className="truncate text-[13px] font-semibold" title={row.title}>{row.title}</div>
         <div className="flex items-center justify-between gap-2">
-          <Tally tone={TONE[row.status]} live={row.status === "running" || row.status === "writing"} label={row.status === "running" ? `${row.progress}%` : CODE_VIDEO_STATUS_LABELS[row.status]} />
+          <Tally tone={TONE[row.status]} live={["running", "writing", "analyzing"].includes(row.status)} label={row.status === "running" ? `${row.progress}%` : CODE_VIDEO_STATUS_LABELS[row.status]} />
           <span className="num text-[11px] text-muted-foreground">{row.width}×{row.height} · {formatDuration(row.durationSec)}</span>
         </div>
         <div className="flex gap-1">
@@ -383,5 +398,155 @@ function HistoryCard({ row, active, onOpen }: { row: Row; active: boolean; onOpe
         </div>
       </div>
     </div>
+  );
+}
+
+type Engines = RouterOutputs["codeVideos"]["engines"] | undefined;
+const LANGS = [
+  { id: "ar", label: "عربي" },
+  { id: "en", label: "English" },
+  { id: "fr", label: "Français" },
+  { id: "es", label: "Español" },
+  { id: "auto", label: "تلقائي" },
+] as const;
+
+/** "On your video": pick or upload a clip, say what to add; the agent watches it, then writes the animation on top. */
+function OverlayPanel(props: { engine: CodeAgentEngine; setEngine: (e: CodeAgentEngine) => void; engines: Engines; auto: boolean; setAuto: (v: boolean) => void; fps: 30 | 60; setFps: (f: 30 | 60) => void; onStarted: (id: number) => void }) {
+  const utils = trpc.useUtils();
+  const videos = trpc.codeVideos.sourceVideos.useQuery();
+  const [assetId, setAssetId] = useState<number | null>(null);
+  const [instruction, setInstruction] = useState("");
+  const [transcriber, setTranscriber] = useState<TranscriberId>("local");
+  const [language, setLanguage] = useState<(typeof LANGS)[number]["id"]>("ar");
+  const [uploading, setUploading] = useState(false);
+  const start = trpc.codeVideos.overlayStart.useMutation({ onSuccess: r => { props.onStarted(r.id); toast.success("الوكيل يشاهد الفيديو ويفهمه…"); }, onError: e => toast.error(e.message) });
+  const list = videos.data ?? [];
+  const chosen = list.find(v => v.id === assetId) ?? null;
+
+  const upload = async (file: File) => {
+    setUploading(true);
+    try {
+      const meta = await new Promise<{ d: number; w: number; h: number }>(resolve => {
+        const v = document.createElement("video");
+        v.preload = "metadata";
+        v.onloadedmetadata = () => resolve({ d: v.duration * 1000, w: v.videoWidth, h: v.videoHeight });
+        v.onerror = () => resolve({ d: 0, w: 0, h: 0 });
+        v.src = URL.createObjectURL(file);
+      });
+      const type = file.type || "video/mp4";
+      const r = await uploadBlob(file.type ? file : new Blob([file], { type }), { kind: "broll", filename: file.name, title: file.name.replace(/\.[^.]+$/, ""), durationMs: meta.d || undefined, width: meta.w || undefined, height: meta.h || undefined });
+      await utils.codeVideos.sourceVideos.invalidate();
+      setAssetId(r.id);
+      toast.success("رُفع الفيديو");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر رفع الفيديو");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="cv-term" aria-label="على فيديوك">
+      <div className="cv-bar">
+        <Bot className="size-3.5" />
+        <span className="truncate">agent@reellllocal:~# watch --video && write --overlay</span>
+      </div>
+      <div className="flex flex-col gap-4 p-4" dir="rtl">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs text-muted-foreground">الفيديو</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={assetId ?? ""} onChange={ev => setAssetId(ev.target.value ? Number(ev.target.value) : null)} className="h-9 min-w-0 flex-1 rounded-md border border-border bg-black/40 px-2 text-sm" aria-label="اختر فيديو من المكتبة">
+              <option value="">اختر من المكتبة…</option>
+              {list.map(v => (
+                <option key={v.id} value={v.id}>{(v.title ?? `فيديو #${v.id}`).slice(0, 60)}{v.durationMs ? ` · ${formatDuration(Math.round(v.durationMs / 1000))}` : ""}</option>
+              ))}
+            </select>
+            <Button asChild variant="outline" size="sm" disabled={uploading}>
+              <label className="cursor-pointer">
+                <Upload /> {uploading ? "يرفع…" : "ارفع فيديوك"}
+                <input type="file" accept="video/mp4,video/quicktime,video/webm" className="sr-only" onChange={ev => { const f = ev.target.files?.[0]; if (f) void upload(f); ev.target.value = ""; }} />
+              </label>
+            </Button>
+          </div>
+          {chosen && <video src={chosen.url} controls playsInline className="mt-2 max-h-56 self-start rounded-lg bg-black" />}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="overlay-instruction" className="text-xs text-muted-foreground">ماذا تريد فوقه — ترجمة الكلام، عناوين، تأكيد الكلمات المهمة، أسهم، أرقام…</Label>
+          <Textarea id="overlay-instruction" value={instruction} onChange={ev => setInstruction(ev.target.value)} placeholder="مثال: ترجمة كلامي كلمة بكلمة أسفل الشاشة بالأصفر، عنوان كبير في أول ثانيتين، وعند كل رقم أقوله يظهر الرقم كبيرًا بجانبي" className="min-h-[96px] resize-y bg-black/40 p-3 text-sm leading-6" />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-muted-foreground">تفريغ الكلام</span>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="التفريغ">
+              {TRANSCRIBERS.map(t => <Chip key={t} on={transcriber === t} onClick={() => setTranscriber(t)}>{TRANSCRIBER_LABELS[t]}</Chip>)}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-muted-foreground">لغة الكلام</span>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="اللغة">
+              {LANGS.map(l => <Chip key={l.id} on={language === l.id} onClick={() => setLanguage(l.id)}>{l.label}</Chip>)}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs text-muted-foreground">من يشاهد ويكتب</span>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="المحرّك">
+            {CODE_AGENT_ENGINES.map(en => {
+              const ok = en === "api" ? props.engines?.api : props.engines?.claudeCode;
+              return <Chip key={en} on={props.engine === en} onClick={() => props.setEngine(en)}>{CODE_AGENT_ENGINE_LABELS[en]}{ok === false ? " — غير متاح" : ""}</Chip>;
+            })}
+          </div>
+          <span className="text-[11px] text-muted-foreground">المقاس يتبع شكل فيديوك (عمودي 1080×1920، أفقي 1920×1080، مربع 1080×1080)، وصوته يبقى كما هو.</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
+          <Button disabled={!assetId || start.isPending} onClick={() => assetId && start.mutate({ assetId, instruction, engine: props.engine, transcriber, language, fps: props.fps, autoConvert: props.auto })}>
+            <Bot /> حلّل واكتب فوقه
+          </Button>
+          <div className="flex gap-1.5" role="radiogroup" aria-label="الفريمات">
+            {CODE_VIDEO_FPS.map(f => <Chip key={f} on={props.fps === f} onClick={() => props.setFps(f)}>{f}fps</Chip>)}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Switch checked={props.auto} onCheckedChange={props.setAuto} aria-label="ركّب مباشرة بعد الكتابة" /> ركّب مباشرة بعد الكتابة
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** What the agent understood: scenes with what is seen, and the speech with its timings. */
+function VideoMapView({ id }: { id: number }) {
+  const q = trpc.codeVideos.get.useQuery({ id }, { staleTime: 30_000 });
+  const map = (q.data?.analysis as { map?: { scenes: { index: number; start: number; end: number; summary: string }[]; sentences: { start: number; end: number; text: string }[]; frames: { t: number; what: string; free: string[] }[] } } | null)?.map;
+  if (!map) return null;
+  const ts = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  return (
+    <details className="mt-3 rounded-lg border border-border bg-black/40 p-3 text-sm" open>
+      <summary className="cursor-pointer text-xs text-muted-foreground">ما فهمه الوكيل من الفيديو — {map.scenes.length} مشهد · {map.sentences.length} جملة · {map.frames.length} لقطة</summary>
+      <div className="mt-3 grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <div className="text-xs font-semibold">المشاهد</div>
+          {map.scenes.map(sc => (
+            <div key={sc.index} className="flex gap-2 text-[13px] leading-6">
+              <span className="num shrink-0 text-tally" dir="ltr">{ts(sc.start)}–{ts(sc.end)}</span>
+              <span className="text-muted-foreground">{sc.summary}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="text-xs font-semibold">الكلام</div>
+          {map.sentences.length ? map.sentences.map((s2, i) => (
+            <div key={i} className="flex gap-2 text-[13px] leading-6">
+              <span className="num shrink-0 text-tally" dir="ltr">{ts(s2.start)}</span>
+              <span>{s2.text}</span>
+            </div>
+          )) : <span className="text-muted-foreground">لا كلام في الفيديو</span>}
+        </div>
+      </div>
+    </details>
   );
 }

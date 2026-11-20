@@ -1,13 +1,13 @@
 import { TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
+import { desc, eq, like } from "drizzle-orm";
 import { z } from "zod";
-import { codeVideos } from "../../drizzle/schema";
-import { codeAgentInputSchema, codeVideoInputSchema } from "../../shared/code-video";
+import { assets, codeVideos } from "../../drizzle/schema";
+import { codeAgentInputSchema, codeVideoInputSchema, overlayInputSchema } from "../../shared/code-video";
 import { requireDb } from "../db";
 import { memberProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 import { enqueueCodeVideo, kickCodeVideoQueue, listCodeVideos } from "../services/code-videos";
-import { agentEngines, retryAgentVideo, startAgentVideo } from "../services/code-agent";
+import { agentEngines, retryAgentVideo, startAgentVideo, startOverlayVideo } from "../services/code-agent";
 
 export const codeVideosRouter = router({
   list: memberProcedure.query(() => listCodeVideos()),
@@ -37,6 +37,29 @@ export const codeVideosRouter = router({
     if (input.engine === "api" && !engines.api) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد مفتاح Claude في مركز التكاملات — أضفه أو اختر Claude Code على هذا الجهاز" });
     if (input.engine === "claude-code" && !engines.claudeCode) throw new TRPCError({ code: "BAD_REQUEST", message: "لم أجد Claude Code على هذا الجهاز — ثبّته (npm i -g @anthropic-ai/claude-code) وسجّل الدخول، أو اختر Claude API" });
     return startAgentVideo(input, ctx.user?.id);
+  }),
+
+  /** Videos in the library the agent can write on (newest first). */
+  sourceVideos: memberProcedure.query(async () => {
+    const db = await requireDb();
+    return db
+      .select({ id: assets.id, title: assets.title, url: assets.url, kind: assets.kind, durationMs: assets.durationMs, width: assets.width, height: assets.height, createdAt: assets.createdAt })
+      .from(assets)
+      .where(like(assets.mimeType, "video/%"))
+      .orderBy(desc(assets.id))
+      .limit(200);
+  }),
+
+  /** The agent watches the owner's video (speech, scenes, frames) and writes animation on top of it. */
+  overlayStart: memberProcedure.input(overlayInputSchema).mutation(async ({ input, ctx }) => {
+    const engines = await agentEngines();
+    if (input.engine === "api" && !engines.api) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد مفتاح Claude في مركز التكاملات — أو اختر Claude Code على هذا الجهاز" });
+    if (input.engine === "claude-code" && !engines.claudeCode) throw new TRPCError({ code: "BAD_REQUEST", message: "لم أجد Claude Code على هذا الجهاز" });
+    try {
+      return await startOverlayVideo(input, ctx.user?.id);
+    } catch (e) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+    }
   }),
 
   /** Render a written draft (or a pasted edit of it). */

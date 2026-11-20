@@ -13,11 +13,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
-import { codeVideos } from "../../drizzle/schema";
+import { assets, codeVideos } from "../../drizzle/schema";
 import { CLAUDE_DEFAULT_MODEL } from "../../shared/domain";
-import { CODE_VIDEO_SEGMENT_MAX, CODE_VIDEO_SINGLE_MAX, codeVideoSize, formatDuration, type CodeAgentEngine, type CodeAgentInput, type CodeVideoPlan } from "../../shared/code-video";
+import { CODE_VIDEO_SEGMENT_MAX, CODE_VIDEO_SINGLE_MAX, codeVideoSize, formatDuration, sizeForSource, type CodeAgentEngine, type CodeAgentInput, type CodeVideoPlan, type OverlayInput } from "../../shared/code-video";
+import { storageDownload, storageKeyFromUrl } from "../storage";
+import { detectScenes, frameTimes, grabFrames, mapForPrompt, probeVideo, sceneIndex, sentencesFrom, transcribeLocal, transcribeOpenAI, type FrameNote, type VideoMap, type Word } from "./video-understanding";
 import { getDb, getSettings, requireDb } from "../db";
-import { captureStills, renderCodeVideo } from "../worker/code-video";
+import { captureStills, overlayStills, renderCodeVideo } from "../worker/code-video";
 import { callText } from "./ai";
 import { providerConfigured } from "./ai-providers";
 import { kickCodeVideoQueue } from "./code-videos";
@@ -276,6 +278,7 @@ async function writeVideo(id: number, autoConvert: boolean) {
   const db = await requireDb();
   const [job] = await db.select().from(codeVideos).where(eq(codeVideos.id, id));
   if (!job?.idea || !job.engine) return;
+  if (job.sourceKey) return writeOverlay(id, autoConvert);
   const engine = job.engine as CodeAgentEngine;
   const system = rules(job.width, job.height);
   const ref = { id, userId: job.createdBy, what: "" };
@@ -336,7 +339,7 @@ export function normalizePlan(raw: CodeVideoPlan, total: number): CodeVideoPlan 
 export async function failInterruptedAgentJobs() {
   const db = await getDb();
   if (!db) return;
-  await db.update(codeVideos).set({ status: "failed", error: "توقّف الخادم أثناء الكتابة — أعد المحاولة", updatedAt: new Date() }).where(eq(codeVideos.status, "writing"));
+  await db.update(codeVideos).set({ status: "failed", error: "توقّف الخادم أثناء الكتابة — أعد المحاولة", updatedAt: new Date() }).where(sql`${codeVideos.status} in ('writing', 'analyzing')`);
 }
 
 /** Retry a failed agent job (keeps segments already written). */
@@ -345,4 +348,158 @@ export async function retryAgentVideo(id: number, autoConvert: boolean) {
   await db.update(codeVideos).set({ status: "writing", error: null, updatedAt: new Date() }).where(eq(codeVideos.id, id));
   queue.push(id);
   void drainAgent(autoConvert);
+}
+
+/* ------------------------------------------------------------ animation over the owner's video */
+
+const VISION_SYSTEM = `You are a video editor's assistant. You look at frames of a video and describe them precisely for someone who will place animated text on top. Answer with JSON only.`;
+
+/** The agent watches the video: frames in batches of 8, each described with the subject's position and free areas. */
+async function watchFrames(engine: CodeAgentEngine, frames: Buffer[], times: number[], cuts: number[], words: Word[], ref: { id: number; userId?: number | null; what: string }) {
+  const notes: FrameNote[] = [];
+  for (let b = 0; b < frames.length; b += 8) {
+    const batch = frames.slice(b, b + 8);
+    const ts = times.slice(b, b + 8);
+    const said = ts.map(t => words.filter(w => w.start <= t + 1.5 && w.end >= t - 1.5).map(w => w.word).join(" "));
+    const prompt = `${batch.length} frames of one video, in order, at ${ts.map(t => `${t.toFixed(1)}s`).join(", ")}.
+Speech around each frame: ${said.map((x, i) => `[${ts[i].toFixed(1)}s] ${x || "—"}`).join(" | ")}
+For each frame return: what is on screen (one short sentence, concrete), the main subject (person/object) and its box as [x, y, w, h] in percent of the frame, which areas are free for text without covering the subject or faces (choose from: top, upper-third, middle, lower-third, bottom, left, right), any text already burned into the picture, and the dominant colours.
+JSON: {"frames": [{"i": 1, "what": "...", "subject": "...", "box": [x, y, w, h], "free": ["top", "lower-third"], "text": "", "colors": "..."}]}`;
+    const raw = await ask(engine, VISION_SYSTEM, prompt, { ...ref, what: `مشاهدة اللقطات ${b + 1}–${b + batch.length}` }, batch);
+    let parsed: { frames?: { i?: number; what?: string; subject?: string; box?: number[]; free?: string[]; text?: string; colors?: string }[] } = {};
+    try { parsed = extractJson(raw); } catch { /* keep going with what we have */ }
+    batch.forEach((_, k) => {
+      const f = parsed.frames?.find(x => x.i === k + 1) ?? parsed.frames?.[k];
+      const box = Array.isArray(f?.box) && f!.box.length === 4 ? (f!.box.map(Number) as [number, number, number, number]) : undefined;
+      notes.push({ t: ts[k], scene: sceneIndex(ts[k], cuts), what: String(f?.what ?? "").slice(0, 300), subject: f?.subject ? String(f.subject).slice(0, 120) : undefined, subjectBox: box, free: Array.isArray(f?.free) ? f!.free.map(String).slice(0, 6) : [], textOnScreen: f?.text ? String(f.text).slice(0, 200) : undefined, colors: f?.colors ? String(f.colors).slice(0, 120) : undefined });
+    });
+  }
+  return notes;
+}
+
+function overlayRules(width: number, height: number) {
+  return `${rules(width, height)}
+THIS FILE IS AN OVERLAY on top of a real video. Extra hard rules:
+- The page background MUST be fully transparent: html, body { background: transparent !important }. No full-frame opaque layers, no vignette that hides the video. Small panels behind text are allowed if semi-transparent.
+- Never cover the main subject's box or faces given in the video map; put text in the listed free areas for that moment.
+- Text must stay legible over moving footage: strong weight, text-shadow or stroke, or a soft translucent pill behind it.
+- Captions of speech must use the WORD timings given in the map exactly (show each phrase from its first word's start to its last word's end); never invent words that were not said.
+- Total duration = the video's duration. Sync titles, emphasis and graphics to the scene cuts and to what is said.`;
+}
+
+export async function startOverlayVideo(input: OverlayInput, userId?: number | null) {
+  const db = await requireDb();
+  const [asset] = await db.select().from(assets).where(eq(assets.id, input.assetId));
+  if (!asset) throw new Error("الفيديو غير موجود في المكتبة");
+  const key = asset.storageKey ?? storageKeyFromUrl(asset.url);
+  if (!key || !(asset.mimeType ?? "video/").startsWith("video/")) throw new Error("اختر ملف فيديو من المكتبة");
+  const size = sizeForSource(asset.width ?? 1080, asset.height ?? 1920);
+  const [row] = await db
+    .insert(codeVideos)
+    .values({
+      title: `${(asset.title ?? "فيديوك").slice(0, 60)} + أنيميشن`,
+      html: "",
+      width: size.width,
+      height: size.height,
+      durationSec: Math.max(1, Math.round((asset.durationMs ?? 1000) / 1000)),
+      fps: input.fps,
+      status: "analyzing",
+      idea: input.instruction,
+      engine: input.engine,
+      sourceKey: key,
+      analysis: { transcriber: input.transcriber, language: input.language },
+      agentLog: [],
+      createdBy: userId ?? null,
+    })
+    .returning({ id: codeVideos.id });
+  queue.push(row.id);
+  void drainAgent(input.autoConvert);
+  return row;
+}
+
+/** Downloads the source clip to a temp file (local media is read from disk). */
+export async function sourceToFile(key: string) {
+  const dir = await mkdtemp(join(tmpdir(), "overlay-src-"));
+  const path = join(dir, "source.mp4");
+  await writeFile(path, await storageDownload(key));
+  return { path, cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => undefined) };
+}
+
+async function writeOverlay(id: number, autoConvert: boolean) {
+  const db = await requireDb();
+  const [job] = await db.select().from(codeVideos).where(eq(codeVideos.id, id));
+  if (!job?.sourceKey || !job.idea || !job.engine) return;
+  const engine = job.engine as CodeAgentEngine;
+  const ref = { id, userId: job.createdBy, what: "" };
+  const opts = (job.analysis ?? {}) as { transcriber?: "local" | "openai"; language?: string; map?: VideoMap };
+  const src = await sourceToFile(job.sourceKey);
+  try {
+    let map = opts.map;
+    if (!map) {
+      await db.update(codeVideos).set({ status: "analyzing", updatedAt: new Date() }).where(eq(codeVideos.id, id));
+      await log(id, "$ agent watch --video source.mp4");
+      const info = await probeVideo(src.path);
+      if (info.duration > 2400) throw new Error("الفيديو أطول من 40 دقيقة");
+      await log(id, `› ${formatDuration(Math.round(info.duration))} · ${info.width}×${info.height} · ${info.fps}fps${info.hasAudio ? "" : " · بلا صوت"}`);
+      const lang = opts.language && opts.language !== "auto" ? opts.language : undefined;
+      let words: Word[] = [];
+      if (info.hasAudio) {
+        await log(id, opts.transcriber === "openai" ? "› يفرّغ الكلام (OpenAI Whisper)…" : "› يفرّغ الكلام على هذا الجهاز (Whisper — أول مرة ينزّل النموذج ~250MB)…");
+        words = opts.transcriber === "openai" ? await transcribeOpenAI(src.path, lang) : await transcribeLocal(src.path, lang);
+        await log(id, `✓ ${words.length} كلمة بتوقيتها`);
+      }
+      const cuts = await detectScenes(src.path);
+      await log(id, `✓ ${cuts.length + 1} مشهد (قطعات عند ${cuts.slice(0, 8).map(t => t.toFixed(1)).join("، ")}${cuts.length > 8 ? "…" : ""})`);
+      const times = frameTimes(info.duration, cuts);
+      await log(id, `› يشاهد ${times.length} لقطة ويفهمها…`);
+      const frames = await grabFrames(src.path, times);
+      const notes = await watchFrames(engine, frames, times, cuts, words, { ...ref, what: "المشاهدة" });
+      const bounds = [0, ...cuts, info.duration];
+      const scenes = bounds.slice(0, -1).map((start, i) => {
+        const inScene = notes.filter(n => n.scene === i);
+        return { index: i, start, end: bounds[i + 1], summary: inScene.map(n => n.what).filter(Boolean).slice(0, 2).join(" ثم ") || "—" };
+      });
+      map = { ...info, language: lang, words, sentences: sentencesFrom(words), scenes, frames: notes, transcriber: info.hasAudio ? (opts.transcriber ?? "local") : "none" };
+      const size = sizeForSource(info.width, info.height);
+      await db.update(codeVideos).set({ analysis: { ...opts, map }, width: size.width, height: size.height, durationSec: Math.max(1, Math.round(info.duration)), status: "writing", updatedAt: new Date() }).where(eq(codeVideos.id, id));
+      await log(id, "✓ فهم الفيديو ثانية بثانية — يكتب الأنيميشن فوقه…");
+    } else {
+      await db.update(codeVideos).set({ status: "writing", updatedAt: new Date() }).where(eq(codeVideos.id, id));
+    }
+    const [fresh] = await db.select().from(codeVideos).where(eq(codeVideos.id, id));
+    const w = fresh.width, h = fresh.height;
+    const system = overlayRules(w, h);
+    const prompt = `Write the overlay animation for this video (it is ${w}x${h} after cropping to fill the frame; boxes are in percent of that frame).
+What the owner wants on top: """${job.idea}"""
+
+${mapForPrompt(map)}`;
+    let html = extractHtml(await ask(engine, system, prompt, { ...ref, what: "الأنيميشن فوق الفيديو" }));
+    const errors = await testRender(html, w, h);
+    if (errors.length) {
+      await log(id, `› ${errors.length} خطأ في التجربة — يصلحه`);
+      html = extractHtml(await ask(engine, system, `${prompt}\n\nYour previous file had these problems:\n- ${errors.slice(0, 8).join("\n- ")}\nReturn the corrected complete file.\n\n${html}`, { ...ref, what: "إصلاح" }));
+    }
+    // Looks at the overlay on the real frames and fixes what it sees.
+    const at = [0.1, 0.35, 0.6, 0.88].map(f => Math.max(0.3, +(map!.duration * f).toFixed(2)));
+    const { stills } = await overlayStills({ html, videoPath: src.path, width: w, height: h, at });
+    const raw = await ask(engine, REVIEW_SYSTEM, `These are ${stills.length} frames (at ${at.map(t => `${t}s`).join(", ")}) of a video with animated text laid over it. Check: text covering faces or the main subject, text cut off, unreadable over the footage, overlaps, captions not matching the speech, anything broken. Return {"ok": true, "issues": []} or ok=false with up to 6 concrete issues.`, { ...ref, what: "مراجعة بصرية" }, stills);
+    let issues: string[] = [];
+    try { const r = extractJson<{ ok?: boolean; issues?: string[] }>(raw); issues = r.ok === false ? (r.issues ?? []).map(String).slice(0, 6) : []; } catch { /* no review */ }
+    if (issues.length) {
+      await log(id, `› المراجعة على الفيديو الحقيقي وجدت ${issues.length} عيبًا — يصلحها`);
+      const fixed = extractHtml(await ask(engine, system, `${prompt}\n\nA reviewer looked at your overlay on the real frames and found:\n- ${issues.join("\n- ")}\nFix every point, keep the timing. Return the complete corrected file.\n\n${html}`, { ...ref, what: "تحسين" }));
+      if (!(await testRender(fixed, w, h)).length) html = fixed;
+    } else {
+      await log(id, "› المراجعة على الفيديو الحقيقي ✓");
+    }
+    await db.update(codeVideos).set({ html, status: autoConvert ? "queued" : "draft", updatedAt: new Date() }).where(eq(codeVideos.id, id));
+    await log(id, autoConvert ? "✓ مكتوب ومراجَع — دخل طابور التركيب" : "✓ مكتوب ومراجَع — اضغط تحويل");
+    if (autoConvert) void kickCodeVideoQueue();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await log(id, `✗ ${msg}`).catch(() => undefined);
+    await db.update(codeVideos).set({ status: "failed", error: msg.slice(0, 1000), updatedAt: new Date() }).where(eq(codeVideos.id, id));
+  } finally {
+    await src.cleanup();
+  }
 }

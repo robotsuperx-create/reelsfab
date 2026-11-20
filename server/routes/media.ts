@@ -8,7 +8,7 @@ import { runDailyAutomation } from "../services/batch";
 import { publishDueInstagramPosts, publishDueSocialPosts } from "../services/publishing";
 import { syncHiggsfieldClips } from "../services/higgsfield-jobs";
 import { syncPublishedMetrics } from "../services/analytics-sync";
-import { LOCAL_MEDIA_PREFIX, localMediaPath, storageGetSignedUrl, storagePut } from "../storage";
+import { LOCAL_MEDIA_PREFIX, localMediaEnabled, localMediaPath, mediaPut, storageGetSignedUrl } from "../storage";
 import { hasValidCronSecret, UPLOAD_MAX_BYTES, UPLOAD_MIME_ALLOWLIST } from "../_core/security";
 
 const ASSET_KINDS = [
@@ -49,11 +49,14 @@ async function requireScheduledTask(req: Request, res: Response) {
   return null;
 }
 
+const LOCAL_UPLOAD_MAX_BYTES = 512 * 1024 * 1024;
+
 export function registerMediaRoutes(app: Express) {
   // Raw binary upload → project storage → assets row.
   app.post(
     "/api/upload",
-    express.raw({ type: () => true, limit: UPLOAD_MAX_BYTES }),
+    // Up to 512 MB when media stays on this computer (your own phone videos); the storage bucket keeps its 50 MB cap.
+    express.raw({ type: () => true, limit: LOCAL_UPLOAD_MAX_BYTES }),
     async (req: Request, res: Response) => {
       const user = await requireMember(req, res);
       if (!user) return;
@@ -65,6 +68,10 @@ export function registerMediaRoutes(app: Express) {
       const body = req.body as Buffer;
       if (!Buffer.isBuffer(body) || body.length === 0) {
         res.status(400).json({ error: "empty body" });
+        return;
+      }
+      if (!localMediaEnabled() && body.length > UPLOAD_MAX_BYTES) {
+        res.status(413).json({ error: "الملف أكبر من 50MB" });
         return;
       }
       const filename = safeName(String(req.query.filename ?? "upload.bin"));
@@ -79,7 +86,7 @@ export function registerMediaRoutes(app: Express) {
         return Number.isFinite(n) ? Math.round(n) : null;
       };
       try {
-        const { key, url } = await storagePut(`${kind}/${filename}`, body, contentType);
+        const { key, url } = await mediaPut(`${kind}/${filename}`, body, contentType);
         const db = await requireDb();
         const [r] = await db.insert(assets).values({
           kind,

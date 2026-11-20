@@ -502,7 +502,10 @@ export const codeVideos = pgTable(
     height: integer("height").notNull(),
     durationSec: integer("durationSec").notNull(),
     fps: integer("fps").default(30).notNull(),
-    status: text("status").$type<"writing" | "draft" | "queued" | "running" | "done" | "failed">().default("queued").notNull(),
+    status: text("status").$type<"analyzing" | "writing" | "draft" | "queued" | "running" | "done" | "failed">().default("queued").notNull(),
+    /** Animation over the owner's video: the source clip (storage key), and what the agent understood of it. */
+    sourceKey: varchar("sourceKey", { length: 512 }),
+    analysis: jsonb("analysis").$type<Record<string, unknown>>(),
     /** Set when the agent wrote it: the idea, which engine, and (long videos) the segment plan with each segment's HTML. */
     idea: text("idea"),
     engine: varchar("engine", { length: 20 }),

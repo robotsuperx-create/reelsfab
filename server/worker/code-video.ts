@@ -7,7 +7,7 @@
  * (https://code-video.local), a strict Content-Security-Policy header and a network allow-list (public CDNs and
  * Google Fonts only). The page never sees the studio's origin, cookies, database or keys.
  */
-import { spawn } from "node:child_process";
+import { execFile as execFileCb, spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -231,5 +231,101 @@ export async function captureStills(opts: { html: string; width: number; height:
     return { stills, consoleErrors, blocked };
   } finally {
     await browser.close().catch(() => undefined);
+  }
+}
+
+/** An isolated page (same CSP, allow-list and virtual clock as the renderer), ready at t = 0. */
+async function openIsolatedPage(browser: import("playwright-core").Browser, html: string, width: number, height: number, scale = 1) {
+  const blocked: string[] = [];
+  const consoleErrors: string[] = [];
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale, serviceWorkers: "block" });
+  await context.route("**/*", async route => {
+    const url = route.request().url();
+    if (url === RENDER_ORIGIN) return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": CODE_VIDEO_CSP, "cache-control": "no-store" }, body: html });
+    if (isAllowedRequest(url)) return route.continue();
+    if (blocked.length < 20) blocked.push(url.slice(0, 200));
+    return route.abort("blockedbyclient");
+  });
+  await context.addInitScript({ content: VIRTUAL_TIME_SCRIPT });
+  const page = await context.newPage();
+  page.on("console", m => { if (m.type() === "error" && consoleErrors.length < 20) consoleErrors.push(m.text().slice(0, 300)); });
+  page.on("pageerror", e => { if (consoleErrors.length < 20) consoleErrors.push(String(e.message).slice(0, 300)); });
+  await page.goto(RENDER_ORIGIN, { waitUntil: "load", timeout: 60_000 });
+  await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
+  await page.evaluate(() => (document as Document & { fonts?: FontFaceSet }).fonts?.ready).catch(() => undefined);
+  if (!(await page.evaluate(() => Boolean((window as unknown as { __cv?: unknown }).__cv)))) throw new Error("تعذر تجهيز الساعة الافتراضية في الصفحة");
+  const advance = (dt: number) => page.evaluate(d => (window as unknown as { __cv: { advance: (x: number) => void } }).__cv.advance(d), dt);
+  return { page, blocked, consoleErrors, advance };
+}
+
+/**
+ * Animation on top of the owner's video: the HTML is rendered with a transparent background (PNG per frame) and
+ * laid over the video, cropped/scaled to width×height, with the video's own sound kept.
+ */
+export async function renderOverlay(opts: { html: string; videoPath: string; width: number; height: number; durationSec: number; fps: number; onProgress?: (p: number) => void }): Promise<CodeVideoRender> {
+  const { width, height, fps } = opts;
+  const frames = Math.max(1, Math.round(opts.durationSec * fps));
+  const browser = await launchBrowser();
+  const dir = await mkdtemp(join(tmpdir(), "code-overlay-"));
+  const outFile = join(dir, "out.mp4");
+  try {
+    const { page, blocked, consoleErrors, advance } = await openIsolatedPage(browser, opts.html, width, height);
+    const filter = `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${fps},setsar=1[base];[1:v]format=rgba[ov];[base][ov]overlay=0:0:format=auto,format=yuv420p[v]`;
+    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", opts.videoPath, "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-", "-filter_complex", filter, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-c:a", "aac", "-b:a", "160k", "-r", String(fps), "-t", opts.durationSec.toFixed(3), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
+    let err = "";
+    ff.stderr.on("data", d => { err += d; });
+    const done = new Promise<void>((resolve, reject) => {
+      ff.on("error", reject);
+      ff.on("close", code => (code === 0 ? resolve() : reject(new Error(`ffmpeg ${code}: ${err.slice(0, 400)}`))));
+    });
+    ff.stdin.on("error", () => undefined);
+    const write = (buf: Buffer) => new Promise<void>((resolve, reject) => ff.stdin.write(buf, e => (e ? reject(e) : resolve())));
+    const step = 1000 / fps;
+    for (let i = 0; i < frames; i++) {
+      await advance(i === 0 ? step / 2 : step);
+      await write(await page.screenshot({ type: "png", omitBackground: true, animations: "allow", caret: "hide", scale: "css" }));
+      if (i % 5 === 0 || i === frames - 1) opts.onProgress?.((i + 1) / frames);
+    }
+    ff.stdin.end();
+    await done;
+    const video = await readFile(outFile);
+    const posterAt = Math.min(opts.durationSec / 2, 1.5).toFixed(2);
+    const poster = await new Promise<Buffer>((resolve, reject) => {
+      execFileCb("ffmpeg", ["-v", "error", "-ss", posterAt, "-i", outFile, "-frames:v", "1", "-q:v", "3", "-f", "image2", "-c:v", "mjpeg", "pipe:1"], { encoding: "buffer", maxBuffer: 32 * 1024 * 1024 }, (e, out) => (e ? reject(e) : resolve(out as Buffer)));
+    });
+    return { video, poster, frames, blocked, consoleErrors };
+  } finally {
+    await browser.close().catch(() => undefined);
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/** Transparent stills of the overlay at given seconds, laid on the matching video frames (for the agent's review). */
+export async function overlayStills(opts: { html: string; videoPath: string; width: number; height: number; at: number[] }) {
+  const browser = await launchBrowser();
+  const dir = await mkdtemp(join(tmpdir(), "overlay-stills-"));
+  try {
+    const { page, consoleErrors, blocked, advance } = await openIsolatedPage(browser, opts.html, opts.width, opts.height, 0.5);
+    const stills: Buffer[] = [];
+    let t = 0;
+    for (const target of [...opts.at].sort((a, b) => a - b)) {
+      const ms = Math.max(16, target * 1000);
+      while (t < ms) {
+        const dt = Math.min(50, ms - t);
+        await advance(dt);
+        t += dt;
+      }
+      const png = join(dir, `o${stills.length}.png`);
+      await page.screenshot({ type: "png", omitBackground: true, scale: "device", path: png });
+      const w = Math.round(opts.width / 2), h = Math.round(opts.height / 2);
+      const jpg = await new Promise<Buffer>((resolve, reject) => {
+        execFileCb("ffmpeg", ["-v", "error", "-ss", target.toFixed(2), "-i", opts.videoPath, "-i", png, "-filter_complex", `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}[b];[b][1:v]overlay=0:0`, "-frames:v", "1", "-q:v", "4", "-f", "image2", "-c:v", "mjpeg", "pipe:1"], { encoding: "buffer", maxBuffer: 32 * 1024 * 1024 }, (e, out) => (e ? reject(e) : resolve(out as Buffer)));
+      });
+      stills.push(jpg);
+    }
+    return { stills, consoleErrors, blocked };
+  } finally {
+    await browser.close().catch(() => undefined);
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
