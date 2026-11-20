@@ -506,6 +506,8 @@ export const codeVideos = pgTable(
     /** Animation over the owner's video: the source clip (storage key), and what the agent understood of it. */
     sourceKey: varchar("sourceKey", { length: 512 }),
     analysis: jsonb("analysis").$type<Record<string, unknown>>(),
+    /** "standard" or "cinema" (2× supersampling, motion blur, slower encode). */
+    quality: text("quality").default("standard").notNull(),
     /** Set when the agent wrote it: the idea, which engine, and (long videos) the segment plan with each segment's HTML. */
     idea: text("idea"),
     engine: varchar("engine", { length: 20 }),

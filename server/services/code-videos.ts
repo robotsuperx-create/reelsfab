@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { desc, eq, sql } from "drizzle-orm";
 import { assets, codeVideos } from "../../drizzle/schema";
-import { codeVideoSize, type CodeVideoInput } from "../../shared/code-video";
+import { codeVideoSize, type CodeVideoInput, type RenderQuality } from "../../shared/code-video";
 import { getDb, requireDb } from "../db";
 import { mediaPut } from "../storage";
 import { renderCodeVideo, renderOverlay, type CodeVideoRender } from "../worker/code-video";
@@ -33,7 +33,7 @@ export async function enqueueCodeVideo(input: CodeVideoInput, userId?: number | 
   const title = input.title?.trim() || guessTitle(input.html) || `كود ← فيديو ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
   const [row] = await db
     .insert(codeVideos)
-    .values({ title: title.slice(0, 160), html: input.html, width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, createdBy: userId ?? null })
+    .values({ title: title.slice(0, 160), html: input.html, width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", createdBy: userId ?? null })
     .returning({ id: codeVideos.id });
   kickCodeVideoQueue();
   return row;
@@ -94,13 +94,14 @@ export async function processCodeVideo(id: number) {
       }
     };
     const segments = job.plan?.segments?.filter(s => s.html) ?? [];
+    const quality: RenderQuality = job.quality === "cinema" ? "cinema" : "standard";
     const overlayOn = job.sourceKey ? await sourceFile(job.sourceKey) : null;
     const duration = Number((job.analysis as { map?: { duration?: number } } | null)?.map?.duration) || job.durationSec;
     const r = overlayOn
       ? await renderOverlay({ html: job.html, videoPath: overlayOn.path, width: job.width, height: job.height, durationSec: duration, fps: job.fps, onProgress: report }).finally(() => overlayOn.cleanup())
       : segments.length > 1
-      ? await renderSegments(segments.map(s => ({ html: s.html!, seconds: s.seconds })), job.width, job.height, job.fps, report)
-      : await renderCodeVideo({ html: job.html, width: job.width, height: job.height, durationSec: job.durationSec, fps: job.fps, onProgress: report });
+      ? await renderSegments(segments.map(s => ({ html: s.html!, seconds: s.seconds })), job.width, job.height, job.fps, report, quality)
+      : await renderCodeVideo({ html: job.html, width: job.width, height: job.height, durationSec: job.durationSec, fps: job.fps, quality, onProgress: report });
     const video = await mediaPut(`code-videos/code-video-${id}.mp4`, r.video, "video/mp4");
     const poster = await mediaPut(`code-videos/code-video-${id}.jpg`, r.poster, "image/jpeg");
     const [asset] = await db
@@ -133,7 +134,7 @@ export async function processCodeVideo(id: number) {
 }
 
 /** Long videos: each segment rendered on its own, then joined without re-encoding (same size, fps and codec). */
-export async function renderSegments(parts: { html: string; seconds: number }[], width: number, height: number, fps: number, onProgress: (p: number) => void): Promise<CodeVideoRender> {
+export async function renderSegments(parts: { html: string; seconds: number }[], width: number, height: number, fps: number, onProgress: (p: number) => void, quality: RenderQuality = "standard"): Promise<CodeVideoRender> {
   const dir = await mkdtemp(join(tmpdir(), "code-video-join-"));
   try {
     const total = parts.reduce((a, p) => a + p.seconds, 0);
@@ -145,7 +146,7 @@ export async function renderSegments(parts: { html: string; seconds: number }[],
     const files: string[] = [];
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      const r = await renderCodeVideo({ html: part.html, width, height, durationSec: part.seconds, fps, onProgress: p => onProgress((done + p * part.seconds) / total) });
+      const r = await renderCodeVideo({ html: part.html, width, height, durationSec: part.seconds, fps, quality, onProgress: p => onProgress((done + p * part.seconds) / total) });
       const file = join(dir, `part${String(i).padStart(3, "0")}.mp4`);
       await writeFile(file, r.video);
       files.push(file);
@@ -175,6 +176,7 @@ export async function listCodeVideos(limit = 60) {
       height: codeVideos.height,
       durationSec: codeVideos.durationSec,
       fps: codeVideos.fps,
+      quality: codeVideos.quality,
       status: codeVideos.status,
       progress: codeVideos.progress,
       videoUrl: codeVideos.videoUrl,

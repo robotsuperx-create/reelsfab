@@ -12,7 +12,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { CODE_VIDEO_ALLOWED_HOSTS, CODE_VIDEO_CSP } from "../../shared/code-video";
+import { CINEMA_SCALE, CINEMA_SUBFRAMES, CODE_VIDEO_ALLOWED_HOSTS, CODE_VIDEO_CSP, type RenderQuality } from "../../shared/code-video";
 
 export const RENDER_ORIGIN = "https://code-video.local/";
 
@@ -131,8 +131,13 @@ export type CodeVideoRender = { video: Buffer; poster: Buffer; frames: number; b
  * Opens the HTML at width×height, steps the virtual clock 1000/fps ms per frame, screenshots every frame and pipes
  * the JPEGs to ffmpeg (H.264, yuv420p, veryfast). `onProgress` gets 0..1.
  */
-export async function renderCodeVideo(opts: { html: string; width: number; height: number; durationSec: number; fps: number; onProgress?: (p: number) => void }): Promise<CodeVideoRender> {
+export async function renderCodeVideo(opts: { html: string; width: number; height: number; durationSec: number; fps: number; quality?: RenderQuality; onProgress?: (p: number) => void }): Promise<CodeVideoRender> {
   const { width, height, fps } = opts;
+  // Cinema: every frame is drawn at 2× and scaled down (clean edges and thin lines), and is the blend of several
+  // moments inside the frame's interval (real motion blur), encoded slower at higher quality.
+  const cinema = opts.quality === "cinema";
+  const sub = cinema ? CINEMA_SUBFRAMES : 1;
+  const dpr = cinema ? CINEMA_SCALE : 1;
   const frames = Math.max(1, Math.round(opts.durationSec * fps));
   const browser = await launchBrowser();
   const dir = await mkdtemp(join(tmpdir(), "code-video-"));
@@ -140,7 +145,7 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
   const blocked: string[] = [];
   const consoleErrors: string[] = [];
   try {
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, javaScriptEnabled: true, acceptDownloads: false, serviceWorkers: "block", reducedMotion: "no-preference" });
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, javaScriptEnabled: true, acceptDownloads: false, serviceWorkers: "block", reducedMotion: "no-preference" });
     await context.route("**/*", async route => {
       const url = route.request().url();
       if (url === RENDER_ORIGIN) {
@@ -160,7 +165,10 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
     const ok = await page.evaluate(() => Boolean((window as unknown as { __cv?: unknown }).__cv));
     if (!ok) throw new Error("تعذر تجهيز الساعة الافتراضية في الصفحة");
 
-    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(fps), "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-r", String(fps), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
+    const encode = cinema
+      ? ["-vf", `tmix=frames=${sub},fps=${fps},scale=${width}:${height}:flags=lanczos`, "-c:v", "libx264", "-preset", "medium", "-crf", "15", "-tune", "animation", "-profile:v", "high"]
+      : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"];
+    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(fps * sub), "-c:v", "mjpeg", "-i", "-", ...encode, "-pix_fmt", "yuv420p", "-r", String(fps), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
     let err = "";
     ff.stderr.on("data", d => { err += d; });
     const done = new Promise<void>((resolve, reject) => {
@@ -173,13 +181,16 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
     let poster: Buffer | null = null;
     const posterFrame = Math.min(frames - 1, Math.round(fps * Math.min(1.5, opts.durationSec / 2)));
     const step = 1000 / fps;
+    const subStep = step / sub;
     for (let i = 0; i < frames; i++) {
-      // Frame 0 is painted half a frame in, as a browser paints after its first animation frame: GSAP and similar
-      // tickers only apply a tween's starting state (gsap.from) once their clock has moved past one tick.
-      await page.evaluate(dt => (window as unknown as { __cv: { advance: (d: number) => void } }).__cv.advance(dt), i === 0 ? step / 2 : step);
-      const shot = await page.screenshot({ type: "jpeg", quality: 92, animations: "allow", caret: "hide", scale: "css" });
-      if (i === posterFrame) poster = shot;
-      await write(shot);
+      for (let k = 0; k < sub; k++) {
+        // Frame 0 is painted half a (sub)frame in, as a browser paints after its first animation frame: GSAP and
+        // similar tickers only apply a tween's starting state (gsap.from) once their clock has moved past one tick.
+        await page.evaluate(dt => (window as unknown as { __cv: { advance: (d: number) => void } }).__cv.advance(dt), i === 0 && k === 0 ? subStep / 2 : subStep);
+        const shot = await page.screenshot({ type: "jpeg", quality: cinema ? 95 : 92, animations: "allow", caret: "hide", scale: cinema ? "device" : "css" });
+        if (i === posterFrame && k === sub - 1) poster = shot;
+        await write(shot);
+      }
       if (i % 5 === 0 || i === frames - 1) opts.onProgress?.((i + 1) / frames);
     }
     ff.stdin.end();

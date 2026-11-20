@@ -14,6 +14,9 @@ import {
   CODE_VIDEO_SIZES,
   CODE_VIDEO_STATUS_LABELS,
   STYLE_RECIPES,
+  RENDER_QUALITIES,
+  RENDER_QUALITY_LABELS,
+  type RenderQuality,
   strongPrompt,
   type CodeInspection,
   type CodeIssue,
@@ -43,7 +46,7 @@ const DRAFT_KEY = "code-video-draft";
 
 function readDraft() {
   try {
-    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | "" } | null;
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality } | null;
   } catch {
     return null;
   }
@@ -69,6 +72,7 @@ export default function CodeVideoPage() {
   const [preview, setPreview] = useState<{ html: string; key: number } | null>(null);
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [mode, setMode] = useState<"idea" | "video">("idea");
+  const [quality, setQuality] = useState<RenderQuality>(draft?.quality ?? "standard");
   const [styleId, setStyleId] = useState<StyleRecipeId | "">(draft?.styleId ?? "");
   const [inspection, setInspection] = useState<{ result: CodeInspection; fixedFrom?: { html: string; before: CodeIssue[] } } | null>(null);
   const size = codeVideoSize(sizeId);
@@ -78,10 +82,10 @@ export default function CodeVideoPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId })); } catch { /* private mode */ }
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality })); } catch { /* private mode */ }
     }, 400);
     return () => clearTimeout(t);
-  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId]);
+  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality]);
 
   const utils = trpc.useUtils();
   const engines = trpc.codeVideos.engines.useQuery(undefined, { staleTime: 60_000 });
@@ -147,12 +151,12 @@ export default function CodeVideoPage() {
     if (html.trim().length < 20) return toast.error("ألصق ملف HTML أولًا");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
     if (current && current.status === "draft") return queueDraft.mutate({ id: current.id, html: current.segments > 1 ? undefined : html });
-    convert.mutate({ html, size: sizeId, durationSec: seconds, fps });
+    convert.mutate({ html, size: sizeId, durationSec: seconds, fps, quality });
   };
   const startAgent = () => {
     if (idea.trim().length < 8) return toast.error("اكتب الفكرة بجملة على الأقل");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
-    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined });
+    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality });
   };
   const e = engines.data;
 
@@ -208,6 +212,16 @@ export default function CodeVideoPage() {
                 <span className="text-xs text-muted-foreground">الفريمات</span>
                 <div className="flex gap-1.5" role="radiogroup" aria-label="الفريمات في الثانية">
                   {CODE_VIDEO_FPS.map(f => <Chip key={f} on={fps === f} onClick={() => setFps(f)}>{f}</Chip>)}
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-muted-foreground">جودة التصوير</span>
+                <div className="flex gap-1.5" role="radiogroup" aria-label="جودة التصوير">
+                  {RENDER_QUALITIES.map(q => (
+                    <Chip key={q} on={quality === q} onClick={() => setQuality(q)} title={q === "cinema" ? "رسم بضعف الدقة + ضبابية حركة حقيقية + ترميز أعلى — أنعم وأنظف، وأبطأ نحو 6–10 مرات" : "سريع"}>
+                      {RENDER_QUALITY_LABELS[q]}
+                    </Chip>
+                  ))}
                 </div>
               </div>
               <span className="num text-[11px] text-muted-foreground">

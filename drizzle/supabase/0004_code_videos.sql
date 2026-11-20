@@ -29,3 +29,5 @@ ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "agentLog" jsonb;
 -- Animation over the owner's video (2026-11-20).
 ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "sourceKey" varchar(512);
 ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "analysis" jsonb;
+
+ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "quality" text DEFAULT 'standard' NOT NULL;

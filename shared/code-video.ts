@@ -47,6 +47,7 @@ export const codeVideoInputSchema = z.object({
   size: z.enum(CODE_VIDEO_SIZES.map(s => s.id) as [CodeVideoSizeId, ...CodeVideoSizeId[]]),
   durationSec: z.number().int().min(1).max(CODE_VIDEO_MAX_SECONDS),
   fps: z.union([z.literal(30), z.literal(60)]),
+  quality: z.enum(["standard", "cinema"]).optional(),
 });
 export type CodeVideoInput = z.infer<typeof codeVideoInputSchema>;
 
@@ -55,6 +56,7 @@ export const codeAgentInputSchema = z.object({
   size: codeVideoInputSchema.shape.size,
   durationSec: codeVideoInputSchema.shape.durationSec,
   fps: codeVideoInputSchema.shape.fps,
+  quality: codeVideoInputSchema.shape.quality,
   engine: z.enum(CODE_AGENT_ENGINES),
   /** Queue the render as soon as the code is written. */
   autoConvert: z.boolean(),
@@ -149,6 +151,13 @@ export function sizeForSource(width: number, height: number) {
   if (r > 1.25) return CODE_VIDEO_SIZES[1];
   return CODE_VIDEO_SIZES[2];
 }
+
+export const RENDER_QUALITIES = ["standard", "cinema"] as const;
+export type RenderQuality = (typeof RENDER_QUALITIES)[number];
+export const RENDER_QUALITY_LABELS: Record<RenderQuality, string> = { standard: "عادية", cinema: "سينمائية" };
+/** Sub-frames blended per output frame in cinema mode (motion blur) and the supersampling factor. */
+export const CINEMA_SUBFRAMES = 3;
+export const CINEMA_SCALE = 2;
 
 /* ------------------------------------------------------------ quality: style recipes, motion rules, strong prompt */
 

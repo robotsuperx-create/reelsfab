@@ -91,6 +91,7 @@ const CODE_VIDEO_STATEMENTS = [
   `ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "agentLog" jsonb`,
   `ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "sourceKey" varchar(512)`,
   `ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "analysis" jsonb`,
+  `ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "quality" text DEFAULT 'standard' NOT NULL`,
 ];
 
 let done = false;
@@ -103,7 +104,7 @@ export async function ensureSchemaUpgrades() {
   const [probe] = (await db.execute(sql`select
       to_regclass('public.channels') is not null as channels,
       exists(select 1 from information_schema.columns where table_schema='public' and table_name='render_jobs' and column_name='episodeId') as episode_jobs,
-      exists(select 1 from information_schema.columns where table_schema='public' and table_name='code_videos' and column_name='analysis') as code_videos`)) as unknown as { channels: boolean; episode_jobs: boolean; code_videos: boolean }[];
+      exists(select 1 from information_schema.columns where table_schema='public' and table_name='code_videos' and column_name='quality') as code_videos`)) as unknown as { channels: boolean; episode_jobs: boolean; code_videos: boolean }[];
   if (!probe?.channels || !probe?.episode_jobs) {
     for (const statement of STATEMENTS) await db.execute(sql.raw(statement));
     console.log("[database] long-form schema upgrade applied (channels, episodes, episode render jobs)");
