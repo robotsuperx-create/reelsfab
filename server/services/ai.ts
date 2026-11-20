@@ -115,6 +115,29 @@ export async function callJson<T>(opts: {
   return parsed;
 }
 
+/**
+ * Free-text generation (HTML, prose) on the configured provider, with the same cost log as callJson.
+ * Used by the code → video agent, which writes whole HTML files rather than JSON.
+ */
+export async function callText(opts: { model: string; system: string; prompt: string; maxTokens?: number; description: string; refType?: string; refId?: number; userId?: number; timeoutMs?: number }) {
+  const target = resolveProvider(opts.model);
+  if (!(await providerConfigured(target.provider))) throw new Error(`مفتاح ${target.provider} غير مضبوط. أضفه من مركز التكاملات.`);
+  try {
+    const result = await invokeProvider({ provider: target.provider, model: target.model, system: opts.system, prompt: opts.prompt, maxTokens: opts.maxTokens ?? 16000, timeoutMs: opts.timeoutMs ?? 300_000, effort: "medium" });
+    await recordLlmCost(opts, target.provider === "ollama" ? `ollama:${result.model}` : target.model, result.usage?.inputTokens ?? 0, result.usage?.outputTokens ?? 0);
+    return result.text;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof BilledProviderError) {
+      await recordLlmCost(opts, target.model, error.usage.inputTokens ?? 0, error.usage.outputTokens ?? 0, " (فشل)");
+      throw new Error(message);
+    }
+    if (target.provider === "anthropic" && /credit balance|insufficient_quota|billing/i.test(message)) throw new Error("رصيد Anthropic غير كافٍ. أضف رصيدًا من console.anthropic.com أو اختر Claude Code على هذا الجهاز.");
+    if (target.provider === "anthropic" && /Anthropic 401|authentication_error|invalid x-api-key/i.test(message)) throw new Error("مفتاح Claude مرفوض (401). تحقق منه في مركز التكاملات.");
+    throw new Error(`${target.provider}: ${message.slice(0, 400)}`);
+  }
+}
+
 async function recordLlmCost(opts: { description: string; refType?: string; refId?: number; userId?: number }, model: string, tokensIn: number, tokensOut: number, suffix = "") {
   try {
     const db = await requireDb();

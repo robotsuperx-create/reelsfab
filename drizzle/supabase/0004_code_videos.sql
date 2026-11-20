@@ -21,3 +21,8 @@ CREATE TABLE IF NOT EXISTS "code_videos" (
 );
 CREATE INDEX IF NOT EXISTS "code_videos_status_idx" ON "code_videos" USING btree ("status", "id");
 ALTER TABLE "code_videos" ENABLE ROW LEVEL SECURITY;
+-- Agent columns (2026-11-20).
+ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "idea" text;
+ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "engine" varchar(20);
+ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "plan" jsonb;
+ALTER TABLE "code_videos" ADD COLUMN IF NOT EXISTS "agentLog" jsonb;

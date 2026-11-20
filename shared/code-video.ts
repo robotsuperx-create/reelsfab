@@ -13,7 +13,32 @@ export const CODE_VIDEO_SIZES = [
 export type CodeVideoSizeId = (typeof CODE_VIDEO_SIZES)[number]["id"];
 
 export const CODE_VIDEO_FPS = [30, 60] as const;
-export const CODE_VIDEO_MAX_SECONDS = 120;
+/** Up to 40 minutes. Anything longer than one segment is written by the agent as a series of segments. */
+export const CODE_VIDEO_MAX_SECONDS = 2400;
+/** One HTML file covers at most this much; longer videos are planned as segments and joined. */
+export const CODE_VIDEO_SEGMENT_MAX = 60;
+export const CODE_VIDEO_SINGLE_MAX = 90;
+
+export const CODE_VIDEO_DURATIONS = [15, 30, 60, 180, 300, 600, 900, 1800, 2400] as const;
+
+/** "15 ث" · "3 د" · "1 د 30 ث". */
+export function formatDuration(sec: number) {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  if (!m) return `${s} ث`;
+  return s ? `${m} د ${s} ث` : `${m} د`;
+}
+
+/** Who writes the animation: the Claude API key in the vault, or Claude Code installed on this computer (the owner's subscription, no key). */
+export const CODE_AGENT_ENGINES = ["api", "claude-code"] as const;
+export type CodeAgentEngine = (typeof CODE_AGENT_ENGINES)[number];
+export const CODE_AGENT_ENGINE_LABELS: Record<CodeAgentEngine, string> = {
+  api: "Claude API — مفتاح الخزنة (مدفوع بالاستعمال)",
+  "claude-code": "Claude Code على هذا الجهاز — اشتراكك، بلا مفتاح",
+};
+
+export type CodeVideoSegment = { title: string; seconds: number; brief: string; html?: string };
+export type CodeVideoPlan = { style: string; segments: CodeVideoSegment[] };
 export const CODE_VIDEO_MAX_HTML = 2_000_000;
 
 export const codeVideoInputSchema = z.object({
@@ -25,11 +50,34 @@ export const codeVideoInputSchema = z.object({
 });
 export type CodeVideoInput = z.infer<typeof codeVideoInputSchema>;
 
+export const codeAgentInputSchema = z.object({
+  idea: z.string().trim().min(8, "اكتب الفكرة بجملة على الأقل").max(4000),
+  size: codeVideoInputSchema.shape.size,
+  durationSec: codeVideoInputSchema.shape.durationSec,
+  fps: codeVideoInputSchema.shape.fps,
+  engine: z.enum(CODE_AGENT_ENGINES),
+  /** Queue the render as soon as the code is written. */
+  autoConvert: z.boolean(),
+});
+export type CodeAgentInput = z.infer<typeof codeAgentInputSchema>;
+
+/** Segments a long video is cut into (30–60 s each, same total). */
+export function segmentCount(durationSec: number) {
+  return durationSec <= CODE_VIDEO_SINGLE_MAX ? 1 : Math.ceil(durationSec / CODE_VIDEO_SEGMENT_MAX);
+}
+
+/** Rough Claude API cost of writing a video (Sonnet list price, ~9k tokens out and ~3k in per HTML file). */
+export function estimateAgentUsd(durationSec: number) {
+  const n = segmentCount(durationSec);
+  const perFile = (3000 * 2 + 9000 * 10) / 1_000_000;
+  return n * perFile * 1.3 + (n > 1 ? 0.05 : 0);
+}
+
 export function codeVideoSize(id: string) {
   return CODE_VIDEO_SIZES.find(s => s.id === id) ?? CODE_VIDEO_SIZES[0];
 }
 
-export const CODE_VIDEO_STATUS_LABELS = { queued: "في الطابور", running: "جارٍ التحويل", done: "جاهز", failed: "فشل" } as const;
+export const CODE_VIDEO_STATUS_LABELS = { writing: "الوكيل يكتب", draft: "مكتوب — جاهز للتحويل", queued: "في الطابور", running: "جارٍ التحويل", done: "جاهز", failed: "فشل" } as const;
 export type CodeVideoStatus = keyof typeof CODE_VIDEO_STATUS_LABELS;
 
 /** Hosts the animation may load from (libraries and fonts). Everything else is blocked. */

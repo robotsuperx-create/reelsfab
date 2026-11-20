@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { EpisodeScript, EpisodeStatus, EpisodeTemplate } from "../shared/episodes";
 import type { MontageSpec } from "../shared/montage";
+import type { CodeVideoPlan } from "../shared/code-video";
 
 /**
  * Users. role semantics for this internal tool:
@@ -501,7 +502,12 @@ export const codeVideos = pgTable(
     height: integer("height").notNull(),
     durationSec: integer("durationSec").notNull(),
     fps: integer("fps").default(30).notNull(),
-    status: text("status").$type<"queued" | "running" | "done" | "failed">().default("queued").notNull(),
+    status: text("status").$type<"writing" | "draft" | "queued" | "running" | "done" | "failed">().default("queued").notNull(),
+    /** Set when the agent wrote it: the idea, which engine, and (long videos) the segment plan with each segment's HTML. */
+    idea: text("idea"),
+    engine: varchar("engine", { length: 20 }),
+    plan: jsonb("plan").$type<CodeVideoPlan>(),
+    agentLog: jsonb("agentLog").$type<string[]>(),
     /** 0–100 while rendering. */
     progress: integer("progress").default(0).notNull(),
     videoUrl: varchar("videoUrl", { length: 1024 }),

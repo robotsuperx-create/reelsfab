@@ -3,12 +3,19 @@
  * browser plus x264 is heavy), resumed at startup. Each finished MP4 goes to media storage (Supabase Storage, or the
  * local media folder on the owner's computer) and into the asset library, so the montage room can use it.
  */
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { desc, eq, sql } from "drizzle-orm";
 import { assets, codeVideos } from "../../drizzle/schema";
 import { codeVideoSize, type CodeVideoInput } from "../../shared/code-video";
 import { getDb, requireDb } from "../db";
 import { mediaPut } from "../storage";
-import { renderCodeVideo } from "../worker/code-video";
+import { renderCodeVideo, type CodeVideoRender } from "../worker/code-video";
+
+const run = promisify(execFile);
 
 let draining: Promise<void> | null = null;
 
@@ -71,20 +78,17 @@ export async function processCodeVideo(id: number) {
   if (!job) return;
   let lastSaved = 0;
   try {
-    const r = await renderCodeVideo({
-      html: job.html,
-      width: job.width,
-      height: job.height,
-      durationSec: job.durationSec,
-      fps: job.fps,
-      onProgress: p => {
-        const pct = Math.min(95, Math.round(p * 95));
-        if (pct - lastSaved >= 3) {
-          lastSaved = pct;
-          void db.update(codeVideos).set({ progress: pct, updatedAt: new Date() }).where(eq(codeVideos.id, id)).catch(() => undefined);
-        }
-      },
-    });
+    const report = (p: number) => {
+      const pct = Math.min(95, Math.round(p * 95));
+      if (pct - lastSaved >= 1) {
+        lastSaved = pct;
+        void db.update(codeVideos).set({ progress: pct, updatedAt: new Date() }).where(eq(codeVideos.id, id)).catch(() => undefined);
+      }
+    };
+    const segments = job.plan?.segments?.filter(s => s.html) ?? [];
+    const r = segments.length > 1
+      ? await renderSegments(segments.map(s => ({ html: s.html!, seconds: s.seconds })), job.width, job.height, job.fps, report)
+      : await renderCodeVideo({ html: job.html, width: job.width, height: job.height, durationSec: job.durationSec, fps: job.fps, onProgress: report });
     const video = await mediaPut(`code-videos/code-video-${id}.mp4`, r.video, "video/mp4");
     const poster = await mediaPut(`code-videos/code-video-${id}.jpg`, r.poster, "image/jpeg");
     const [asset] = await db
@@ -116,6 +120,39 @@ export async function processCodeVideo(id: number) {
   }
 }
 
+/** Long videos: each segment rendered on its own, then joined without re-encoding (same size, fps and codec). */
+export async function renderSegments(parts: { html: string; seconds: number }[], width: number, height: number, fps: number, onProgress: (p: number) => void): Promise<CodeVideoRender> {
+  const dir = await mkdtemp(join(tmpdir(), "code-video-join-"));
+  try {
+    const total = parts.reduce((a, p) => a + p.seconds, 0);
+    let done = 0;
+    let poster: Buffer | null = null;
+    let frames = 0;
+    const blocked: string[] = [];
+    const consoleErrors: string[] = [];
+    const files: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const r = await renderCodeVideo({ html: part.html, width, height, durationSec: part.seconds, fps, onProgress: p => onProgress((done + p * part.seconds) / total) });
+      const file = join(dir, `part${String(i).padStart(3, "0")}.mp4`);
+      await writeFile(file, r.video);
+      files.push(file);
+      poster ??= r.poster;
+      frames += r.frames;
+      blocked.push(...r.blocked);
+      consoleErrors.push(...r.consoleErrors);
+      done += part.seconds;
+    }
+    const list = join(dir, "list.txt");
+    await writeFile(list, files.map(f => `file '${f.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"));
+    const out = join(dir, "joined.mp4");
+    await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", out], { maxBuffer: 8 * 1024 * 1024 });
+    return { video: await readFile(out), poster: poster!, frames, blocked: blocked.slice(0, 20), consoleErrors: consoleErrors.slice(0, 20) };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 export async function listCodeVideos(limit = 60) {
   const db = await requireDb();
   return db
@@ -133,6 +170,9 @@ export async function listCodeVideos(limit = 60) {
       assetId: codeVideos.assetId,
       sizeBytes: codeVideos.sizeBytes,
       error: codeVideos.error,
+      engine: codeVideos.engine,
+      agentLog: codeVideos.agentLog,
+      segments: sql<number>`coalesce(jsonb_array_length(${codeVideos.plan}->'segments'), 0)`,
       createdAt: codeVideos.createdAt,
     })
     .from(codeVideos)
