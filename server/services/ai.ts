@@ -119,11 +119,11 @@ export async function callJson<T>(opts: {
  * Free-text generation (HTML, prose) on the configured provider, with the same cost log as callJson.
  * Used by the code → video agent, which writes whole HTML files rather than JSON.
  */
-export async function callText(opts: { model: string; system: string; prompt: string; maxTokens?: number; description: string; refType?: string; refId?: number; userId?: number; timeoutMs?: number }) {
+export async function callText(opts: { model: string; system: string; prompt: string; images?: string[]; maxTokens?: number; description: string; refType?: string; refId?: number; userId?: number; timeoutMs?: number }) {
   const target = resolveProvider(opts.model);
   if (!(await providerConfigured(target.provider))) throw new Error(`مفتاح ${target.provider} غير مضبوط. أضفه من مركز التكاملات.`);
   try {
-    const result = await invokeProvider({ provider: target.provider, model: target.model, system: opts.system, prompt: opts.prompt, maxTokens: opts.maxTokens ?? 16000, timeoutMs: opts.timeoutMs ?? 300_000, effort: "medium" });
+    const result = await invokeProvider({ provider: target.provider, model: target.model, system: opts.system, prompt: opts.prompt, images: opts.images, maxTokens: opts.maxTokens ?? 16000, timeoutMs: opts.timeoutMs ?? 300_000, effort: "medium" });
     await recordLlmCost(opts, target.provider === "ollama" ? `ollama:${result.model}` : target.model, result.usage?.inputTokens ?? 0, result.usage?.outputTokens ?? 0);
     return result.text;
   } catch (error) {

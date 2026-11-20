@@ -89,3 +89,14 @@ describe("code → video", () => {
     expect(r.consoleErrors.join("\n")).toMatch(/Content Security Policy|blocked/i);
   }, 60_000);
 });
+
+describe("stills for the agent's review", () => {
+  it("photographs the requested moments on the virtual clock", async () => {
+    const { captureStills } = await import("./code-video");
+    const html = `<!doctype html><html><head><style>html,body{margin:0;width:200px;height:200px}#b{width:200px;height:200px;animation:c 2s linear forwards}@keyframes c{from{background:#f00}to{background:#00f}}</style></head><body><div id="b"></div></body></html>`;
+    const r = await captureStills({ html, width: 200, height: 200, at: [0.1, 1.9], scale: 0.5 });
+    expect(r.stills).toHaveLength(2);
+    expect(r.stills[0].length).toBeGreaterThan(200);
+    expect(r.stills[0].equals(r.stills[1])).toBe(false);
+  }, 60_000);
+});

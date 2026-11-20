@@ -17,7 +17,7 @@ import { codeVideos } from "../../drizzle/schema";
 import { CLAUDE_DEFAULT_MODEL } from "../../shared/domain";
 import { CODE_VIDEO_SEGMENT_MAX, CODE_VIDEO_SINGLE_MAX, codeVideoSize, formatDuration, type CodeAgentEngine, type CodeAgentInput, type CodeVideoPlan } from "../../shared/code-video";
 import { getDb, getSettings, requireDb } from "../db";
-import { renderCodeVideo } from "../worker/code-video";
+import { captureStills, renderCodeVideo } from "../worker/code-video";
 import { callText } from "./ai";
 import { providerConfigured } from "./ai-providers";
 import { kickCodeVideoQueue } from "./code-videos";
@@ -86,13 +86,22 @@ export async function agentEngines() {
 }
 
 /** One answer from the Claude Code CLI: no tools, our system prompt only, nothing saved. */
-async function askClaudeCode(system: string, prompt: string) {
+async function askClaudeCode(system: string, prompt: string, images: Buffer[] = []) {
   const dir = await mkdtemp(join(tmpdir(), "code-agent-"));
   try {
     const sysFile = join(dir, "system.txt");
     await writeFile(sysFile, system, "utf8");
     const model = process.env.CODE_AGENT_CLI_MODEL?.trim() || "sonnet";
-    const r = await runCli(["-p", "--output-format", "json", "--model", model, "--tools", "", "--system-prompt-file", sysFile, "--no-session-persistence", "--strict-mcp-config", "--max-turns", "1"], prompt, 15 * 60_000);
+    // Text jobs get no tools at all; a visual review may only Read the stills written into this temp folder.
+    const files: string[] = [];
+    for (let i = 0; i < images.length; i++) {
+      const f = join(dir, `frame${i + 1}.jpg`);
+      await writeFile(f, images[i]);
+      files.push(f);
+    }
+    const toolArgs = files.length ? ["--tools", "Read", "--allowedTools", "Read", "--add-dir", dir, "--max-turns", String(files.length + 2)] : ["--tools", "", "--max-turns", "1"];
+    const fullPrompt = files.length ? `${prompt}\n\nThe frames are these image files (open each with the Read tool):\n${files.join("\n")}` : prompt;
+    const r = await runCli(["-p", "--output-format", "json", "--model", model, ...toolArgs, "--system-prompt-file", sysFile, "--no-session-persistence", "--strict-mcp-config"], fullPrompt, 15 * 60_000);
     let data: { result?: string; is_error?: boolean; subtype?: string } | null = null;
     try { data = JSON.parse(r.stdout.trim().split("\n").filter(Boolean).pop() ?? ""); } catch { /* not JSON */ }
     if (!data) throw new Error(`Claude Code لم يُرجع ردًا مفهومًا: ${(r.stderr || r.stdout).slice(0, 300)}`);
@@ -108,11 +117,11 @@ async function askClaudeCode(system: string, prompt: string) {
   }
 }
 
-async function ask(engine: CodeAgentEngine, system: string, prompt: string, ref: { id: number; userId?: number | null; what: string }) {
-  if (engine === "claude-code") return askClaudeCode(system, prompt);
+async function ask(engine: CodeAgentEngine, system: string, prompt: string, ref: { id: number; userId?: number | null; what: string }, images: Buffer[] = []) {
+  if (engine === "claude-code") return askClaudeCode(system, prompt, images);
   const settings = await getSettings().catch(() => null);
   const model = (settings as { episodeModel?: string } | null)?.episodeModel || CLAUDE_DEFAULT_MODEL;
-  return callText({ model, system, prompt, maxTokens: 20000, description: `كود ← فيديو #${ref.id}: ${ref.what}`, refType: "code_video", refId: ref.id, userId: ref.userId ?? undefined });
+  return callText({ model, system, prompt, images: images.length ? images.map(b => `data:image/jpeg;base64,${b.toString("base64")}`) : undefined, maxTokens: 20000, description: `كود ← فيديو #${ref.id}: ${ref.what}`, refType: "code_video", refId: ref.id, userId: ref.userId ?? undefined });
 }
 
 /* ------------------------------------------------------------ prompts */
@@ -128,7 +137,8 @@ Hard rules:
 - Timing must come from GSAP/CSS animations/requestAnimationFrame/setTimeout — the recorder controls the clock. Never rely on real time passing between page load and the first frame.
 - Text in the language of the idea; Arabic pages use <html dir="rtl" lang="ar">, Arabic display type line-height ≥ 1.45.
 - Readable on a phone: body text ≥ ${vertical ? 40 : 34}px, titles ≥ ${vertical ? 80 : 64}px.${vertical ? " Keep key content out of the top 180px and bottom 320px (platform UI)." : ""}
-- Facts: only well-established facts. Do not invent statistics, quotes or dates; if the idea gives numbers, use them as given.
+- Facts: NO specific numbers, percentages, prices, dates or quotes unless they appear in the idea or the brief — use qualitative words instead ("prices keep climbing"). If numbers are given, use them exactly.
+- Layout: use the whole frame — compose each moment centred in the safe area, never a small cluster at the top. No element may overlap another at any moment (when one text replaces another, fade the old one out first). Keep ≥ 32px between text blocks and ≥ 60px from the edges.
 - Visual quality: a deliberate palette (2–3 colours + neutrals), real hierarchy, smooth eased motion, no clutter, no lorem ipsum.
 Output ONLY the HTML document, starting with <!doctype html> and ending with </html>. No explanations, no markdown fences.`;
 }
@@ -199,13 +209,42 @@ async function testRender(html: string, width: number, height: number) {
   }
 }
 
-async function writeChecked(engine: CodeAgentEngine, system: string, prompt: string, w: number, h: number, ref: { id: number; userId?: number | null; what: string }) {
+const REVIEW_SYSTEM = `You are a strict motion-design reviewer for short social videos. You look at still frames of an HTML animation and report only real, visible defects. Answer with JSON only: {"ok": true|false, "issues": ["..."]}.`;
+
+/** Looks at four moments of the animation and lists visible defects (overlaps, cut-off text, empty frames…). */
+async function visualReview(engine: CodeAgentEngine, html: string, w: number, h: number, seconds: number, ref: { id: number; userId?: number | null; what: string }) {
+  const at = [0.12, 0.38, 0.65, 0.93].map(f => Math.max(0.3, +(seconds * f).toFixed(2)));
+  const { stills } = await captureStills({ html, width: w, height: h, at, scale: 0.5 });
+  const prompt = `These are ${stills.length} frames (at ${at.map(t => `${t}s`).join(", ")}) of a ${w}x${h} animated video, in order.
+Check each frame for: text overlapping other text or shapes; text cut off by the frame edge; letters of Arabic words disconnected or reversed; text too small to read on a phone or too low contrast; a frame mostly empty or all content crowded into one small area; anything that looks broken.
+Return {"ok": true, "issues": []} if it is publishable, otherwise ok=false and up to 6 short, concrete issues naming the frame and the element.`;
+  const raw = await ask(engine, REVIEW_SYSTEM, prompt, { ...ref, what: `${ref.what} (مراجعة بصرية)` }, stills);
+  try {
+    const r = extractJson<{ ok?: boolean; issues?: string[] }>(raw);
+    const issues = (r.issues ?? []).map(String).filter(Boolean).slice(0, 6);
+    return r.ok === false && issues.length ? issues : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeChecked(engine: CodeAgentEngine, system: string, prompt: string, w: number, h: number, seconds: number, ref: { id: number; userId?: number | null; what: string }) {
   let html = extractHtml(await ask(engine, system, prompt, ref));
   const problems = await testRender(html, w, h);
   if (problems.length) {
-    await log(ref.id, `› ${ref.what}: ${problems.length} مشكلة في التجربة — يصلحها الوكيل`);
+    await log(ref.id, `› ${ref.what}: ${problems.length} خطأ في التجربة — يصلحه الوكيل`);
     const fix = `${prompt}\n\nYour previous file had these problems when test-rendered:\n- ${problems.slice(0, 8).join("\n- ")}\n\nHere it is. Return the corrected complete file.\n\n${html}`;
     html = extractHtml(await ask(engine, system, fix, { ...ref, what: `${ref.what} (إصلاح)` }));
+  }
+  // The agent looks at its own frames once and fixes what it sees.
+  const issues = await visualReview(engine, html, w, h, seconds, ref).catch(() => [] as string[]);
+  if (issues.length) {
+    await log(ref.id, `› ${ref.what}: المراجعة البصرية وجدت ${issues.length} عيبًا — يصلحها`);
+    const fix = `${prompt}\n\nA reviewer looked at frames of your file and found:\n- ${issues.join("\n- ")}\n\nFix every point without changing the timing or the overall idea. Here is your file; return the corrected complete file.\n\n${html}`;
+    const fixed = extractHtml(await ask(engine, system, fix, { ...ref, what: `${ref.what} (تحسين)` }));
+    if (!(await testRender(fixed, w, h)).length) html = fixed;
+  } else {
+    await log(ref.id, `› ${ref.what}: المراجعة البصرية ✓`);
   }
   return html;
 }
@@ -245,7 +284,7 @@ async function writeVideo(id: number, autoConvert: boolean) {
     if (job.durationSec <= CODE_VIDEO_SINGLE_MAX) {
       await log(id, "› يكتب الأنيميشن…");
       const prompt = `Make an animation of exactly ${job.durationSec} seconds.\nIdea (from the owner): """${job.idea}"""`;
-      const html = await writeChecked(engine, system, prompt, job.width, job.height, { ...ref, what: "الأنيميشن" });
+      const html = await writeChecked(engine, system, prompt, job.width, job.height, job.durationSec, { ...ref, what: "الأنيميشن" });
       await db.update(codeVideos).set({ html, title: guessTitleFrom(html) ?? job.title, status: autoConvert ? "queued" : "draft", updatedAt: new Date() }).where(eq(codeVideos.id, id));
       await log(id, autoConvert ? "✓ مكتوب ومجرَّب — دخل طابور التحويل" : "✓ مكتوب ومجرَّب — افتحه وراجعه ثم حوّله");
     } else {
@@ -260,7 +299,7 @@ async function writeVideo(id: number, autoConvert: boolean) {
       for (let i = 0; i < plan.segments.length; i++) {
         if (plan.segments[i].html) continue;
         await log(id, `› يكتب المقطع ${i + 1}/${plan.segments.length}: ${plan.segments[i].title}`);
-        plan.segments[i].html = await writeChecked(engine, system, segmentPrompt(job.idea, plan, i), job.width, job.height, { ...ref, what: `المقطع ${i + 1}` });
+        plan.segments[i].html = await writeChecked(engine, system, segmentPrompt(job.idea, plan, i), job.width, job.height, plan.segments[i].seconds, { ...ref, what: `المقطع ${i + 1}` });
         await db.update(codeVideos).set({ plan, html: plan.segments[0].html ?? "", updatedAt: new Date() }).where(eq(codeVideos.id, id));
       }
       await db.update(codeVideos).set({ status: autoConvert ? "queued" : "draft", updatedAt: new Date() }).where(eq(codeVideos.id, id));

@@ -192,3 +192,44 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
+
+/**
+ * Stills at given seconds (for the agent's visual review): same isolation and virtual clock, the clock is walked
+ * in 50 ms steps (GSAP treats bigger jumps as lag) and only the requested moments are photographed.
+ */
+export async function captureStills(opts: { html: string; width: number; height: number; at: number[]; scale?: number }): Promise<{ stills: Buffer[]; consoleErrors: string[]; blocked: string[] }> {
+  const { width, height } = opts;
+  const browser = await launchBrowser();
+  const blocked: string[] = [];
+  const consoleErrors: string[] = [];
+  try {
+    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: opts.scale ?? 0.5, serviceWorkers: "block" });
+    await context.route("**/*", async route => {
+      const url = route.request().url();
+      if (url === RENDER_ORIGIN) return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": CODE_VIDEO_CSP }, body: opts.html });
+      if (isAllowedRequest(url)) return route.continue();
+      if (blocked.length < 20) blocked.push(url.slice(0, 200));
+      return route.abort("blockedbyclient");
+    });
+    await context.addInitScript({ content: VIRTUAL_TIME_SCRIPT });
+    const page = await context.newPage();
+    page.on("pageerror", e => { if (consoleErrors.length < 20) consoleErrors.push(String(e.message).slice(0, 300)); });
+    await page.goto(RENDER_ORIGIN, { waitUntil: "load", timeout: 60_000 });
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
+    await page.evaluate(() => (document as Document & { fonts?: FontFaceSet }).fonts?.ready).catch(() => undefined);
+    const stills: Buffer[] = [];
+    let t = 0;
+    for (const target of [...opts.at].sort((a, b) => a - b)) {
+      const ms = Math.max(16, target * 1000);
+      while (t < ms) {
+        const dt = Math.min(50, ms - t);
+        await page.evaluate(d => (window as unknown as { __cv: { advance: (x: number) => void } }).__cv.advance(d), dt);
+        t += dt;
+      }
+      stills.push(await page.screenshot({ type: "jpeg", quality: 80, scale: "device" }));
+    }
+    return { stills, consoleErrors, blocked };
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
