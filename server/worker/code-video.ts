@@ -174,8 +174,9 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
     const posterFrame = Math.min(frames - 1, Math.round(fps * Math.min(1.5, opts.durationSec / 2)));
     const step = 1000 / fps;
     for (let i = 0; i < frames; i++) {
-      if (i === 0) await page.evaluate(() => (window as unknown as { __cv: { sync: () => void } }).__cv.sync());
-      else await page.evaluate(dt => (window as unknown as { __cv: { advance: (d: number) => void } }).__cv.advance(dt), step);
+      // Frame 0 is painted half a frame in, as a browser paints after its first animation frame: GSAP and similar
+      // tickers only apply a tween's starting state (gsap.from) once their clock has moved past one tick.
+      await page.evaluate(dt => (window as unknown as { __cv: { advance: (d: number) => void } }).__cv.advance(dt), i === 0 ? step / 2 : step);
       const shot = await page.screenshot({ type: "jpeg", quality: 92, animations: "allow", caret: "hide", scale: "css" });
       if (i === posterFrame) poster = shot;
       await write(shot);
