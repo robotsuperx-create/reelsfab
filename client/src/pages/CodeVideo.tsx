@@ -15,7 +15,7 @@ import {
   withCodeVideoCsp,
   type CodeVideoSizeId,
 } from "@shared/code-video";
-import { Code2, Download, Eye, FileCode2, Film, RefreshCw, Scissors, Trash2, Wand2 } from "lucide-react";
+import { Code2, Download, Eye, Film, Lock, RefreshCw, Scissors, ShieldCheck, Terminal, Trash2, Wand2, WifiOff } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -86,11 +86,19 @@ export default function CodeVideoPage() {
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
-        <section className="panel flex min-w-0 flex-col gap-4 p-4" aria-label="الكود والإعدادات">
-          <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="code-video-html" className="flex items-center gap-2 text-sm"><FileCode2 className="size-4" /> ملف HTML</Label>
-            <span className="num text-[11px] text-muted-foreground">{html.length.toLocaleString("en")} حرف</span>
+        <section className="flex min-w-0 flex-col gap-4" aria-label="الكود والإعدادات">
+          <div className="flex flex-wrap gap-1.5" aria-label="العزل">
+            <span className="cv-chip"><ShieldCheck className="size-3.5" /> يشتغل معزولًا</span>
+            <span className="cv-chip"><WifiOff className="size-3.5" /> الشبكة: CDN والخطوط فقط</span>
+            <span className="cv-chip"><Lock className="size-3.5" /> بلا وصول لمفاتيح الاستوديو</span>
           </div>
+          <div className="cv-term">
+            <div className="cv-bar">
+              <i /><i /><i />
+              <span className="truncate">root@reellllocal:~/code-video# nano animation.html</span>
+              <span className="ms-auto num">{html.length.toLocaleString("en")} chars</span>
+            </div>
+            <Label htmlFor="code-video-html" className="sr-only">ملف HTML</Label>
           <Textarea
             id="code-video-html"
             dir="ltr"
@@ -107,8 +115,11 @@ export default function CodeVideoPage() {
               requestAnimationFrame(() => el.setSelectionRange(a + 2, a + 2));
             }}
             placeholder={"<!doctype html>\n<html>\n<head>…</head>\n<body>…</body>\n</html>"}
-            className="min-h-[340px] resize-y font-mono text-[12.5px] leading-5 xl:min-h-[440px]"
+            className="cv-code min-h-[340px] resize-y p-4 font-mono text-[12.5px] leading-5 xl:min-h-[440px]"
           />
+          </div>
+
+          <div className="panel flex flex-col gap-4 p-4">
 
           <div className="grid gap-4 sm:grid-cols-[1fr_auto_auto]">
             <div className="flex flex-col gap-1.5">
@@ -152,14 +163,17 @@ export default function CodeVideoPage() {
               {durationOk ? `${(seconds * fps).toLocaleString("en")} فريم` : `المدة بين 1 و${CODE_VIDEO_MAX_SECONDS} ثانية`}
             </span>
           </div>
+          </div>
         </section>
 
         <section className="flex min-w-0 flex-col gap-4" aria-label="المعاينة والنتيجة">
-          <div className="panel p-3">
-            <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-              <span>{current?.status === "done" ? "الفيديو الناتج" : preview ? "معاينة حية (بالسرعة الحقيقية)" : "المعاينة"}</span>
-              <span className="num">{size.width}×{size.height}</span>
+          <div className="cv-term">
+            <div className="cv-bar">
+              <Terminal className="size-3.5" />
+              <span className="truncate">{current?.status === "done" ? `output/code-video-${current.id}.mp4` : preview ? "sandbox://preview — live, real time" : "sandbox://preview"}</span>
+              <span className="ms-auto num">{size.width}×{size.height}</span>
             </div>
+            <div className="p-3">
             {current?.status === "done" && current.videoUrl ? (
               <ResultPlayer row={current} />
             ) : preview ? (
@@ -170,6 +184,7 @@ export default function CodeVideoPage() {
               </div>
             )}
             {current && current.status !== "done" && <JobProgress row={current} />}
+            </div>
           </div>
         </section>
       </div>
@@ -239,20 +254,36 @@ function ResultPlayer({ row }: { row: Row }) {
   );
 }
 
+/** The conversion told as a console log, stage by stage, from the job's progress. */
 function JobProgress({ row }: { row: Row }) {
   const retry = trpc.codeVideos.retry.useMutation();
+  const frames = row.durationSec * row.fps;
+  const shot = Math.min(frames, Math.round((Math.min(row.progress, 95) / 95) * frames));
+  const lines: { t: string; cls?: string }[] = [{ t: `$ code2video --size ${row.width}x${row.height} --duration ${row.durationSec}s --fps ${row.fps}`, cls: "dim" }];
+  if (row.status === "queued") lines.push({ t: "› waiting in queue…" });
+  if (row.status === "running" || row.status === "failed") {
+    lines.push({ t: "› spawning isolated Chromium (clean env, CSP, allow-list)" }, { t: "› injecting virtual clock: Date · performance · rAF · CSS animations" });
+    if (row.progress > 0) lines.push({ t: `› capturing frame ${shot}/${frames}  [${"█".repeat(Math.round(row.progress / 5))}${"░".repeat(20 - Math.round(row.progress / 5))}] ${row.progress}%` });
+    if (row.progress >= 95) lines.push({ t: "› encoding H.264 · yuv420p · veryfast" });
+  }
+  if (row.status === "failed") lines.push({ t: `✗ ${row.error ?? "failed"}`, cls: "err" });
   return (
-    <div className="mt-3 flex flex-col gap-2" aria-live="polite">
-      <div className="flex items-center justify-between">
+    <div className="mt-3 flex flex-col gap-3" aria-live="polite">
+      <div className="flex items-center justify-between" dir="rtl">
         <Tally tone={TONE[row.status]} live={row.status === "running"} label={CODE_VIDEO_STATUS_LABELS[row.status]} />
         <span className="num text-xs text-muted-foreground">{row.progress}%</span>
       </div>
       <Progress value={row.status === "queued" ? 0 : row.progress} />
+      <div className="cv-log rounded-lg bg-black/60 p-3">
+        {lines.map((l, i) => (
+          <div key={i} className={cn("break-all", l.cls)}>
+            {l.t}
+            {i === lines.length - 1 && row.status !== "failed" && <span className="cv-cursor" aria-hidden />}
+          </div>
+        ))}
+      </div>
       {row.status === "failed" && (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs leading-5 text-stop">{row.error}</p>
-          <Button size="sm" variant="outline" className="self-start" onClick={() => retry.mutate({ id: row.id })}><RefreshCw /> إعادة المحاولة</Button>
-        </div>
+        <Button size="sm" variant="outline" className="self-start" onClick={() => retry.mutate({ id: row.id })}><RefreshCw /> إعادة المحاولة</Button>
       )}
     </div>
   );

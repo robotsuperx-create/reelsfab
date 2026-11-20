@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>ReellllLocaL — اختراق المنصة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@500;800;900&family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=block" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<style>
+  :root { --acid: #dfff00; --green: #8fe36b; --ink: #f1f0ea; --dim: #6f7a63; }
+  html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; position: relative; background: #000; color: var(--ink); font-family: "IBM Plex Sans Arabic", sans-serif; }
+  canvas#rain { position: absolute; inset: 0; opacity: .32; }
+  .scan { position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(to bottom, rgba(255,255,255,.035) 0 2px, transparent 2px 5px); z-index: 50; }
+  .vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(0,0,0,.85)); z-index: 49; }
+  .mono { font-family: "JetBrains Mono", monospace; direction: ltr; text-align: left; }
+  .scene { position: absolute; inset: 0; opacity: 0; overflow: hidden; }
+
+  /* 1 — terminal boot */
+  #boot { padding: 230px 90px 0; }
+  #boot .line { font-size: 38px; line-height: 1.75; color: var(--green); white-space: pre; }
+  #boot .line b { color: var(--acid); font-weight: 700; }
+  #granted { position: absolute; left: 0; right: 0; top: 1180px; text-align: center; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 92px; letter-spacing: 6px; color: #000; background: var(--acid); padding: 26px 0; opacity: 0; direction: ltr; }
+
+  /* 2 — title */
+  #title { display: grid; place-content: center; text-align: center; }
+  #title h1 { margin: 0; font-family: "Alexandria", sans-serif; font-weight: 900; font-size: 118px; letter-spacing: -2px; direction: ltr; position: relative; white-space: nowrap; }
+  #title h1 span { position: absolute; inset: 0; }
+  #title h1 .r { color: #ff2b55; mix-blend-mode: screen; }
+  #title h1 .c { color: #00f0ff; mix-blend-mode: screen; }
+  #title p { margin: 34px 0 0; font-size: 50px; font-weight: 600; color: var(--acid); }
+  #title .sub { margin-top: 18px; font-size: 32px; color: var(--dim); }
+
+  /* 3 — module breach */
+  #modules .hud { position: absolute; top: 120px; left: 80px; right: 80px; display: flex; justify-content: space-between; font-size: 28px; color: var(--green); }
+  #modules .hud .count { color: var(--acid); font-weight: 700; }
+  #list { position: absolute; top: 230px; right: 80px; width: 380px; }
+  #list .g { font-size: 22px; color: var(--dim); margin: 22px 0 8px; letter-spacing: 1px; }
+  #list .it { display: flex; align-items: center; gap: 14px; font-size: 27px; line-height: 1.55; color: #3c4436; }
+  #list .it i { width: 12px; height: 12px; border: 2px solid #3c4436; flex-shrink: 0; }
+  #list .it.on { color: var(--ink); }
+  #list .it.on i { background: var(--acid); border-color: var(--acid); box-shadow: 0 0 14px var(--acid); }
+  #card { position: absolute; top: 300px; left: 80px; width: 520px; height: 1300px; }
+  .mod { position: absolute; inset: 0; border: 2px solid rgba(223,255,0,.35); border-radius: 26px; background: linear-gradient(180deg, rgba(223,255,0,.07), rgba(0,0,0,.6) 55%); padding: 46px 40px; box-sizing: border-box; opacity: 0; overflow: hidden; }
+  .mod .tag { font-size: 24px; color: var(--green); }
+  .mod .ic { margin: 70px 0 40px; width: 150px; height: 150px; border-radius: 34px; border: 2px solid var(--acid); display: grid; place-items: center; font-family: "JetBrains Mono", monospace; font-size: 64px; font-weight: 700; color: var(--acid); background: rgba(223,255,0,.06); }
+  .mod h2 { margin: 0; font-family: "Alexandria", sans-serif; font-weight: 800; font-size: 64px; line-height: 1.2; }
+  .mod p { margin: 26px 0 0; font-size: 36px; line-height: 1.6; color: #c9c8bf; }
+  .mod .bar { position: absolute; left: 40px; right: 40px; bottom: 120px; height: 14px; border-radius: 7px; background: #1a1f16; overflow: hidden; }
+  .mod .bar u { display: block; height: 100%; width: 0; background: var(--acid); }
+  .mod .st { position: absolute; left: 40px; right: 40px; bottom: 60px; font-size: 26px; color: var(--green); }
+  .mod .st b { color: var(--acid); }
+
+  /* 4 — numbers */
+  #nums { display: grid; align-content: center; gap: 70px; padding: 0 110px; }
+  .num { display: flex; align-items: baseline; gap: 34px; border-bottom: 2px solid #1f2419; padding-bottom: 40px; opacity: 0; }
+  .num b { font-family: "Alexandria", sans-serif; font-weight: 900; font-size: 170px; color: var(--acid); line-height: 1; direction: ltr; min-width: 330px; text-align: right; }
+  .num span { font-size: 46px; font-weight: 600; line-height: 1.35; }
+
+  /* 5 — owned */
+  #owned { display: grid; place-content: center; text-align: center; }
+  #owned .stamp { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 74px; color: var(--acid); border: 6px solid var(--acid); padding: 24px 50px; transform: rotate(-6deg); direction: ltr; margin: 0 auto; }
+  #owned h3 { margin: 110px 0 0; font-family: "Alexandria", sans-serif; font-weight: 900; font-size: 120px; direction: ltr; }
+  #owned p { margin: 26px 0 0; font-size: 50px; color: var(--ink); font-weight: 600; }
+  #owned .cta { margin-top: 70px; font-size: 36px; color: var(--green); }
+</style>
+</head>
+<body>
+<canvas id="rain" width="1080" height="1920"></canvas>
+
+<section class="scene" id="boot">
+  <div class="mono" id="term"></div>
+  <div id="granted">ACCESS GRANTED</div>
+</section>
+
+<section class="scene" id="title">
+  <h1><span class="r">ReellllLocaL</span><span class="c">ReellllLocaL</span>ReellllLocaL</h1>
+  <p>مصنع المحتوى بالذكاء الاصطناعي</p>
+  <div class="sub">17 غرفة · تشتغل وحدها · على جهازك</div>
+</section>
+
+<section class="scene" id="modules">
+  <div class="hud mono"><span>root@reellllocal ~ # breach --all</span><span class="count" id="cnt">00/17</span></div>
+  <div id="list"></div>
+  <div id="card"></div>
+</section>
+
+<section class="scene" id="nums">
+  <div class="num"><b>17</b><span>قناة يوتيوب بهويات مختلفة</span></div>
+  <div class="num"><b>100</b><span>ريل يومياً لعشرة مؤثرين</span></div>
+  <div class="num"><b>$0</b><span>للمونتاج والرندر على جهازك</span></div>
+  <div class="num"><b>MP4</b><span>من أي كود أنيميشن يكتبه الذكاء الاصطناعي</span></div>
+</section>
+
+<section class="scene" id="owned">
+  <div class="stamp">SYSTEM OWNED ✓</div>
+  <h3>ReellllLocaL</h3>
+  <p>كل المحتوى تحت سيطرتك</p>
+  <div class="cta mono" style="text-align:center">&gt; ready_</div>
+</section>
+
+<div class="vignette"></div>
+<div class="scan"></div>
+
+<script>
+// Matrix-style rain on the canvas, driven by requestAnimationFrame.
+const cv = document.getElementById('rain'), cx = cv.getContext('2d');
+const glyphs = '01ابتثجحخدذرزسشصضطظعغفقكلمنهوي{}<>/$#';
+const cols = Math.floor(1080 / 30), drops = Array.from({ length: cols }, (_, i) => (i * 37) % 64);
+function rain() {
+  cx.fillStyle = 'rgba(0,0,0,.12)'; cx.fillRect(0, 0, 1080, 1920);
+  cx.font = '26px "JetBrains Mono", monospace';
+  for (let i = 0; i < cols; i++) {
+    const ch = glyphs[(i * 7 + drops[i] * 13) % glyphs.length];
+    cx.fillStyle = i % 9 === 0 ? '#dfff00' : '#2f6b2a';
+    cx.fillText(ch, i * 30, drops[i] * 30);
+    drops[i] = drops[i] * 30 > 1920 && (i * drops[i]) % 5 === 0 ? 0 : drops[i] + 1;
+  }
+  requestAnimationFrame(rain);
+}
+requestAnimationFrame(rain);
+
+// Terminal boot lines.
+const bootLines = [
+  ['$ ssh root@reellllocal.studio', ''],
+  ['> resolving host ........ ', '[OK]'],
+  ['> scanning ports 22 443 3100 ', '[OPEN]'],
+  ['> bypassing firewall ...... ', '[OK]'],
+  ['> injecting payload ...... ', '[OK]'],
+  ['> decrypting vault ........ ', '[OK]'],
+];
+const term = document.getElementById('term');
+bootLines.forEach(([a, b]) => { const d = document.createElement('div'); d.className = 'line'; d.innerHTML = '<span></span><b></b>'; d.dataset.a = a; d.dataset.b = b; term.appendChild(d); });
+
+// Rooms of the platform, in the order of its sidebar.
+const groups = [
+  ['الإنتاج', [
+    ['غرفة التحكم', 'كل الإنتاج في لوحة واحدة: ما جاهز، ما ينتظر، وما فشل', '⌂'],
+    ['الشخصيات', 'مؤثرون بوجوه ثابتة وأصوات خاصة بكل شخصية', '☺'],
+    ['بنك الأفكار والنصوص', 'Claude يكتب الخطّاف والسكربت لكل شخصية وقناة', '✎'],
+    ['مركز Higgsfield', 'لقطات احترافية للخطّاف والذروة فقط', '✦'],
+    ['الاستوديو الاقتصادي', 'ريلات بسنتات: صور متناسقة وحركة وترجمة', '▶'],
+    ['الرندر الجماعي', 'دفعات كاملة تُرندر بـ ffmpeg مجاناً', '≡'],
+    ['غرفة المونتاج', 'قصّ، انتقالات، ترجمة بأسلوبك، وموسيقى تحت الصوت', '✂'],
+    ['كود ← فيديو', 'أي أنيميشن HTML من أي ذكاء اصطناعي يصبح MP4', '</>'],
+    ['الفيديوهات الكاملة', 'حلقات يوتيوب طويلة بالفصول والمقدمة والخاتمة', '▣'],
+  ]],
+  ['الجودة والنشر', [
+    ['فحص الجودة', 'لا شيء يُنشر قبل أن يمرّ من المراجعة', '✓'],
+    ['التقويم والنشر', 'جدولة كل منشور على كل منصة', '◷'],
+    ['التحليلات', 'الأرقام تقول ما ينجح، والوكيل يتعلّم منها', '↗'],
+  ]],
+  ['التشغيل', [
+    ['مكتبة الأصول', 'لقطات وصور وأصوات موسومة تُعاد في كل ريل', '▤'],
+    ['التكلفة', 'كل سنت مسجّل: نصوص، صوت، صور، لقطات', '$'],
+    ['الاستوديو الآلي', 'يكتب وينتج ويجدول وحده كل يوم', '⟳'],
+    ['الإعدادات والفريق', 'الأدوار والصلاحيات لكل عضو', '⚙'],
+    ['مركز التكاملات', 'كل المفاتيح مشفّرة داخل خزنة واحدة', '⚿'],
+  ]],
+];
+const list = document.getElementById('list'), card = document.getElementById('card');
+const items = [];
+groups.forEach(([g, rooms]) => {
+  const h = document.createElement('div'); h.className = 'g'; h.textContent = '// ' + g; list.appendChild(h);
+  rooms.forEach(([name, text, icon]) => {
+    const it = document.createElement('div'); it.className = 'it'; it.innerHTML = '<i></i><span></span>'; it.querySelector('span').textContent = name; list.appendChild(it);
+    const m = document.createElement('div'); m.className = 'mod';
+    m.innerHTML = '<div class="tag mono"></div><div class="ic"></div><h2></h2><p></p><div class="bar"><u></u></div><div class="st mono">decrypting… <b>0%</b></div>';
+    m.querySelector('.tag').textContent = 'MODULE ' + String(items.length + 1).padStart(2, '0') + ' / 17';
+    m.querySelector('.ic').textContent = icon; m.querySelector('h2').textContent = name; m.querySelector('p').textContent = text;
+    card.appendChild(m);
+    items.push({ it, m });
+  });
+});
+
+const tl = gsap.timeline({ defaults: { ease: 'power2.out' } });
+
+// 1 — boot (0 → 4.4 s)
+tl.set('#boot', { opacity: 1 }, 0);
+document.querySelectorAll('#term .line').forEach((d, i) => {
+  const a = d.dataset.a, b = d.dataset.b, sa = d.querySelector('span'), sb = d.querySelector('b');
+  const o = { n: 0 };
+  tl.to(o, { n: a.length, duration: 0.42, ease: 'none', onUpdate: () => { sa.textContent = a.slice(0, Math.round(o.n)); } }, 0.15 + i * 0.5);
+  tl.call(() => { sb.textContent = b; }, null, 0.6 + i * 0.5);
+});
+tl.to('#granted', { opacity: 1, duration: 0.05 }, 3.3)
+  .to('#granted', { opacity: 0.2, duration: 0.05, repeat: 5, yoyo: true }, 3.36)
+  .to('#boot', { opacity: 0, duration: 0.3 }, 4.1);
+
+// 2 — title glitch (4.4 → 7.6 s)
+tl.to('#title', { opacity: 1, duration: 0.2 }, 4.4)
+  .fromTo('#title h1', { scale: 1.25, filter: 'blur(14px)' }, { scale: 1, filter: 'blur(0px)', duration: 0.6 }, 4.4)
+  .fromTo('#title .r', { x: -22 }, { x: 0, duration: 0.08, repeat: 7, yoyo: true, ease: 'none' }, 4.45)
+  .fromTo('#title .c', { x: 22 }, { x: 0, duration: 0.08, repeat: 7, yoyo: true, ease: 'none' }, 4.45)
+  .from('#title p', { y: 40, opacity: 0, duration: 0.5 }, 5.0)
+  .from('#title .sub', { y: 30, opacity: 0, duration: 0.5 }, 5.4)
+  .to('#title', { opacity: 0, duration: 0.3 }, 7.3);
+
+// 3 — breach every room (7.6 → 27.2 s), 1.15 s each
+const T0 = 7.6, STEP = 1.15;
+tl.to('#modules', { opacity: 1, duration: 0.25 }, T0);
+const cnt = document.getElementById('cnt');
+items.forEach(({ it, m }, i) => {
+  const t = T0 + 0.2 + i * STEP;
+  const pct = m.querySelector('.st b'), bar = m.querySelector('.bar u'), o = { p: 0 };
+  tl.fromTo(m, { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.25 }, t)
+    .to(o, { p: 100, duration: 0.65, ease: 'power1.in', onUpdate: () => { bar.style.width = o.p + '%'; pct.textContent = Math.round(o.p) + '%'; } }, t + 0.1)
+    .call(() => { it.classList.add('on'); cnt.textContent = String(i + 1).padStart(2, '0') + '/17'; m.querySelector('.st').innerHTML = 'access <b>GRANTED</b>'; }, null, t + 0.78)
+    .to(m, { opacity: 0, x: -60, duration: 0.2 }, t + STEP - 0.2);
+});
+const T1 = T0 + 0.2 + items.length * STEP;
+tl.to('#modules', { opacity: 0, duration: 0.3 }, T1);
+
+// 4 — numbers (≈27.4 → 32 s)
+tl.to('#nums', { opacity: 1, duration: 0.2 }, T1 + 0.2)
+  .fromTo('.num', { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.45, stagger: 0.45 }, T1 + 0.3)
+  .to('#nums', { opacity: 0, duration: 0.3 }, T1 + 4.4);
+
+// 5 — owned (≈32 → 36 s)
+tl.to('#owned', { opacity: 1, duration: 0.2 }, T1 + 4.7)
+  .from('#owned .stamp', { scale: 2.6, opacity: 0, duration: 0.35, ease: 'back.out(2)' }, T1 + 4.75)
+  .from('#owned h3', { y: 50, opacity: 0, duration: 0.5 }, T1 + 5.2)
+  .from('#owned p', { y: 40, opacity: 0, duration: 0.5 }, T1 + 5.5)
+  .from('#owned .cta', { opacity: 0, duration: 0.3 }, T1 + 5.9);
+</script>
+</body>
+</html>

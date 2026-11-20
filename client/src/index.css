@@ -283,3 +283,85 @@
     filter: drop-shadow(0 0 7px currentColor);
   }
 }
+
+/* "Code → video" room: an intrusion console — terminal chrome, scanlines, a phosphor cursor. Scoped to .cv-*. */
+@layer components {
+  .cv-term {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid color-mix(in oklch, var(--tally) 22%, transparent);
+    border-radius: 16px;
+    background: #050605;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 60%), 0 24px 60px -30px color-mix(in oklch, var(--tally) 35%, transparent);
+  }
+  .cv-term::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgb(255 255 255 / 2.2%) 0 1px, transparent 1px 3px);
+    mix-blend-mode: screen;
+  }
+  .cv-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.9rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--tally) 14%, transparent);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: color-mix(in oklch, var(--tally) 70%, #9a9a90);
+    direction: ltr;
+  }
+  .cv-bar i {
+    width: 9px;
+    height: 9px;
+    border-radius: 9999px;
+    background: rgb(255 255 255 / 14%);
+  }
+  .cv-code {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: #d6f5c8;
+    caret-color: var(--tally);
+  }
+  .cv-code::placeholder { color: rgb(214 245 200 / 28%); }
+  .cv-code::selection { background: color-mix(in oklch, var(--tally) 30%, transparent); }
+  .cv-log {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    direction: ltr;
+    text-align: left;
+    color: #b9e8a6;
+  }
+  .cv-log .ok { color: var(--tally); }
+  .cv-log .err { color: var(--stop, #ff5a4f); }
+  .cv-log .dim { color: rgb(185 232 166 / 45%); }
+  .cv-cursor {
+    display: inline-block;
+    width: 0.6em;
+    height: 1.05em;
+    margin-inline-start: 2px;
+    vertical-align: text-bottom;
+    background: var(--tally);
+    animation: cv-blink 1s steps(1) infinite;
+  }
+  .cv-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid color-mix(in oklch, var(--tally) 25%, transparent);
+    border-radius: 9999px;
+    font-size: 11px;
+    color: color-mix(in oklch, var(--tally) 80%, white);
+    background: color-mix(in oklch, var(--tally) 6%, transparent);
+  }
+  @keyframes cv-blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .cv-cursor { animation: none; }
+  }
+}
