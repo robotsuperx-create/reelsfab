@@ -32,6 +32,9 @@ export function themeForKind(kind: VideoKind): KitTheme {
   return ({ reel: "kinetic", explainer: "infographic", documentary: "documentary", data: "infographic", promo: "kinetic", quote: "documentary" } as const)[kind];
 }
 
+/** The music mood each look implies when nothing else chose one (same as the kit's defaults). */
+export const THEME_MOOD: Record<KitTheme, "tense" | "upbeat" | "tech" | "calm" | "playful"> = { documentary: "tense", kinetic: "upbeat", neon: "tech", infographic: "calm", storybook: "playful" };
+
 /** Style recipe ids of the room (shared/code-video STYLE_RECIPES) → kit theme of the same look. */
 export const STYLE_TO_THEME: Record<string, KitTheme> = { documentary: "documentary", kinetic: "kinetic", neon: "neon", infographic: "infographic", storybook: "storybook" };
 
@@ -39,10 +42,15 @@ const DIRECTION = `MOTION DIRECTION (how a senior motion designer thinks):
 - Every scene has ONE job (hook, fact, contrast, reveal, proof, payoff). Write that job in "note" before choosing items.
 - The eye needs one hero per scene: the biggest, first-moving element carries the message; the rest supports it.
 - Rhythm = variety with intent. Alternate dense and airy scenes; short punchy scenes after a long one; never three scenes in a row led by the same component.
-- Transitions carry meaning: "mask"/"slide" = next point in a list or story, "zoom" = going deeper / a reveal, "flash" = shock or a hard number, "fade" = calm change of subject, "cut" = on a beat in fast reels. Do not use the same transition everywhere.
+- Transitions carry meaning: "mask"/"slide" = next point in a list or story, "zoom" = going deeper / a reveal, "flash" = shock or a hard number, "fade" = calm change of subject, "cut" = on a beat in fast reels, "iris" = focus on one thing, "stripes" = new chapter (bold, branded), "whip" = fast jump to a contrast, "glitch" = tech / something broken or hidden. Do not use the same transition everywhere.
 - Camera: "push" for statements that build tension, "pull" for reveals and conclusions, "drift" for lists and calm passages, "none" when the scene is busy.
 - Emphasis: 1–2 words per scene at most — the word a listener would stress. Emphasising everything emphasises nothing.
 - Hold the payoff: the most important scene gets the most time; the end must be a composed frame, not a fade to nothing.`;
+
+const FX_SOUND = `EFFECTS, EMOJI AND SOUND (they make it feel alive — use them with intent, not everywhere):
+- Scene "fx" at most on 1–3 key scenes: "shake" on a shocking number or claim, "confetti" (or "fxEmoji": "💸" money rain, "🎉"…) only on a payoff or celebration, "sparkles" on something positive/magical, "rings" behind a single hero (icon, stat, emoji), "lightleak" + "dust" + "letterbox" for cinematic, emotional or documentary moments, "glitch" for tech, hacking, fake news, errors.
+- Emoji: a glossy 3D emoji is a strong hero for reels, promos, kids and casual topics (one per scene, with a motion that fits: "bounce" for energy, "float" for calm, "pulse" for warning/love, "spin" for money/time, "wiggle" for fun). In serious documentary scenes prefer the line icons.
+- Sound is automatic: every transition, slammed line, counting number, list item, pop and end card gets its own effect, timed to the frame. Choose the music mood in "sound": "tense" (politics, economy, investigations, history), "upbeat" (motivation, promos, lifestyle reels), "tech" (AI, crypto, gadgets), "calm" (explainers, education, data), "playful" (kids, food, funny), "epic" (big stakes, wars, empires, sport). Add an "sfx" item only for an extra accent the motion does not already sound (e.g. "impact" on a reveal, "chime" on good news).`;
 
 const COPY_AR = `ON-SCREEN COPY:
 - Screen text is not narration: short, concrete, spoken-style lines. A title is at most ~7 words; a text line at most ~18.
@@ -80,7 +88,7 @@ const THEMES_DOC = `THEMES (pick the one that fits unless the owner chose):
 
 /** The modules a director needs for one video. */
 export function knowledgeFor(kind: VideoKind, opts: { chosenTheme?: KitTheme | null; vertical: boolean }) {
-  return [DIRECTION, HOOKS, PACING[kind], COMPONENTS_FIT, COPY_AR, opts.chosenTheme ? `THEME: "${opts.chosenTheme}" (chosen by the owner — keep it).` : THEMES_DOC, opts.vertical ? "FORMAT: vertical 9:16 for phones — the kit keeps texts inside the safe area; keep lines short." : "FORMAT: horizontal 16:9 — wider lines are fine, keep the same discipline."].join("\n\n");
+  return [DIRECTION, HOOKS, PACING[kind], COMPONENTS_FIT, FX_SOUND, COPY_AR, opts.chosenTheme ? `THEME: "${opts.chosenTheme}" (chosen by the owner — keep it).` : THEMES_DOC, opts.vertical ? "FORMAT: vertical 9:16 for phones — the kit keeps texts inside the safe area; keep lines short." : "FORMAT: horizontal 16:9 — wider lines are fine, keep the same discipline."].join("\n\n");
 }
 
 /** What the critic scores (0–10 each). */

@@ -1,0 +1,18 @@
+{
+  "title": "كيف تضاعف دخلك؟",
+  "theme": "kinetic",
+  "lang": "ar",
+  "progress": true,
+  "sound": { "mood": "upbeat" },
+  "scenes": [
+    { "from": 0, "to": 2.6, "transition": "rise", "note": "hook",
+      "items": [ { "type": "emoji", "char": "💸", "motion": "bounce" }, { "type": "kinetic", "lines": ["راتبك", "لا يكفي؟"], "emphasis": ["لا يكفي؟"] } ] },
+    { "from": 2.6, "to": 5.6, "transition": "stripes", "fx": ["shake"],
+      "items": [ { "type": "stat", "value": 70, "suffix": "%", "label": "من الناس بلا دخل ثانٍ" } ] },
+    { "from": 5.6, "to": 9.4, "transition": "whip", "camera": "drift",
+      "items": [ { "type": "title", "text": "ثلاث خطوات بسيطة", "size": "m" }, { "type": "list", "items": ["مهارة تبيعها", "عرض واضح", "عميل أول"], "numbered": true } ] },
+    { "from": 9.4, "to": 12.4, "transition": "iris", "fx": ["rings", "sparkles"],
+      "items": [ { "type": "emoji", "char": "🚀", "motion": "float", "size": 300 }, { "type": "title", "text": "ابدأ هذا الأسبوع", "emphasis": ["هذا الأسبوع"] } ] }
+  ],
+  "end": { "text": "احفظ الفيديو وابدأ", "cta": "تابع للمزيد", "seconds": 2.6, "fx": ["confetti"], "fxEmoji": "💰" }
+}

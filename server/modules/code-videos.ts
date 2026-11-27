@@ -80,6 +80,12 @@ export const codeVideosRouter = router({
     return startAgentVideo(input, ctx.user?.id);
   }),
 
+  /** The owner's music tracks (asset library), to use instead of generated music. */
+  musicTracks: memberProcedure.query(async () => {
+    const db = await requireDb();
+    return db.select({ id: assets.id, title: assets.title, durationMs: assets.durationMs }).from(assets).where(eq(assets.kind, "music")).orderBy(desc(assets.id)).limit(200);
+  }),
+
   /** Videos in the library the agent can write on (newest first). */
   sourceVideos: memberProcedure.query(async () => {
     const db = await requireDb();

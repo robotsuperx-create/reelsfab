@@ -6,7 +6,22 @@
 import { z } from "zod";
 import { expandKit, type KitTheme } from "./code-craft/kit";
 import { STYLE_TO_THEME, VIDEO_KIND_IDS, guessKind, knowledgeFor, themeForKind, type VideoKind } from "./code-craft/knowledge";
-import { compileStoryboard, looksLikeStoryboard, extractJsonObject, normalizeStoryboard, storyboardDoc } from "./code-craft/storyboard";
+import { compileStoryboard, looksLikeStoryboard, extractJsonObject, normalizeStoryboard, storyboardDoc, SB_MOODS } from "./code-craft/storyboard";
+
+/** Sound of a code video: effects that follow the motion + a music bed; only the music; or silent. */
+export const SOUND_MODES = ["auto", "music", "off"] as const;
+export type SoundModeId = (typeof SOUND_MODES)[number];
+export const SOUND_MODE_LABELS: Record<SoundModeId, string> = { auto: "مؤثرات + موسيقى", music: "موسيقى فقط", off: "بلا صوت" };
+export const SOUND_MOODS = SB_MOODS;
+export type SoundMoodId = (typeof SB_MOODS)[number];
+export const SOUND_MOOD_LABELS: Record<SoundMoodId, string> = { tense: "توتر وثائقي", upbeat: "حماسي", tech: "تقني", calm: "هادئ", playful: "مرح", epic: "ملحمي" };
+const soundFields = {
+  sound: z.enum(SOUND_MODES).optional(),
+  /** Music mood; empty = the storyboard's (the director chooses) or the theme's. */
+  mood: z.enum(SB_MOODS).optional(),
+  /** One of the owner's own music tracks (asset library) instead of generated music. */
+  musicAssetId: z.number().int().optional(),
+};
 
 export const CODE_VIDEO_SIZES = [
   { id: "1080x1920", width: 1080, height: 1920, label: "1080×1920 — عمودي (ريل)" },
@@ -51,6 +66,7 @@ export const codeVideoInputSchema = z.object({
   durationSec: z.number().int().min(1).max(CODE_VIDEO_MAX_SECONDS),
   fps: z.union([z.literal(30), z.literal(60)]),
   quality: z.enum(["standard", "cinema"]).optional(),
+  ...soundFields,
 });
 export type CodeVideoInput = z.infer<typeof codeVideoInputSchema>;
 
@@ -78,6 +94,7 @@ export const codeAgentInputSchema = z.object({
   kind: z.enum(VIDEO_KIND_IDS).optional(),
   /** Brand colour for the kit's accent (#rrggbb). */
   accent: z.string().regex(/^#[\da-fA-F]{6}$/).optional(),
+  ...soundFields,
 });
 export type CodeAgentInput = z.infer<typeof codeAgentInputSchema>;
 

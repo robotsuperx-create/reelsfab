@@ -269,7 +269,7 @@ export async function startAgentVideo(input: CodeAgentInput, userId?: number | n
   const title = input.idea.replace(/\s+/g, " ").trim().slice(0, 80);
   const [row] = await db
     .insert(codeVideos)
-    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: { styleId: input.styleId, mode: input.mode ?? "compose", kind: input.kind, accent: input.accent }, createdBy: userId ?? null })
+    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: { styleId: input.styleId, mode: input.mode ?? "compose", kind: input.kind, accent: input.accent, sound: input.sound ?? "auto", mood: input.mood, musicAssetId: input.musicAssetId }, createdBy: userId ?? null })
     .returning({ id: codeVideos.id });
   queue.push(row.id);
   void drainAgent(input.autoConvert);

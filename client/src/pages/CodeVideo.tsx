@@ -36,6 +36,12 @@ import {
   type AgentMode,
   pageFromPasted,
   storyboardPrompt,
+  SOUND_MODES,
+  SOUND_MODE_LABELS,
+  SOUND_MOODS,
+  SOUND_MOOD_LABELS,
+  type SoundModeId,
+  type SoundMoodId,
 } from "@shared/code-video";
 import { VIDEO_KINDS, CRITIC_RUBRIC, type VideoKind } from "@shared/code-craft/knowledge";
 import { looksLikeStoryboard, type Storyboard } from "@shared/code-craft/storyboard";
@@ -53,7 +59,7 @@ const DRAFT_KEY = "code-video-draft";
 
 function readDraft() {
   try {
-    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality; agentMode?: AgentMode; kind?: VideoKind | ""; accent?: string } | null;
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality; agentMode?: AgentMode; kind?: VideoKind | ""; accent?: string; sound?: SoundModeId; mood?: SoundMoodId | ""; musicAssetId?: number | null } | null;
   } catch {
     return null;
   }
@@ -84,6 +90,9 @@ export default function CodeVideoPage() {
   const [agentMode, setAgentMode] = useState<AgentMode>(draft?.agentMode ?? "compose");
   const [kind, setKind] = useState<VideoKind | "">(draft?.kind ?? "");
   const [accent, setAccent] = useState(draft?.accent ?? "");
+  const [sound, setSound] = useState<SoundModeId>(draft?.sound ?? "auto");
+  const [mood, setMood] = useState<SoundMoodId | "">(draft?.mood ?? "");
+  const [musicAssetId, setMusicAssetId] = useState<number | null>(draft?.musicAssetId ?? null);
   const [inspection, setInspection] = useState<{ result: CodeInspection; fixedFrom?: { html: string; before: CodeIssue[] } } | null>(null);
   const size = codeVideoSize(sizeId);
   const seconds = Math.round(Number(duration));
@@ -92,10 +101,12 @@ export default function CodeVideoPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent })); } catch { /* private mode */ }
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId })); } catch { /* private mode */ }
     }, 400);
     return () => clearTimeout(t);
-  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent]);
+  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId]);
+  const tracks = trpc.codeVideos.musicTracks.useQuery(undefined, { staleTime: 60_000 });
+  const soundOpts = { sound, mood: mood || undefined, musicAssetId: sound !== "off" && musicAssetId ? musicAssetId : undefined };
 
   const utils = trpc.useUtils();
   const engines = trpc.codeVideos.engines.useQuery(undefined, { staleTime: 60_000 });
@@ -167,12 +178,12 @@ export default function CodeVideoPage() {
     if (html.trim().length < 20) return toast.error("ألصق ملف HTML أولًا");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
     if (current && current.status === "draft") return queueDraft.mutate({ id: current.id, html: current.segments > 1 ? undefined : html });
-    convert.mutate({ html, size: sizeId, durationSec: seconds, fps, quality });
+    convert.mutate({ html, size: sizeId, durationSec: seconds, fps, quality, ...soundOpts });
   };
   const startAgent = () => {
     if (idea.trim().length < 8) return toast.error("اكتب الفكرة بجملة على الأقل");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
-    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality, mode: agentMode, kind: kind || undefined, accent: /^#[\da-f]{6}$/i.test(accent) ? accent : undefined });
+    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality, mode: agentMode, kind: kind || undefined, accent: /^#[\da-f]{6}$/i.test(accent) ? accent : undefined, ...soundOpts });
   };
   const e = engines.data;
 
@@ -248,6 +259,28 @@ export default function CodeVideoPage() {
               <span className="num text-[11px] text-muted-foreground">
                 {durationOk ? `${formatDuration(seconds)} · ${(seconds * fps).toLocaleString("en")} فريم${parts > 1 ? ` · ${parts} مقطعًا يكتبها الوكيل` : ""}` : "المدة بين ثانية و40 دقيقة"}
               </span>
+            </div>
+            <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+              <span className="text-xs text-muted-foreground">الصوت — مؤثرات تتبع كل حركة (رنين، صفير، ضربة، فرقعة…) وموسيقى تناسب الموضوع، بلا كلام</span>
+              <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="الصوت">
+                {SOUND_MODES.map(m => <Chip key={m} on={sound === m} onClick={() => setSound(m)}>{SOUND_MODE_LABELS[m]}</Chip>)}
+              </div>
+              {sound !== "off" && (
+                <>
+                  <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="مزاج الموسيقى">
+                    <Chip on={mood === ""} onClick={() => setMood("")} title="المخرج يختار حسب الموضوع، أو حسب الأسلوب">يختار المخرج</Chip>
+                    {SOUND_MOODS.map(m => <Chip key={m} on={mood === m} onClick={() => setMood(m)}>{SOUND_MOOD_LABELS[m]}</Chip>)}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                    <label htmlFor="cv-music" className="shrink-0">الموسيقى:</label>
+                    <select id="cv-music" value={musicAssetId ?? ""} onChange={ev => setMusicAssetId(ev.target.value ? Number(ev.target.value) : null)} className="h-8 min-w-0 max-w-full flex-1 rounded-md border border-border bg-black/40 px-2 text-xs">
+                      <option value="">مولّدة على جهازك حسب المزاج (مجانية)</option>
+                      {(tracks.data ?? []).map(t => <option key={t.id} value={t.id}>{(t.title ?? `مقطع #${t.id}`).slice(0, 60)}</option>)}
+                    </select>
+                  </div>
+                  <span className="text-[11px] leading-5 text-muted-foreground">الصوت يُضاف عند التحويل إلى MP4؛ المعاينة في المتصفح صامتة.</span>
+                </>
+              )}
             </div>
           </div>
 

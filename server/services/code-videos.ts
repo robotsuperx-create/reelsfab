@@ -10,10 +10,14 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { desc, eq, sql } from "drizzle-orm";
 import { assets, codeVideos } from "../../drizzle/schema";
-import { codeVideoSize, type CodeVideoInput, type RenderQuality } from "../../shared/code-video";
+import { codeVideoSize, type CodeVideoInput, type RenderQuality, type SoundModeId, type SoundMoodId } from "../../shared/code-video";
+import { THEME_MOOD } from "../../shared/code-craft/knowledge";
+import { storyboardFromHtml } from "../../shared/code-craft/storyboard";
+import { storageKeyFromUrl } from "../storage";
+import type { RenderSound } from "../worker/code-video";
 import { getDb, requireDb } from "../db";
 import { mediaPut } from "../storage";
-import { renderCodeVideo, renderOverlay, type CodeVideoRender } from "../worker/code-video";
+import { addSoundtrack, renderCodeVideo, renderOverlay, type CodeVideoRender } from "../worker/code-video";
 import { storageDownload } from "../storage";
 
 async function sourceFile(key: string) {
@@ -33,7 +37,7 @@ export async function enqueueCodeVideo(input: CodeVideoInput, userId?: number | 
   const title = input.title?.trim() || guessTitle(input.html) || `كود ← فيديو ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
   const [row] = await db
     .insert(codeVideos)
-    .values({ title: title.slice(0, 160), html: input.html, width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", createdBy: userId ?? null })
+    .values({ title: title.slice(0, 160), html: input.html, width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", analysis: { sound: input.sound ?? "auto", mood: input.mood, musicAssetId: input.musicAssetId }, createdBy: userId ?? null })
     .returning({ id: codeVideos.id });
   kickCodeVideoQueue();
   return row;
@@ -97,11 +101,14 @@ export async function processCodeVideo(id: number) {
     const quality: RenderQuality = job.quality === "cinema" ? "cinema" : "standard";
     const overlayOn = job.sourceKey ? await sourceFile(job.sourceKey) : null;
     const duration = Number((job.analysis as { map?: { duration?: number } } | null)?.map?.duration) || job.durationSec;
-    const r = overlayOn
-      ? await renderOverlay({ html: job.html, videoPath: overlayOn.path, width: job.width, height: job.height, durationSec: duration, fps: job.fps, onProgress: report }).finally(() => overlayOn.cleanup())
+    const musicOwn = overlayOn ? null : await musicFileFor(job.analysis as SoundSettings | null);
+    const sound = soundFor(job.analysis as SoundSettings | null, segments.map(s => s.html!), id, musicOwn?.path ?? null);
+    const r = await (overlayOn
+      ? renderOverlay({ html: job.html, videoPath: overlayOn.path, width: job.width, height: job.height, durationSec: duration, fps: job.fps, onProgress: report }).finally(() => overlayOn.cleanup())
       : segments.length > 1
-      ? await renderSegments(segments.map(s => ({ html: s.html!, seconds: s.seconds })), job.width, job.height, job.fps, report, quality)
-      : await renderCodeVideo({ html: job.html, width: job.width, height: job.height, durationSec: job.durationSec, fps: job.fps, quality, onProgress: report });
+      ? renderSegments(segments.map(s => ({ html: s.html!, seconds: s.seconds })), job.width, job.height, job.fps, report, quality, sound)
+      : renderCodeVideo({ html: job.html, width: job.width, height: job.height, durationSec: job.durationSec, fps: job.fps, quality, sound, onProgress: report })
+    ).finally(() => musicOwn?.cleanup());
     const video = await mediaPut(`code-videos/code-video-${id}.mp4`, r.video, "video/mp4");
     const poster = await mediaPut(`code-videos/code-video-${id}.jpg`, r.poster, "image/jpeg");
     const [asset] = await db
@@ -133,8 +140,37 @@ export async function processCodeVideo(id: number) {
   }
 }
 
+type SoundSettings = { sound?: SoundModeId; mood?: SoundMoodId; musicAssetId?: number };
+
+/**
+ * The job's sound: its mode (default: effects + music), and for long videos one mood for every segment (the owner's,
+ * else the first segment's storyboard, else its look) so the music is one continuous track.
+ */
+export function soundFor(a: SoundSettings | null, segmentHtml: string[], seed: number, musicFile: string | null): RenderSound {
+  const mode = a?.sound ?? "auto";
+  let mood = a?.mood ?? null;
+  if (!mood && segmentHtml.length > 1) {
+    const sb = storyboardFromHtml(segmentHtml[0]);
+    mood = sb?.sound?.mood ?? (sb ? THEME_MOOD[sb.theme] : null) ?? "calm";
+  }
+  return { mode, mood, musicFile, seed };
+}
+
+/** The owner's chosen track from the asset library, downloaded for the mixer. */
+async function musicFileFor(a: SoundSettings | null) {
+  if (!a?.musicAssetId || a.sound === "off") return null;
+  const db = await requireDb();
+  const [asset] = await db.select().from(assets).where(eq(assets.id, a.musicAssetId));
+  const key = asset && (asset.storageKey ?? storageKeyFromUrl(asset.url));
+  if (!key) return null;
+  const dir = await mkdtemp(join(tmpdir(), "code-video-music-"));
+  const path = join(dir, "music");
+  await writeFile(path, await storageDownload(key));
+  return { path, cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => undefined) };
+}
+
 /** Long videos: each segment rendered on its own, then joined without re-encoding (same size, fps and codec). */
-export async function renderSegments(parts: { html: string; seconds: number }[], width: number, height: number, fps: number, onProgress: (p: number) => void, quality: RenderQuality = "standard"): Promise<CodeVideoRender> {
+export async function renderSegments(parts: { html: string; seconds: number }[], width: number, height: number, fps: number, onProgress: (p: number) => void, quality: RenderQuality = "standard", sound?: RenderSound): Promise<CodeVideoRender> {
   const dir = await mkdtemp(join(tmpdir(), "code-video-join-"));
   try {
     const total = parts.reduce((a, p) => a + p.seconds, 0);
@@ -144,9 +180,15 @@ export async function renderSegments(parts: { html: string; seconds: number }[],
     const blocked: string[] = [];
     const consoleErrors: string[] = [];
     const files: string[] = [];
+    const cues: unknown[] = [];
+    let firstSound: import("../worker/sound/soundtrack").PageSound | null = null;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
+      // Segments are recorded silent; their cues are kept with their place in the whole video, and one soundtrack
+      // is laid over the joined file (separate audio per segment would leave tiny gaps at every join).
       const r = await renderCodeVideo({ html: part.html, width, height, durationSec: part.seconds, fps, quality, onProgress: p => onProgress((done + p * part.seconds) / total) });
+      for (const c of r.pageSound?.cues ?? []) if (c && typeof c === "object") cues.push({ ...(c as object), t: Number((c as { t?: number }).t) + done });
+      firstSound ??= r.pageSound ?? null;
       const file = join(dir, `part${String(i).padStart(3, "0")}.mp4`);
       await writeFile(file, r.video);
       files.push(file);
@@ -160,7 +202,8 @@ export async function renderSegments(parts: { html: string; seconds: number }[],
     await writeFile(list, files.map(f => `file '${f.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"));
     const out = join(dir, "joined.mp4");
     await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", out], { maxBuffer: 8 * 1024 * 1024 });
-    return { video: await readFile(out), poster: poster!, frames, blocked: blocked.slice(0, 20), consoleErrors: consoleErrors.slice(0, 20) };
+    const audio = sound ? await addSoundtrack(out, dir, total, { mood: firstSound?.mood, sfx: true, music: true, cues }, sound) : null;
+    return { video: await readFile(audio ? join(dir, "with-sound.mp4") : out), poster: poster!, frames, blocked: blocked.slice(0, 20), consoleErrors: consoleErrors.slice(0, 20), audio: audio ?? undefined };
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }

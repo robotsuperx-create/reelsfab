@@ -106,6 +106,40 @@ describe("storyboards", () => {
   });
 });
 
+describe("storyboard extras: emoji, effects, sound", () => {
+  it("keeps valid emojis, effects, transitions and the mood, and drops the rest", () => {
+    const { storyboard, issues } = normalizeStoryboard(
+      {
+        sound: { mood: "epic", sfx: false, extra: 1 },
+        scenes: [
+          { from: 0, to: 4, transition: "iris", fx: ["shake", "rings", "lasers", "confetti"], fxEmoji: "💸", items: [{ type: "emoji", char: "🔥", motion: "bounce", size: 999 }, { type: "sfx", name: "impact", at: 0.5 }, { type: "title", text: "عنوان", sfx: false }] },
+          { from: 4, to: 8, transition: "wormhole", items: [{ type: "emoji", char: "abc" }, { type: "sfx", name: "airhorn" }, { type: "kinetic", lines: ["a"] }] },
+        ],
+        end: { text: "النهاية", fx: ["confetti"], fxEmoji: "🎉" },
+      },
+      12,
+    );
+    const [a, b] = storyboard.scenes;
+    expect(a.transition).toBe("iris");
+    expect(a.fx).toEqual(["shake", "rings"]);
+    expect(a.fxEmoji).toBe("💸");
+    expect(a.items[0]).toEqual({ type: "emoji", char: "🔥", motion: "bounce", size: 420 });
+    expect(a.items.find(i => i.type === "sfx")).toEqual({ type: "sfx", at: 0.5, name: "impact", gain: 1 });
+    expect(a.items.find(i => i.type === "title")).toMatchObject({ sfx: false });
+    expect(b.transition).toBeUndefined();
+    expect(b.items.map(i => i.type)).toEqual(["kinetic"]);
+    expect(issues.some(i => i.includes("emoji item needs"))).toBe(true);
+    expect(issues.some(i => i.includes('unknown sound "airhorn"'))).toBe(true);
+    expect(storyboard.sound).toEqual({ mood: "epic", sfx: false });
+    expect(storyboard.end).toMatchObject({ fx: ["confetti"], fxEmoji: "🎉" });
+  });
+
+  it("warns when effects are everywhere", () => {
+    const { issues } = normalizeStoryboard({ scenes: [0, 1, 2, 3].map(i => ({ from: i * 3, to: i * 3 + 3, fx: ["sparkles"], items: [{ type: "icon", name: "star" }] })) }, 12);
+    expect(issues.some(i => i.includes("effects"))).toBe(true);
+  });
+});
+
 describe("director loop", () => {
   const sb = (title: string) => JSON.stringify({ theme: "kinetic", scenes: [{ from: 0, to: 5, note: "hook", items: [{ type: "title", text: title }] }, { from: 5, to: 10, items: [{ type: "stat", value: 3, label: "مرات" }] }] });
   const review = (n: number) => JSON.stringify({ scores: { legibility: n, hierarchy: n, composition: n, story: n, polish: n }, issues: n < 8 ? ["frame 1: title too small"] : [] });
@@ -202,5 +236,39 @@ describe.skipIf(process.env.CODE_VIDEO_OFFLINE === "1")("kit pages in the real r
     }
     expect(raw.findings.some(f => f.visibleTexts > 0)).toBe(true);
     expect(raw.still.length).toBeLessThan(2);
+  }, 120_000);
+
+  it("renders the kit's sound: effects on the movements over a music bed, muxed into the MP4", async () => {
+    const { renderCodeVideo } = await import("../worker/code-video");
+    const { execFile } = await import("node:child_process");
+    const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { storyboard } = normalizeStoryboard(
+      {
+        theme: "kinetic",
+        sound: { mood: "upbeat" },
+        scenes: [
+          { from: 0, to: 2, items: [{ type: "emoji", char: "🔥" }, { type: "kinetic", lines: ["واحد", "اثنان"] }] },
+          { from: 2, to: 4, transition: "whip", fx: ["shake"], items: [{ type: "stat", value: 9 }] },
+        ],
+      },
+      4,
+    );
+    const html = compileStoryboard(storyboard, { width: 360, height: 640, durationSec: 4 });
+    const r = await renderCodeVideo({ html, width: 360, height: 640, durationSec: 4, fps: 30, sound: { mode: "auto", seed: 1 } });
+    expect(r.consoleErrors).toEqual([]);
+    expect(r.audio?.mood).toBe("upbeat");
+    expect(r.audio?.cues).toBeGreaterThanOrEqual(6); // pop, 2 hits, whoosh, impact, count, ding
+    const dir = await mkdtemp(join(tmpdir(), "cv-sound-"));
+    try {
+      const file = join(dir, "v.mp4");
+      await writeFile(file, r.video);
+      const probe = await new Promise<string>((res, rej) => execFile("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", file], (e, out) => (e ? rej(e) : res(out))));
+      expect(probe.trim().split("\n").sort()).toEqual(["audio", "video"]);
+      const silent = await renderCodeVideo({ html, width: 360, height: 640, durationSec: 4, fps: 30, sound: { mode: "off" } });
+      expect(silent.audio).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }, 120_000);
 });

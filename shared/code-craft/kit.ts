@@ -57,14 +57,17 @@ export function expandKit(html: string) {
 export const KIT_API_DOC = `MOTION KIT (window.CV) — a tested design system for this recorder. Prefer it over hand-built layout and motion.
 Load it with exactly: <script data-cv-kit></script> (the room inlines the kit there, with GSAP and the fonts).
 Then, in one <script> after it:
-  const cv = CV.create({ width, height, duration, theme: "documentary"|"kinetic"|"neon"|"infographic"|"storybook", accent?: "#hex", lang: "ar"|"en"|... });
+  const cv = CV.create({ width, height, duration, theme: "documentary"|"kinetic"|"neon"|"infographic"|"storybook", accent?: "#hex", lang: "ar"|"en"|..., sound?: { mood: "tense"|"upbeat"|"tech"|"calm"|"playful"|"epic" } });
   cv.progress();                       // optional thin progress bar
-  const s = cv.scene({ from: 0, to: 3.2, transition: "rise"|"fade"|"mask"|"zoom"|"slide"|"flash"|"cut", camera: "push"|"pull"|"drift"|"none" });
+  const s = cv.scene({ from: 0, to: 3.2, transition: "rise"|"fade"|"mask"|"zoom"|"slide"|"flash"|"cut"|"iris"|"stripes"|"whip"|"glitch", camera: "push"|"pull"|"drift"|"none",
+                       fx: ["confetti"|"sparkles"|"shake"|"rings"|"lightleak"|"letterbox"|"dust"|"glitch"], fxEmoji: "💸" });
   s.kicker("...").title("...", { emphasis: ["word"] }).text("...");     // stacked, centred in the safe area
   s.kinetic(["line 1", "line 2"], { emphasis: [] }) · s.stat({ value: 42, prefix: "", suffix: "%", label: "..." })
   s.bars([{ label, value }], { unit: "%" }) · s.list(["..."], { numbered: true }) · s.timeline([{ date, text }])
   s.compare({ left: { title, items: [] }, right: { title, items: [] } }) · s.quote("...", { by: "..." }) · s.icon("globe")
+  s.emoji("🔥", { motion: "float"|"bounce"|"spin"|"pulse"|"wiggle", size: 240 })   // glossy 3D emoji
   s.divider() · s.cta("...") · s.source("...") · s.lowerThird(name, role)
+  cv.cue(seconds, "impact"|"hit"|"whoosh"|"pop"|"ding"|"chime"|"riser"|"sparkle"|..., gain)   // extra sound (kit movements already make theirs)
   // every component takes { at: seconds from the scene start } — omit it and items follow one another.
   cv.end({ text: "...", cta: "...", seconds: 2.6 });   // optional composed final card
   cv.finish();                         // REQUIRED last call: fixes the exact duration

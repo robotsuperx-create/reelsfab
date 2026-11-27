@@ -5,13 +5,18 @@
  */
 import { KIT_ICONS, KIT_PLACEHOLDER, KIT_THEMES, type KitTheme } from "./kit";
 
-export const SB_ITEM_TYPES = ["kicker", "title", "text", "kinetic", "stat", "bars", "list", "timeline", "compare", "quote", "icon", "divider", "source", "lowerThird", "cta"] as const;
+export const SB_ITEM_TYPES = ["kicker", "title", "text", "kinetic", "stat", "bars", "list", "timeline", "compare", "quote", "icon", "emoji", "divider", "source", "lowerThird", "cta", "sfx"] as const;
 export type SbItemType = (typeof SB_ITEM_TYPES)[number];
-export const SB_TRANSITIONS = ["rise", "fade", "mask", "zoom", "slide", "flash", "cut"] as const;
+export const SB_TRANSITIONS = ["rise", "fade", "mask", "zoom", "slide", "flash", "cut", "iris", "stripes", "whip", "glitch"] as const;
+export const SB_FX = ["confetti", "sparkles", "shake", "rings", "lightleak", "letterbox", "dust", "glitch"] as const;
+export const SB_EMOJI_MOTIONS = ["float", "bounce", "spin", "pulse", "wiggle"] as const;
+export const SB_MOODS = ["tense", "upbeat", "tech", "calm", "playful", "epic"] as const;
+export const SB_SFX = ["whoosh", "whoosh-soft", "zoom", "impact", "hit", "pop", "tick", "blip", "ding", "chime", "riser", "swell", "shimmer", "sparkle", "glitch"] as const;
 export const SB_CAMERAS = ["push", "pull", "drift", "none"] as const;
 
 export type SbItem = { type: SbItemType; at?: number } & Record<string, unknown>;
-export type SbScene = { from: number; to: number; transition?: (typeof SB_TRANSITIONS)[number]; camera?: (typeof SB_CAMERAS)[number]; bg?: string; note?: string; items: SbItem[] };
+export type SbScene = { from: number; to: number; transition?: (typeof SB_TRANSITIONS)[number]; camera?: (typeof SB_CAMERAS)[number]; bg?: string; note?: string; fx?: (typeof SB_FX)[number][]; fxEmoji?: string; items: SbItem[] };
+export type SbSound = { mood?: (typeof SB_MOODS)[number]; sfx?: boolean; music?: boolean };
 export type Storyboard = {
   title?: string;
   theme: KitTheme;
@@ -20,8 +25,19 @@ export type Storyboard = {
   lang?: string;
   progress?: boolean;
   scenes: SbScene[];
-  end?: { text?: string; cta?: string; kicker?: string; emphasis?: string[]; seconds?: number };
+  end?: { text?: string; cta?: string; kicker?: string; emphasis?: string[]; seconds?: number; fx?: (typeof SB_FX)[number][]; fxEmoji?: string };
+  sound?: SbSound;
 };
+
+/** One emoji (a grapheme of at most a few code points), or "". */
+function emojiChar(v: unknown) {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s || /[A-Za-z0-9\u0600-\u06FF]/.test(s)) return "";
+  return Array.from(s).slice(0, 8).join("");
+}
+function fxList(v: unknown) {
+  return [...new Set((Array.isArray(v) ? v : typeof v === "string" ? [v] : []).map(String).filter(x => (SB_FX as readonly string[]).includes(x)))].slice(0, 2) as (typeof SB_FX)[number][];
+}
 
 /* ------------------------------------------------------------ reading what an AI wrote */
 
@@ -67,12 +83,18 @@ export function itemWords(it: SbItem): number {
     }
     case "stat": return 2 + s("label");
     case "quote": return s("text") + s("by");
-    case "source": case "lowerThird": case "icon": case "divider": return 0;
+    case "source": case "lowerThird": case "icon": case "divider": case "emoji": case "sfx": return 0;
     default: return s("text");
   }
 }
 
 function cleanItem(raw: unknown, issues: string[], where: string): SbItem | null {
+  const item = cleanItemBody(raw, issues, where);
+  if (item && raw && typeof raw === "object" && (raw as { sfx?: unknown }).sfx === false && item.type !== "sfx") (item as Record<string, unknown>).sfx = false;
+  return item;
+}
+
+function cleanItemBody(raw: unknown, issues: string[], where: string): SbItem | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const type = String(o.type ?? "") as SbItemType;
@@ -139,6 +161,16 @@ function cleanItem(raw: unknown, issues: string[], where: string): SbItem | null
       if (!name) return null;
       return { ...base, name, role: str(o.role, 60), ...(o.dur !== undefined ? { dur: Math.max(1, n(o.dur, 3)) } : {}) };
     }
+    case "emoji": {
+      const char = emojiChar(o.char ?? o.text);
+      if (!char) { issues.push(`${where}: emoji item needs one emoji in "char"`); return null; }
+      return { ...base, char, ...((SB_EMOJI_MOTIONS as readonly string[]).includes(String(o.motion)) ? { motion: String(o.motion) } : {}), ...(o.size !== undefined ? { size: Math.max(120, Math.min(420, n(o.size, 240))) } : {}) };
+    }
+    case "sfx": {
+      const name = String(o.name ?? "");
+      if (!(SB_SFX as readonly string[]).includes(name)) { issues.push(`${where}: unknown sound "${name}" (use one of ${SB_SFX.join(", ")})`); return null; }
+      return { ...base, name, gain: Math.max(0.1, Math.min(1.2, n(o.gain, 1))) };
+    }
     case "divider": return base;
   }
   return null;
@@ -164,7 +196,7 @@ export function normalizeStoryboard(raw: unknown, durationSec: number, fallbackT
     const cta = str(e.cta, LIMITS.cta);
     if (text || cta) {
       endSec = Math.max(1.6, Math.min(4, n(e.seconds, 2.6), D * 0.3));
-      end = { text, cta, kicker: str(e.kicker, LIMITS.kicker) || undefined, emphasis: Array.isArray(e.emphasis) ? e.emphasis.map(x => str(x, 40)).filter(Boolean).slice(0, 2) : undefined, seconds: r2(endSec) };
+      end = { text, cta, kicker: str(e.kicker, LIMITS.kicker) || undefined, emphasis: Array.isArray(e.emphasis) ? e.emphasis.map(x => str(x, 40)).filter(Boolean).slice(0, 2) : undefined, seconds: r2(endSec), ...(fxList(e.fx).length ? { fx: fxList(e.fx) } : {}), ...(emojiChar(e.fxEmoji) ? { fxEmoji: emojiChar(e.fxEmoji) } : {}) };
     }
   }
   const bodyEnd = D - endSec;
@@ -187,9 +219,9 @@ export function normalizeStoryboard(raw: unknown, durationSec: number, fallbackT
     const to = r2(t);
     const where = `scene ${k + 1} (${from}–${to} s)`;
     const items = (Array.isArray(s.items) ? s.items : []).map(it => cleanItem(it, issues, where)).filter((x): x is SbItem => Boolean(x));
-    const main = items.filter(i => i.type !== "source" && i.type !== "lowerThird");
+    const main = items.filter(i => i.type !== "source" && i.type !== "lowerThird" && i.type !== "sfx");
     if (main.length > MAX_ITEMS) issues.push(`${where}: ${main.length} items is crowded — keep at most ${MAX_ITEMS} (one idea per scene)`);
-    const kept = [...main.slice(0, MAX_ITEMS), ...items.filter(i => i.type === "source" || i.type === "lowerThird")];
+    const kept = [...main.slice(0, MAX_ITEMS), ...items.filter(i => i.type === "source" || i.type === "lowerThird" || i.type === "sfx")];
     if (!kept.length) issues.push(`${where}: empty scene`);
     const words = kept.reduce((a, it) => a + itemWords(it), 0);
     const need = r2(words * 0.28 + 0.7);
@@ -203,11 +235,19 @@ export function normalizeStoryboard(raw: unknown, durationSec: number, fallbackT
       camera: (SB_CAMERAS as readonly string[]).includes(String(s.camera)) ? (s.camera as SbScene["camera"]) : undefined,
       bg: isHex(s.bg) ? String(s.bg) : undefined,
       note: str(s.note, 200) || undefined,
+      ...(fxList(s.fx).length ? { fx: fxList(s.fx) } : {}),
+      ...(emojiChar(s.fxEmoji) ? { fxEmoji: emojiChar(s.fxEmoji) } : {}),
       items: kept,
     };
   });
   // Monotony: the same main component three scenes in a row reads like slides.
-  const lead = scenes.map(s => s.items.find(i => i.type !== "kicker" && i.type !== "source" && i.type !== "lowerThird")?.type ?? "");
+  const lead = scenes.map(s => s.items.find(i => i.type !== "kicker" && i.type !== "source" && i.type !== "lowerThird" && i.type !== "sfx")?.type ?? "");
+  const fxCount = scenes.filter(s => s.fx?.length).length;
+  if (scenes.length >= 3 && fxCount > Math.ceil(scenes.length / 2)) issues.push(`${fxCount} of ${scenes.length} scenes have effects — keep effects for the 1–3 moments that deserve them, or they stop meaning anything`);
+  const snd = (o.sound && typeof o.sound === "object" ? o.sound : {}) as Record<string, unknown>;
+  const sound: SbSound | undefined = Object.keys(snd).length
+    ? { ...((SB_MOODS as readonly string[]).includes(String(snd.mood)) ? { mood: snd.mood as SbSound["mood"] } : {}), ...(snd.sfx === false ? { sfx: false } : {}), ...(snd.music === false ? { music: false } : {}) }
+    : undefined;
   for (let i = 2; i < lead.length; i++) if (lead[i] && lead[i] === lead[i - 1] && lead[i] === lead[i - 2]) { issues.push(`scenes ${i - 1}–${i + 1} all lead with "${lead[i]}" — vary the visual (stat, kinetic, list, compare, quote, icon…)`); break; }
   const storyboard: Storyboard = {
     title: str(o.title, 120) || undefined,
@@ -218,6 +258,7 @@ export function normalizeStoryboard(raw: unknown, durationSec: number, fallbackT
     progress: o.progress === true ? true : undefined,
     scenes,
     end,
+    ...(sound && Object.keys(sound).length ? { sound } : {}),
   };
   return { storyboard, issues };
 }
@@ -264,11 +305,13 @@ export function storyboardDoc(width: number, height: number, seconds: number) {
   "lang": "ar" | "en" | "fr" | ...,
   "progress": true | false,            // thin progress bar on top (good for reels)
   "scenes": [
-    { "from": 0, "to": 3.2, "transition": "rise|fade|mask|zoom|slide|flash|cut", "camera": "push|pull|drift|none", "note": "why this scene exists",
+    { "from": 0, "to": 3.2, "transition": "rise|fade|mask|zoom|slide|flash|cut|iris|stripes|whip|glitch", "camera": "push|pull|drift|none", "note": "why this scene exists",
       "items": [ ...1 to 4 items, stacked and centred... ] }
   ],
-  "end": { "kicker": "...", "text": "final line", "cta": "short call to action", "seconds": 2.6 }   // optional closing card (takes the last seconds)
+  "end": { "kicker": "...", "text": "final line", "cta": "short call to action", "seconds": 2.6, "fx": ["confetti"] },   // optional closing card (takes the last seconds)
+  "sound": { "mood": "tense|upbeat|tech|calm|playful|epic" }   // music bed that suits the topic; sound effects follow the motion automatically
 }
+SCENE EXTRAS (optional, on a scene): "fx": up to 2 of ["confetti","sparkles","shake","rings","lightleak","letterbox","dust","glitch"], "fxEmoji": "💸" (confetti made of that emoji).
 ITEMS (every item may have "at": seconds from the scene start; omit it and items follow one another):
 - {"type":"kicker","text":"small label above a title"}                  max 40 chars
 - {"type":"title","text":"...","emphasis":["word or phrase"],"size":"xl|l|m"}   max 70 chars, emphasis = 1–2 key words that get the accent
@@ -281,6 +324,8 @@ ITEMS (every item may have "at": seconds from the scene start; omit it and items
 - {"type":"compare","left":{"title":"...","items":["..."]},"right":{"title":"...","items":["..."]}}
 - {"type":"quote","text":"...","by":"who said it"}
 - {"type":"icon","name":"${KIT_ICONS.join("|")}"}
+- {"type":"emoji","char":"🔥","motion":"float|bounce|spin|pulse|wiggle","size":240}   a glossy 3D emoji that pops in and keeps moving
+- {"type":"sfx","name":"impact|hit|ding|chime|riser|whoosh|pop|sparkle|…","at":1.2}   an extra sound at a precise moment (most sounds are automatic)
 - {"type":"cta","text":"short button-like call"} · {"type":"divider"} · {"type":"source","text":"source credit"} · {"type":"lowerThird","name":"...","role":"..."}
 TIMING RULES:
 - Scenes are back to back from 0 to ${seconds} s (or to the end card's start). No gaps, no overlaps.

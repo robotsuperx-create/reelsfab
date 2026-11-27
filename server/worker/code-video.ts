@@ -16,6 +16,8 @@ import { join } from "node:path";
 import type { BrowserContext, Route } from "playwright-core";
 import { expandKit } from "../../shared/code-craft/kit";
 import { CINEMA_SCALE, CINEMA_SUBFRAMES, CODE_VIDEO_ALLOWED_HOSTS, CODE_VIDEO_CSP, type RenderQuality } from "../../shared/code-video";
+import { cleanCues, designSoundtrack, moodOf, type PageSound, type SoundMode } from "./sound/soundtrack";
+import type { Mood } from "./sound/music";
 
 export const RENDER_ORIGIN = "https://code-video.local/";
 
@@ -128,7 +130,13 @@ export function isAllowedRequest(url: string) {
   }
 }
 
-export type CodeVideoRender = { video: Buffer; poster: Buffer; frames: number; blocked: string[]; consoleErrors: string[] };
+export type CodeVideoRender = { video: Buffer; poster: Buffer; frames: number; blocked: string[]; consoleErrors: string[]; audio?: { cues: number; mood: Mood | null }; pageSound?: PageSound | null };
+
+/**
+ * Sound for a render: "auto" = the kit's cues (sound effects on every movement) + a music bed; "music" = only the bed;
+ * "off" = silent. The mood comes from the option, else from the page (storyboard), else "calm".
+ */
+export type RenderSound = { mode?: SoundMode; mood?: Mood | null; musicFile?: string | null; offsetSec?: number; totalSec?: number; seed?: number };
 
 /**
  * Libraries and fonts from the allowed CDNs are kept on disk after the first download: every render opens a fresh
@@ -187,7 +195,7 @@ async function routeIsolated(context: BrowserContext, html: string, blocked: str
  * Opens the HTML at width×height, steps the virtual clock 1000/fps ms per frame, screenshots every frame and pipes
  * the JPEGs to ffmpeg (H.264, yuv420p, veryfast). `onProgress` gets 0..1.
  */
-export async function renderCodeVideo(opts: { html: string; width: number; height: number; durationSec: number; fps: number; quality?: RenderQuality; onProgress?: (p: number) => void }): Promise<CodeVideoRender> {
+export async function renderCodeVideo(opts: { html: string; width: number; height: number; durationSec: number; fps: number; quality?: RenderQuality; sound?: RenderSound; onProgress?: (p: number) => void }): Promise<CodeVideoRender> {
   const { width, height, fps } = opts;
   // Cinema: every frame is drawn at 2× and scaled down (clean edges and thin lines), and is the blend of several
   // moments inside the frame's interval (real motion blur), encoded slower at higher quality.
@@ -212,6 +220,8 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
     await page.evaluate(() => (document as Document & { fonts?: FontFaceSet }).fonts?.ready).catch(() => undefined);
     const ok = await page.evaluate(() => Boolean((window as unknown as { __cv?: unknown }).__cv));
     if (!ok) throw new Error("تعذر تجهيز الساعة الافتراضية في الصفحة");
+    // The kit logged its sound cues while it built the timeline (before the first frame).
+    const pageSound = (await page.evaluate(() => (window as unknown as { __cvSound?: unknown }).__cvSound ?? null).catch(() => null)) as PageSound | null;
 
     const encode = cinema
       ? ["-vf", `tmix=frames=${sub},fps=${fps},scale=${width}:${height}:flags=lanczos`, "-c:v", "libx264", "-preset", "medium", "-crf", "15", "-tune", "animation", "-profile:v", "high"]
@@ -243,13 +253,31 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
     }
     ff.stdin.end();
     await done;
-    const video = await readFile(outFile);
+    await browser.close().catch(() => undefined);
+    const audio = await addSoundtrack(outFile, dir, opts.durationSec, pageSound, opts.sound);
+    const video = await readFile(audio ? join(dir, "with-sound.mp4") : outFile);
     if (video.length < 1000) throw new Error("ffmpeg لم يُخرج فيديو");
-    return { video, poster: poster!, frames, blocked, consoleErrors };
+    return { video, poster: poster!, frames, blocked, consoleErrors, audio: audio ?? undefined, pageSound };
   } finally {
     await browser.close().catch(() => undefined);
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+/** Builds the soundtrack (cues + music bed) and muxes it into `videoFile` → dir/with-sound.mp4. Null when silent. */
+export async function addSoundtrack(videoFile: string, dir: string, durationSec: number, page: PageSound | null, opt?: RenderSound) {
+  const mode = opt?.mode ?? "off";
+  if (mode === "off") return null;
+  const cues = mode === "auto" && page?.sfx !== false ? cleanCues(page?.cues, durationSec) : [];
+  const mood: Mood | null = page?.music === false && !opt?.musicFile ? null : opt?.mood ?? moodOf(page?.mood, "calm");
+  if (!cues.length && !mood && !opt?.musicFile) return null;
+  const { wav } = await designSoundtrack({ durationSec, cues, mood, musicFile: opt?.musicFile, offsetSec: opt?.offsetSec, totalSec: opt?.totalSec, seed: opt?.seed });
+  const wavFile = join(dir, "sound.wav");
+  await writeFile(wavFile, wav);
+  await new Promise<void>((resolve, reject) => {
+    execFileCb("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", videoFile, "-i", wavFile, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", durationSec.toFixed(3), "-movflags", "+faststart", join(dir, "with-sound.mp4")], { maxBuffer: 8 * 1024 * 1024 }, e => (e ? reject(e) : resolve()));
+  });
+  return { cues: cues.length, mood };
 }
 
 /**

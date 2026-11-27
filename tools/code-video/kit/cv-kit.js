@@ -22,31 +22,31 @@
       bg: "#0b0d10", ink: "#f2ede3", mute: "#8a8f98", accent: "#ff3b30", accent2: "#e8c26a",
       panel: "rgba(255,255,255,.045)", line: "rgba(255,255,255,.10)",
       display: "Alexandria", displayWeight: 900, body: "IBM Plex Sans Arabic", bodyWeight: 600,
-      layers: ["grid", "glow", "vignette", "grain"], ease: "power3.out", enter: "blur", emStyle: "color", radius: 18,
+      layers: ["grid", "glow", "vignette", "grain"], ease: "power3.out", enter: "blur", emStyle: "color", radius: 18, mood: "tense",
     },
     kinetic: {
       bg: "#111111", ink: "#ffffff", mute: "#d4d4d4", accent: "#ffe14d", accent2: "#1d4ed8",
       panel: "rgba(255,255,255,.08)", line: "rgba(255,255,255,.18)",
       display: "Cairo", displayWeight: 900, body: "Cairo", bodyWeight: 700,
-      layers: ["grain"], fields: ["#111111", "#ffe14d", "#1d4ed8", "#f5f3ee", "#ef4444"], ease: "back.out(1.7)", enter: "punch", emStyle: "marker", radius: 14, pace: 0.8,
+      layers: ["grain"], fields: ["#111111", "#ffe14d", "#1d4ed8", "#f5f3ee", "#ef4444"], ease: "back.out(1.7)", enter: "punch", emStyle: "marker", radius: 14, pace: 0.8, mood: "upbeat",
     },
     neon: {
       bg: "#070b1a", ink: "#e6f1ff", mute: "#7c8aa5", accent: "#22d3ee", accent2: "#e879f9",
       panel: "rgba(34,211,238,.06)", line: "rgba(34,211,238,.22)",
       display: "Readex Pro", displayWeight: 700, body: "IBM Plex Sans Arabic", bodyWeight: 500,
-      layers: ["blobs", "grid", "scan", "vignette"], ease: "expo.out", enter: "blur", emStyle: "glow", radius: 16, glow: true,
+      layers: ["blobs", "grid", "scan", "vignette"], ease: "expo.out", enter: "blur", emStyle: "glow", radius: 16, glow: true, mood: "tech",
     },
     infographic: {
       bg: "#f7f5f0", ink: "#14161a", mute: "#6b7280", accent: "#2563eb", accent2: "#f97316",
       panel: "#ffffff", line: "rgba(20,22,26,.10)",
       display: "IBM Plex Sans Arabic", displayWeight: 700, body: "IBM Plex Sans Arabic", bodyWeight: 500,
-      layers: ["dots"], ease: "power2.out", enter: "rise", emStyle: "marker", radius: 22, shadow: true,
+      layers: ["dots"], ease: "power2.out", enter: "rise", emStyle: "marker", radius: 22, shadow: true, mood: "calm",
     },
     storybook: {
       bg: "#ffd6a5", bg2: "#ffadad", ink: "#2b2d42", mute: "#5c5f7a", accent: "#ef476f", accent2: "#118ab2",
       panel: "rgba(255,255,255,.72)", line: "rgba(43,45,66,.2)",
       display: "Cairo", displayWeight: 900, body: "Cairo", bodyWeight: 700,
-      layers: ["sky", "shapes"], ease: "back.out(1.4)", enter: "pop", emStyle: "color", radius: 28, outline: true,
+      layers: ["sky", "shapes"], ease: "back.out(1.4)", enter: "pop", emStyle: "color", radius: 28, outline: true, mood: "playful",
     },
   };
   var FONT_FALLBACK = ", 'Noto Sans Arabic', 'Segoe UI', Tahoma, sans-serif";
@@ -231,6 +231,16 @@
       ".cv-prog i{position:absolute;inset:0;background:var(--accent);transform-origin:right center}",
       "[dir=ltr] .cv-prog i{transform-origin:left center}",
       ".cv-flash{position:absolute;inset:0;background:#fff;opacity:0;z-index:50;pointer-events:none}",
+      ".cv-emoji{position:relative;width:" + px(240) + ";height:" + px(240) + ";flex:none}",
+      ".cv-emoji img,.cv-emoji span{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 " + px(18) + " " + px(26) + " rgba(0,0,0,.35))}",
+      ".cv-emoji span{display:grid;place-items:center;font-size:" + px(190) + ";line-height:1;font-family:'Noto Color Emoji','Segoe UI Emoji','Apple Color Emoji',sans-serif;filter:none}",
+      ".cv-fx{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:25}",
+      ".cv-fx.back{z-index:0}",
+      ".cv-conf{position:absolute;left:0;top:0;border-radius:2px}",
+      ".cv-conf img{width:100%;height:100%;object-fit:contain}",
+      ".cv-bar-lb{position:absolute;left:0;right:0;height:" + Math.round(H * 0.075) + "px;background:#000;z-index:24}",
+      ".cv-stripes{position:absolute;inset:0;display:flex;z-index:60;pointer-events:none}",
+      ".cv-stripes i{flex:1;height:100%;transform:scaleY(0);transform-origin:top center}",
     ].join("\n");
   }
 
@@ -339,6 +349,18 @@
       return fromTo(target, a, b, pos);
     };
     var cv = { W: W, H: H, duration: D, theme: t, u: u, tl: tl, stage: st, rtl: rtl, pace: num(o.pace, t.pace || 1), scenes: [], fieldIndex: 0 };
+    // Sound design: every movement logs a cue (time, effect, gain); the recorder turns them into the soundtrack,
+    // over a music bed of the chosen mood. Nothing plays in the page itself.
+    var snd = o.sound || {};
+    cv.sound = { version: 1, mood: snd.mood || t.mood || "calm", sfx: snd.sfx !== false, music: snd.music !== false, cues: [] };
+    cv.cue = function (time, name, gain, extra) {
+      if (!cv.sound.sfx || !(time >= 0) || time > D) return cv;
+      var c = { t: Math.round(time * 1000) / 1000, name: name, gain: gain == null ? 1 : gain };
+      if (extra) for (var x in extra) c[x] = extra[x];
+      cv.sound.cues.push(c);
+      return cv;
+    };
+    window.__cvSound = cv.sound;
     layers(cv);
     cv.flash = el("div", "cv-flash", st);
     cv.scene = function (s) { return scene(cv, s || {}); };
@@ -361,7 +383,8 @@
 
   /* ------------------------------------------------------------------ scenes */
 
-  var TRANSITIONS = ["fade", "mask", "zoom", "slide", "flash", "cut", "rise"];
+  var TRANSITIONS = ["fade", "mask", "zoom", "slide", "flash", "cut", "rise", "iris", "stripes", "whip", "glitch"];
+  var TRANSITION_SOUND = { rise: ["swell", 0.45, 0.25], fade: ["whoosh-soft", 0.75, 0.15], mask: ["whoosh", 0.8, 0.5], slide: ["whoosh", 0.85, 0.5], zoom: ["zoom", 0.85, 0.4], flash: ["impact", 1, 0], cut: ["hit", 0.7, 0], iris: ["whoosh-soft", 0.9, 0.45], stripes: ["whoosh", 0.95, 0.5], whip: ["whoosh", 1, 0.12], glitch: ["glitch", 0.9, 0] };
 
   function scene(cv, s) {
     var tl = cv.tl, t = cv.theme, u = cv.u;
@@ -392,7 +415,11 @@
     var sc = { cv: cv, from: from, to: to, root: root, cam: cam, T: T, transition: tr, items: 0, cursor: 0, last: false };
     // The previous scene's content clears in the first 0.2 s of the transition and this scene's content arrives during
     // the move itself: the frame is never empty, and two texts never share a frame.
-    sc.start = from + (tr === "cut" ? 0.04 : Math.min(0.24, Math.max(0.12, T * 0.5)));
+    sc.start = from + (tr === "cut" || tr === "glitch" ? 0.04 : tr === "stripes" ? T * 0.55 : Math.min(0.24, Math.max(0.12, T * 0.5)));
+    if (cv.scenes.length || from > 0.05) {
+      var ts = TRANSITION_SOUND[tr];
+      if (ts && s.sfx !== false) cv.cue(from + ts[2] * (tr === "rise" || tr === "fade" || tr === "whip" ? 1 : T), ts[0], ts[1], { v: cv.scenes.length % 3 / 3 });
+    }
     // Enter.
     g.set(root, { autoAlpha: 0 });
     if (tr === "fade" || tr === "rise") tl.fromTo(root, { autoAlpha: 0, y: tr === "rise" ? 0 : 30 * u }, { autoAlpha: 1, y: 0, duration: Math.max(0.3, T), ease: "power2.out" }, from);
@@ -404,10 +431,27 @@
     else if (tr === "flash") {
       tl.set(root, { autoAlpha: 1 }, from);
       tl.fromTo(cv.flash, { opacity: 0.6 }, { opacity: 0, duration: 0.3, ease: "power2.out" }, from);
+    } else if (tr === "iris") {
+      tl.set(root, { autoAlpha: 1 }, from);
+      tl.fromTo(root, { clipPath: "circle(0% at 50% 46%)" }, { clipPath: "circle(150% at 50% 46%)", duration: T, ease: "power3.inOut" }, from);
+    } else if (tr === "stripes") {
+      var bars = el("div", "cv-stripes", cv.stage);
+      for (var bi = 0; bi < 6; bi++) { var bar = el("i", "", bars); bar.style.background = bi % 2 ? t.accent2 || t.ink : t.accent; }
+      var bs = bars.children;
+      tl.to(bs, { scaleY: 1, duration: T * 0.45, stagger: T * 0.05, ease: "power3.in", transformOrigin: "top center" }, from);
+      tl.set(root, { autoAlpha: 1 }, from + T * 0.5);
+      tl.set(bs, { transformOrigin: "bottom center" }, from + T * 0.5);
+      tl.to(bs, { scaleY: 0, duration: T * 0.45, stagger: T * 0.05, ease: "power3.out" }, from + T * 0.52);
+    } else if (tr === "whip") {
+      tl.fromTo(root, { autoAlpha: 1, x: (cv.rtl ? -0.4 : 0.4) * cv.W, filter: "blur(" + Math.round(22 * u) + "px)" }, { x: 0, filter: "blur(0px)", duration: 0.4, ease: "power3.out" }, from);
+    } else if (tr === "glitch") {
+      tl.set(root, { autoAlpha: 1 }, from);
+      glitchAt(cv, cam, from, 0.32);
     } else tl.set(root, { autoAlpha: 1 }, from);
     // The previous scene leaves as this one arrives.
     if (prev) {
-      var leave = tr === "mask" || tr === "slide" ? from + T : from;
+      var leave = tr === "mask" || tr === "slide" || tr === "iris" ? from + T : tr === "stripes" ? from + T * 0.5 : from;
+      if (tr === "whip") tl.to(prev.root, { x: (cv.rtl ? 0.4 : -0.4) * cv.W, filter: "blur(" + Math.round(22 * u) + "px)", duration: 0.3, ease: "power3.in" }, from);
       // Its texts go first (its background, if it has one, stays under a wipe until the wipe has covered it).
       if (tr !== "cut") tl.to(Array.prototype.slice.call(prev.root.children), { autoAlpha: 0, duration: Math.min(0.2, Math.max(0.1, T * 0.4)), ease: "power1.in" }, from);
       if (tr === "zoom") tl.to(prev.root, { autoAlpha: 0, scale: 0.92, duration: Math.min(0.3, T), ease: "power2.in" }, from);
@@ -424,6 +468,7 @@
     else if (cmode === "drift") tl.fromTo(cam, { x: 18 * u }, { x: -18 * u, duration: span, ease: "sine.inOut" }, from);
     sc.last = true;
     cv.scenes.push(sc);
+    [].concat(s.fx || []).slice(0, 3).forEach(function (name) { if (FX[name]) FX[name](sc, s); });
     API.forEach(function (name) { sc[name] = function (a, b, c) { return COMPONENTS[name](sc, a, b, c) || sc; }; });
     sc.add = function (item) { return add(sc, item); };
     return sc;
@@ -458,12 +503,171 @@
     return stag * ws.length + 0.7;
   }
 
+  /** RGB-split jitter on an element for `dur` seconds from `at`. */
+  function glitchAt(cv, node, at, dur) {
+    var tl = cv.tl, u = cv.u, R = rng(Math.round(at * 1000) + 3), steps = 7, d = dur / steps;
+    for (var i = 0; i < steps; i++) {
+      var a = Math.round((R() - 0.5) * 30 * u), off = Math.round((2 + R() * 6) * u);
+      tl.set(node, { x: a, filter: "drop-shadow(" + off + "px 0 0 rgba(255,0,80,.85)) drop-shadow(" + -off + "px 0 0 rgba(0,229,255,.85))" }, at + i * d);
+    }
+    tl.set(node, { x: 0, filter: "none" }, at + dur);
+  }
+
+  /** Scene effects ("fx": [...]) — cinematic layers and bursts, each with its sound. */
+  var FX = {
+    confetti: function (sc, s) {
+      var cv = sc.cv, t = cv.theme, tl = cv.tl, u = cv.u, R = rng(Math.round(sc.from * 977) + 11);
+      var box = el("div", "cv-fx", sc.root);
+      var t0 = sc.start + 0.25;
+      var emoji = s.fxEmoji ? String(s.fxEmoji) : "";
+      var n = emoji ? 16 : 64;
+      var colors = [t.accent, t.accent2 || t.ink, "#ffffff", t.ink];
+      for (var i = 0; i < n; i++) {
+        var p = el("div", "cv-conf", box);
+        var w = emoji ? (70 + R() * 50) * u : (12 + R() * 14) * u, h = emoji ? w : (7 + R() * 9) * u;
+        p.style.width = Math.round(w) + "px";
+        p.style.height = Math.round(h) + "px";
+        if (emoji) emojiInto(p, emoji); else { p.style.background = colors[i % colors.length]; if (i % 4 === 0) p.style.borderRadius = "50%"; }
+        var x0 = cv.W / 2 - w / 2 + (R() - 0.5) * 120 * u, y0 = cv.H * 0.46;
+        var dx = (R() - 0.5) * cv.W * 1.05, up = cv.H * (0.14 + R() * 0.22), fall = cv.H * (0.55 + R() * 0.3);
+        var tu = 0.45 + R() * 0.2, tf = 1.3 + R() * 0.7, st = t0 + R() * 0.12;
+        g.set(p, { x: x0, y: y0, autoAlpha: 0, rotation: R() * 360 });
+        tl.set(p, { autoAlpha: 1 }, st);
+        tl.to(p, { x: x0 + dx, rotation: "+=" + Math.round(360 + R() * 540), duration: tu + tf, ease: "none" }, st);
+        tl.to(p, { y: y0 - up, duration: tu, ease: "power2.out" }, st);
+        tl.to(p, { y: y0 - up + fall, duration: tf, ease: "power1.in" }, st + tu);
+        tl.to(p, { autoAlpha: 0, duration: 0.35 }, st + tu + tf - 0.35);
+      }
+      cv.cue(t0, "pop", 0.7, { v: 0.9 });
+      cv.cue(t0 + 0.05, "sparkle", 0.8);
+    },
+    sparkles: function (sc) {
+      var cv = sc.cv, t = cv.theme, tl = cv.tl, u = cv.u, R = rng(Math.round(sc.from * 733) + 5);
+      var box = el("div", "cv-fx", sc.root);
+      var t0 = sc.start + 0.3;
+      for (var i = 0; i < 12; i++) {
+        var sz = (26 + R() * 34) * u;
+        var star = el("div", "", box, '<svg viewBox="0 0 24 24" width="' + Math.round(sz) + '" height="' + Math.round(sz) + '"><path d="M12 0C13 7 17 11 24 12 17 13 13 17 12 24 11 17 7 13 0 12 7 11 11 7 12 0z" fill="' + (i % 3 ? t.accent : i % 2 ? "#ffffff" : t.accent2 || t.accent) + '"/></svg>');
+        star.style.position = "absolute";
+        star.style.left = Math.round(cv.W * (0.12 + R() * 0.76)) + "px";
+        star.style.top = Math.round(cv.H * (0.18 + R() * 0.5)) + "px";
+        g.set(star, { scale: 0, rotation: 0, transformOrigin: "center" });
+        var st = t0 + R() * Math.min(1.6, sc.to - t0 - 0.6);
+        tl.to(star, { scale: 1, rotation: 90, duration: 0.35, ease: "back.out(2)" }, st);
+        tl.to(star, { scale: 0, rotation: 180, duration: 0.4, ease: "power2.in" }, st + 0.45);
+      }
+      cv.cue(t0, "shimmer", 0.6);
+    },
+    shake: function (sc) {
+      var cv = sc.cv, tl = cv.tl, u = cv.u, R = rng(Math.round(sc.from * 389) + 2);
+      var t0 = sc.start + 0.05, n = 9;
+      for (var i = 0; i < n; i++) {
+        var a = (1 - i / n) * 24 * u;
+        tl.to(sc.cam, { x: (R() - 0.5) * 2 * a, y: (R() - 0.5) * 2 * a, duration: 0.035, ease: "none" }, t0 + i * 0.035);
+      }
+      tl.to(sc.cam, { x: 0, y: 0, duration: 0.06, ease: "none" }, t0 + n * 0.035);
+      cv.cue(t0, "impact", 0.9);
+    },
+    rings: function (sc) {
+      var cv = sc.cv, tl = cv.tl, u = cv.u, t = cv.theme;
+      var box = el("div", "cv-fx back", sc.root);
+      sc.root.insertBefore(box, sc.cam);
+      var t0 = sc.start + 0.1;
+      for (var i = 0; i < 3; i++) {
+        var ring = el("div", "", box);
+        var d = Math.round(Math.min(cv.W, cv.H) * 0.9);
+        ring.style.cssText = "position:absolute;left:50%;top:46%;width:" + d + "px;height:" + d + "px;margin:" + -d / 2 + "px 0 0 " + -d / 2 + "px;border-radius:50%;border:" + Math.round(5 * u) + "px solid " + t.accent;
+        g.set(ring, { scale: 0.15, autoAlpha: 0 });
+        tl.fromTo(ring, { scale: 0.15, autoAlpha: 0.75 }, { scale: 1.6, autoAlpha: 0, duration: 1.5, ease: "power2.out" }, t0 + i * 0.32);
+      }
+      cv.cue(t0, "blip", 0.4, { v: 0.2 });
+    },
+    lightleak: function (sc) {
+      var cv = sc.cv, tl = cv.tl;
+      var box = el("div", "cv-fx", sc.root);
+      box.style.mixBlendMode = "screen";
+      var leak = el("div", "", box);
+      leak.style.cssText = "position:absolute;top:-20%;bottom:-20%;width:90%;left:0;background:radial-gradient(closest-side,rgba(255,170,90,.85),rgba(255,60,140,.45) 45%,transparent 75%);filter:blur(" + Math.round(40 * cv.u) + "px)";
+      var span = sc.to - sc.from;
+      tl.fromTo(leak, { xPercent: cv.rtl ? 110 : -110, autoAlpha: 0 }, { xPercent: cv.rtl ? -110 : 110, duration: span, ease: "sine.inOut" }, sc.from);
+      tl.to(leak, { autoAlpha: 0.55, duration: span * 0.4, yoyo: true, repeat: 1, ease: "sine.inOut" }, sc.from);
+    },
+    letterbox: function (sc) {
+      var cv = sc.cv, tl = cv.tl;
+      var a = el("div", "cv-bar-lb", sc.root), b = el("div", "cv-bar-lb", sc.root);
+      a.style.top = "0"; b.style.bottom = "0";
+      g.set(a, { yPercent: -100 }); g.set(b, { yPercent: 100 });
+      tl.to([a, b], { yPercent: 0, duration: 0.6, ease: "power3.out" }, sc.from);
+    },
+    dust: function (sc) {
+      var cv = sc.cv, tl = cv.tl, u = cv.u, R = rng(Math.round(sc.from * 211) + 9);
+      var box = el("div", "cv-fx", sc.root);
+      var span = sc.to - sc.from + 0.6;
+      for (var i = 0; i < 28; i++) {
+        var d = (2 + R() * 4) * u;
+        var p = el("div", "", box);
+        p.style.cssText = "position:absolute;border-radius:50%;background:#fff;width:" + d + "px;height:" + d + "px;left:" + Math.round(R() * cv.W) + "px;top:" + Math.round(R() * cv.H) + "px;opacity:" + (0.12 + R() * 0.3).toFixed(2) + ";filter:blur(" + (R() > 0.6 ? 1.5 : 0) + "px)";
+        tl.fromTo(p, { x: 0, y: 0 }, { x: (R() - 0.5) * 60 * u, y: -(60 + R() * 140) * u, duration: span, ease: "none" }, sc.from);
+      }
+    },
+    glitch: function (sc) {
+      glitchAt(sc.cv, sc.cam, sc.start + 0.05, 0.3);
+      sc.cv.cue(sc.start + 0.05, "glitch", 0.85);
+    },
+  };
+
+  var EMOJI_CDN = "https://cdn.jsdelivr.net/npm/@lobehub/fluent-emoji-3d@1.1.0/assets/";
+  /** File names to try for an emoji in the 3D set (with and without the variation selector). */
+  function emojiFiles(ch) {
+    var cps = Array.from(String(ch)).map(function (c) { return c.codePointAt(0).toString(16); });
+    var full = cps.join("-"), bare = cps.filter(function (c) { return c !== "fe0f"; }).join("-");
+    var out = [full, bare];
+    if (bare.indexOf("-") < 0) out.push(bare + "-fe0f");
+    return out.filter(function (x, i) { return x && out.indexOf(x) === i; });
+  }
+  /** A 3D emoji image (Microsoft Fluent, MIT) in `box`; falls back to the system emoji if the image is missing. */
+  function emojiInto(box, ch) {
+    var files = emojiFiles(ch), k = 0;
+    var img = el("img", "", box);
+    img.alt = ch;
+    img.onerror = function () {
+      k++;
+      if (k < files.length) img.src = EMOJI_CDN + files[k] + ".webp";
+      else { img.remove(); el("span", "", box, esc(ch)); }
+    };
+    img.src = EMOJI_CDN + files[0] + ".webp";
+  }
+
   /* ------------------------------------------------------------------ components */
 
   var COMPONENTS = {
+    emoji: function (sc, ch, o) {
+      o = o || {};
+      var cv = sc.cv, tl = cv.tl, u = cv.u, at = when(sc, o.at, 0.45);
+      var n = el("div", "cv-emoji", sc.cam);
+      if (o.size) { n.style.width = n.style.height = Math.round(o.size * u) + "px"; }
+      emojiInto(n, ch || "✨");
+      g.set(n, { autoAlpha: 0, scale: 0, rotation: -25 });
+      tl.to(n, { autoAlpha: 1, scale: 1, rotation: 0, duration: 0.6, ease: "back.out(2.2)" }, at);
+      if (o.sfx !== false) cv.cue(at + 0.05, "pop", 0.75, { v: 0.8 });
+      var motion = o.motion || "float", t1 = at + 0.6, left = sc.to - t1;
+      var period = { float: 1.6, bounce: 0.55, spin: 2.4, pulse: 0.9, wiggle: 0.5 }[motion] || 1.6;
+      var reps = Math.floor(left / period) * 2 - 1;
+      if (reps < 1) return;
+      if (motion === "spin") tl.to(n, { rotation: 360 * Math.floor(left / period), duration: period * Math.floor(left / period), ease: "none" }, t1);
+      else if (motion === "bounce") tl.to(n, { y: -34 * u, duration: period / 2, yoyo: true, repeat: reps, ease: "power1.out" }, t1);
+      else if (motion === "pulse") tl.to(n, { scale: 1.1, duration: period / 2, yoyo: true, repeat: reps, ease: "sine.inOut" }, t1);
+      else if (motion === "wiggle") tl.to(n, { rotation: 12, duration: period / 2, yoyo: true, repeat: reps, ease: "sine.inOut" }, t1);
+      else tl.to(n, { y: -16 * u, rotation: 4, duration: period / 2, yoyo: true, repeat: reps, ease: "sine.inOut" }, t1);
+    },
+    sfx: function (sc, name, o) {
+      o = o || {};
+      sc.cv.cue(sc.from + num(o.at, 0), name, num(o.gain, 1));
+    },
     kicker: function (sc, text, o) {
       o = o || {};
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.35);
+      if (o.sfx !== false) cv.cue(at, "tick", 0.5);
       var n = el("div", "cv-kicker " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.cam, "<i></i><span>" + esc(text) + "</span>");
       g.set(n.firstChild, { scaleX: 0, transformOrigin: cv.rtl ? "right center" : "left center" });
       g.set(n.lastChild, { autoAlpha: 0, x: (cv.rtl ? -24 : 24) * cv.u });
@@ -475,6 +679,8 @@
       var at = when(sc, o.at, 0.5);
       var n = el("h1", "cv-title " + sizeFor(text, o.size) + " " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.cam, wordsHtml(text, o.emphasis));
       var len = wordsIn(sc, n, at, o);
+      var mode = o.enter || sc.cv.theme.enter;
+      if (o.sfx !== false && (mode === "punch" || mode === "pop")) sc.cv.cue(at, mode === "pop" ? "pop" : "hit", 0.55);
       if (o.underline) {
         var line = el("i", "cv-under", sc.cam);
         g.set(line, { scaleX: 0 });
@@ -498,6 +704,7 @@
       lines.forEach(function (line, i) {
         var n = el("div", "cv-title " + sizeFor(line, o.size || (String(line).length <= 12 ? "xl" : "l")) + " " + (AR.test(line) ? "cv-ar" : "cv-lat"), sc.cam, wordsHtml(line, o.emphasis));
         wordsIn(sc, n, at + i * per, { enter: o.enter || (cv.theme.enter === "blur" ? "rise" : cv.theme.enter === "rise" ? "rise" : "punch"), stagger: 0.06 });
+        if (o.sfx !== false) cv.cue(at + i * per, "hit", cv.theme.enter === "punch" ? 0.65 : 0.38, { v: i / 4 });
       });
       sc.cursor = at + lines.length * per;
     },
@@ -517,6 +724,7 @@
       tl.to(n, { autoAlpha: 1, y: 0, scale: 1, duration: 0.6, ease: "power3.out" }, at);
       var dur = num(o.dur, Math.min(2.2, Math.max(0.9, (sc.to - at) * 0.45)));
       tl.to(counter, { v: to, duration: dur, ease: "power2.out", onUpdate: function () { box.textContent = fmt(counter.v); } }, at + 0.15);
+      if (o.sfx !== false) { cv.cue(at + 0.15, "count", 0.7, { dur: dur }); cv.cue(at + 0.15 + dur, "ding", 0.75); }
       tl.fromTo(box, { scale: 1 }, { scale: 1.06, duration: 0.16, yoyo: true, repeat: 1, ease: "power1.inOut" }, at + 0.15 + dur);
       var lbl = n.querySelector(".lbl");
       if (lbl) wordsIn(sc, lbl, at + 0.4, { enter: "rise", stagger: 0.04 });
@@ -542,6 +750,7 @@
         g.set(fill, { scaleX: 0 });
         tl.to(row, { autoAlpha: 1, y: 0, duration: 0.45, ease: "power3.out" }, t0);
         tl.to(fill, { scaleX: 1, duration: 1.1, ease: "power3.out" }, t0 + 0.15);
+        if (o.sfx !== false) cv.cue(t0 + 0.15, "pop", 0.45, { v: i / Math.max(1, items.length - 1) });
         tl.to(c, { v: num(it.value, 0), duration: 1.1, ease: "power3.out", onUpdate: function () { show(c.v); } }, t0 + 0.15);
       });
       sc.cursor = at + items.length * 0.28 + 0.9;
@@ -559,6 +768,7 @@
         g.set(row.firstChild, { scale: 0 });
         tl.to(row, { autoAlpha: 1, x: 0, duration: 0.55, ease: "power3.out" }, at + i * gap);
         tl.to(row.firstChild, { scale: 1, duration: 0.45, ease: "back.out(2)" }, at + i * gap + 0.12);
+        if (o.sfx !== false) cv.cue(at + i * gap + 0.12, "pop", 0.55, { v: i / Math.max(1, items.length - 1) });
       });
       sc.cursor = at + items.length * gap + 0.4;
     },
@@ -579,6 +789,7 @@
         g.set(n.firstChild, { scale: 0 });
         g.set([n.children[1], n.children[2]], { autoAlpha: 0, y: 20 * cv.u });
         tl.to(n.firstChild, { scale: 1, duration: 0.4, ease: "back.out(2.5)" }, at + i * gap);
+        if (o.sfx !== false) cv.cue(at + i * gap, "blip", 0.55, { v: i / Math.max(1, events.length - 1) });
         tl.to([n.children[1], n.children[2]], { autoAlpha: 1, y: 0, duration: 0.5, stagger: 0.1, ease: "power3.out" }, at + i * gap + 0.08);
       });
       sc.cursor = at + events.length * gap + 0.3;
@@ -602,6 +813,7 @@
         tl.to(ps, { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.18, ease: "power2.out" }, at + 0.5 + k * 0.35);
       });
       if (vs) { g.set(vs, { scale: 0, rotation: -30 }); tl.to(vs, { scale: 1, rotation: 0, duration: 0.5, ease: "back.out(2.2)" }, at + 0.7); }
+      if (o.sfx !== false) { cv.cue(at, "whoosh-soft", 0.55); if (vs) cv.cue(at + 0.7, "hit", 0.6); }
       sc.cursor = at + 1.6;
     },
     quote: function (sc, text, o) {
@@ -610,6 +822,7 @@
       var n = el("figure", "cv-quote", sc.cam, '<div class="qm">“</div><blockquote class="' + (AR.test(text) ? "cv-ar" : "cv-lat") + '">' + wordsHtml(text, o.emphasis) + "</blockquote>" + (o.by ? '<figcaption class="by">— ' + esc(o.by) + "</figcaption>" : ""));
       g.set(n.firstChild, { autoAlpha: 0, scale: 0.4, y: 30 * cv.u });
       tl.to(n.firstChild, { autoAlpha: 1, scale: 1, y: 0, duration: 0.6, ease: "back.out(1.8)" }, at);
+      if (o.sfx !== false) cv.cue(at + 0.2, "swell", 0.45);
       var len = wordsIn(sc, n.children[1], at + 0.3, { enter: "rise", stagger: 0.05 });
       var by = n.querySelector(".by");
       if (by) { g.set(by, { autoAlpha: 0 }); tl.to(by, { autoAlpha: 1, duration: 0.5 }, at + 0.3 + len); }
@@ -627,6 +840,7 @@
       g.set(n, { autoAlpha: 0, scale: 0.6 });
       tl.to(n, { autoAlpha: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, at);
       tl.to(path, { strokeDashoffset: 0, duration: 0.9, ease: "power2.inOut" }, at + 0.05);
+      if (o.sfx !== false) cv.cue(at, "pop", 0.55, { v: 0.4 });
     },
     divider: function (sc, o) {
       o = o || {};
@@ -647,6 +861,7 @@
       var n = el("div", "cv-l3", sc.root, "<b>" + esc(name) + "</b>" + (role ? "<span>" + esc(role) + "</span>" : ""));
       g.set(n, { autoAlpha: 0, x: (cv.rtl ? 70 : -70) * cv.u });
       tl.to(n, { autoAlpha: 1, x: 0, duration: 0.55, ease: "power3.out" }, at);
+      if (o.sfx !== false) cv.cue(at, "whoosh-soft", 0.5);
       var out = Math.min(sc.to - 0.3, at + num(o.dur, 3.2));
       tl.to(n, { autoAlpha: 0, x: (cv.rtl ? 40 : -40) * cv.u, duration: 0.35, ease: "power2.in" }, out);
     },
@@ -656,6 +871,7 @@
       var n = el("div", "cv-cta " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.cam, esc(text));
       g.set(n, { autoAlpha: 0, scale: 0.7 });
       tl.to(n, { autoAlpha: 1, scale: 1, duration: 0.55, ease: "back.out(2)" }, at);
+      if (o.sfx !== false) cv.cue(at, "ding", 0.7);
       var left = sc.to - at - 0.8;
       var beats = Math.floor(left / 1.2);
       if (beats > 0) tl.to(n, { scale: 1.06, duration: 0.6, yoyo: true, repeat: beats * 2 - 1, ease: "sine.inOut" }, at + 0.7);
@@ -682,6 +898,8 @@
       case "source": sc.source(it.text); break;
       case "lowerThird": sc.lowerThird(it.name, it.role, it); break;
       case "cta": sc.cta(it.text, it); break;
+      case "emoji": sc.emoji(it.char || it.text, it); break;
+      case "sfx": sc.sfx(it.name, it); break;
     }
     return sc;
   }
@@ -710,7 +928,8 @@
 
   function endCard(cv, e) {
     var from = num(e.from, Math.max(0, cv.duration - num(e.seconds, 2.6)));
-    var sc = scene(cv, { from: from, to: cv.duration, transition: e.transition || "zoom", camera: "pull" });
+    var sc = scene(cv, { from: from, to: cv.duration, transition: e.transition || "zoom", camera: "pull", fx: e.fx, fxEmoji: e.fxEmoji });
+    if (e.sfx !== false) cv.cue(from, "riser", 0.55);
     if (e.kicker) sc.kicker(e.kicker);
     if (e.text) sc.title(e.text, { emphasis: e.emphasis, size: e.size });
     if (e.cta) sc.cta(e.cta);
@@ -726,7 +945,7 @@
   function play(sb, o) {
     o = o || {};
     sb = sb || {};
-    var cv = create({ width: o.width || sb.width, height: o.height || sb.height, duration: o.duration || sb.duration, theme: sb.theme, accent: sb.accent, accent2: sb.accent2, lang: sb.lang, fonts: sb.fonts, pace: sb.pace });
+    var cv = create({ width: o.width || sb.width, height: o.height || sb.height, duration: o.duration || sb.duration, theme: sb.theme, accent: sb.accent, accent2: sb.accent2, lang: sb.lang, fonts: sb.fonts, pace: sb.pace, sound: sb.sound });
     if (sb.progress) cv.progress();
     (sb.scenes || []).forEach(function (s) {
       var sc = cv.scene(s);
@@ -738,5 +957,5 @@
     return cv;
   }
 
-  window.CV = { create: create, play: play, themes: THEMES, icons: Object.keys(ICONS), components: API.slice(), version: "1.0.0" };
+  window.CV = { create: create, play: play, themes: THEMES, icons: Object.keys(ICONS), components: API.slice(), version: "1.1.0" };
 })();
