@@ -252,6 +252,7 @@
       ".cv-onmedia .cv-stat .n{text-shadow:var(--tsh)}",
       ".cv-onmedia .cv-panel{background:var(--mpanel);border-color:var(--mline)}",
       ".cv-onmedia .cv-plate .cv-title,.cv-onmedia .cv-plate .cv-text,.cv-onmedia .cv-panel *{text-shadow:none}",
+      ".cv-stat .n{white-space:nowrap}.cv-stat .n .u{font-size:.4em;margin-inline-start:.18em;letter-spacing:0;font-weight:800}",
       ".cv-ph-wrap{margin:0;display:flex;flex-direction:column;align-items:center;gap:" + px(18) + ";flex:none}",
       ".cv-ph{position:relative;overflow:hidden;border-radius:" + px(t.radius + 4) + ";box-shadow:0 " + px(26) + " " + px(70) + " rgba(0,0,0,.42);background:#000}",
       ".cv-ph .im{position:relative;overflow:hidden}",
@@ -1026,16 +1027,22 @@
       var n = el("div", "cv-stat", sc.box, '<div class="n"></div>' + (o.label ? '<div class="lbl ' + (AR.test(o.label) ? "cv-ar" : "cv-lat") + '">' + wordsHtml(o.label, o.emphasis) + "</div>" : ""));
       var box = n.firstChild, dec = Math.max(0, Math.min(3, num(o.decimals, 0)));
       var to = num(o.value, 0), from = num(o.from, 0), counter = { v: from };
+      // A word unit ("مليار", "million") sits smaller beside the number; a symbol (%, +) stays full size.
+      var unitWord = o.suffix && /[^\s%+×x°$€£]/.test(o.suffix) && String(o.suffix).trim().length > 1;
       var fmt = function (v) {
         var s = Number(v).toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
         if (o.digits === "arab") s = s.replace(/\d/g, function (d) { return "٠١٢٣٤٥٦٧٨٩"[d]; });
-        return (o.prefix || "") + s + (o.suffix || "");
+        return esc(o.prefix || "") + '<bdi>' + s + "</bdi>" + (unitWord ? '<span class="u">' + esc(String(o.suffix).trim()) + "</span>" : esc(o.suffix || ""));
       };
-      box.textContent = fmt(from);
+      // Never wider than the frame: measure the final value and shrink the type if it would not fit.
+      box.innerHTML = fmt(to);
+      var room = Math.max(100, cv.W - 2 * cv.safe.x), wide = box.scrollWidth;
+      if (wide > room) box.style.fontSize = Math.floor(parseFloat(getComputedStyle(box).fontSize) * (room / wide) * 0.96) + "px";
+      box.innerHTML = fmt(from);
       g.set(n, { autoAlpha: 0, y: 40 * cv.u, scale: 0.92 });
       tl.to(n, { autoAlpha: 1, y: 0, scale: 1, duration: 0.6, ease: "power3.out" }, at);
       var dur = num(o.dur, Math.min(2.2, Math.max(0.9, (sc.to - at) * 0.45)));
-      tl.to(counter, { v: to, duration: dur, ease: "power2.out", onUpdate: function () { box.textContent = fmt(counter.v); } }, at + 0.15);
+      tl.to(counter, { v: to, duration: dur, ease: "power2.out", onUpdate: function () { box.innerHTML = fmt(counter.v); } }, at + 0.15);
       if (o.sfx !== false) { cv.cue(at + 0.15, "count", 0.7, { dur: dur }); cv.cue(at + 0.15 + dur, "ding", 0.75); }
       tl.fromTo(box, { scale: 1 }, { scale: 1.06, duration: 0.16, yoyo: true, repeat: 1, ease: "power1.inOut" }, at + 0.15 + dur);
       var lbl = n.querySelector(".lbl");

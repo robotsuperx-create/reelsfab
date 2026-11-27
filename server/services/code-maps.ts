@@ -92,6 +92,14 @@ function mainPoint(f: Country): [number, number] {
   return geoCentroid(mainBody(f) as never) as [number, number];
 }
 
+/** "26.57,56.25" (latitude, longitude) → [lon, lat]. */
+function latLon(v: string): [number, number] | null {
+  const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(v);
+  if (!m) return null;
+  const lat = Number(m[1]), lon = Number(m[2]);
+  return Math.abs(lat) <= 85 && Math.abs(lon) <= 180 ? [lon, lat] : null;
+}
+
 export type MapGeo = {
   /** Stage size the paths are drawn for. */
   w: number;
@@ -122,10 +130,12 @@ export function mapGeometry(spec: SbMap, opts: { width: number; height: number; 
   const focus = ids(spec.focus);
   const highlight = [...new Set([...focus, ...ids(spec.highlight)])];
   const routes = (spec.routes ?? []).map(r => [countryId(r[0], detailed), countryId(r[1], detailed)] as const).filter((r): r is readonly [string, string] => !!r[0] && !!r[1] && r[0] !== r[1]);
-  const pinSpecs = (spec.pins ?? []).map(p => ({ id: countryId(p.at, detailed), label: p.label })).filter((p): p is { id: string; label: string | undefined } => !!p.id);
+  // Pins: a country (code or name) or an exact place written "lat,lon" (a strait, a city, a base…).
+  const pinSpecs = (spec.pins ?? []).map(p => ({ id: countryId(p.at, detailed), pt: latLon(p.at), label: p.label })).filter(p => p.id || p.pt);
   const byId = new Map(detailed.map(f => [f.properties.id, f]));
-  const anchor = [...focus, ...routes.flat(), ...pinSpecs.map(p => p.id)];
-  const world = spec.world === true || !anchor.length;
+  const anchor = [...focus, ...routes.flat(), ...pinSpecs.map(p => p.id).filter((x): x is string => !!x)];
+  const points = pinSpecs.map(p => p.pt).filter((x): x is [number, number] => !!x);
+  const world = spec.world === true || (!anchor.length && !points.length);
 
   // Bounds of what must be seen, then a wider frame to zoom from.
   const pts: [number, number][] = [];
@@ -137,6 +147,8 @@ export function mapGeometry(spec: SbMap, opts: { width: number; height: number; 
     if (x1 < x0 || x1 - x0 > 180) { const c = mainPoint(f); pts.push([c[0] - 20, c[1] - 10], [c[0] + 20, c[1] + 10]); }
     else pts.push([x0, y0], [x1, y1]);
   }
+  // A place pin keeps some context around it (a strait with both shores, a city with its region).
+  for (const [lon, lat] of points) pts.push([lon - 4, lat - 2.5], [lon + 4, lat + 2.5]);
   const lon0 = Math.min(...pts.map(p => p[0])), lon1 = Math.max(...pts.map(p => p[0]));
   const lat0 = Math.min(...pts.map(p => p[1])), lat1 = Math.max(...pts.map(p => p[1]));
   const span = lon1 - lon0, latSpan = lat1 - lat0;
@@ -155,7 +167,7 @@ export function mapGeometry(spec: SbMap, opts: { width: number; height: number; 
     projection = geoNaturalEarth1().fitWidth(mw, { type: "Sphere" } as never);
     const [tx, ty] = projection.translate();
     const mapH = geoPath(projection).bounds({ type: "Sphere" } as never)[1][1];
-    const xs = [...new Set(anchor)].map(id => byId.get(id)).filter((f): f is Country => !!f).map(f => projection(mainPoint(f))?.[0]).filter((x): x is number => x !== undefined);
+    const xs = [...[...new Set(anchor)].map(id => byId.get(id)).filter((f): f is Country => !!f).map(mainPoint), ...points].map(c => projection(c)?.[0]).filter((x): x is number => x !== undefined);
     const mid = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : mw / 2;
     const shift = Math.max(W - mw, Math.min(0, W / 2 - mid)) + (vertical ? 0 : (W - mw) / 2);
     projection.translate([tx + shift, ty + H * placeY - mapH / 2]);
@@ -199,8 +211,8 @@ export function mapGeometry(spec: SbMap, opts: { width: number; height: number; 
     return { d: `M${pa[0]},${pa[1]}Q${c[0]},${c[1]} ${pb[0]},${pb[1]}`, a: final(pa), b: final(pb) };
   }).filter(r => r.d);
   const pins = pinSpecs.slice(0, 6).map(p => {
-    const c = project(mainPoint(byId.get(p.id)!));
-    return { at: c ? final(c) : zoom.to, label: (p.label ?? "").slice(0, 40) || nameOf(p.id, opts.lang, list) };
+    const c = project(p.pt ?? mainPoint(byId.get(p.id!)!));
+    return { at: c ? final(c) : zoom.to, label: (p.label ?? "").slice(0, 40) || (p.id ? nameOf(p.id, opts.lang, list) : "") };
   });
   // Labels: pins' labels sit above their pin, countries' on their centre; overlapping ones are pushed apart.
   const placed: { x: number; y: number; w: number; h: number }[] = [];

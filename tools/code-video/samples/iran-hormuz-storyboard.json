@@ -1,0 +1,346 @@
+{
+  "title": "أمريكا وإيران: من إسقاط النظام إلى معركة هرمز",
+  "theme": "documentary",
+  "lang": "ar",
+  "progress": true,
+  "sound": {
+    "mood": "tense"
+  },
+  "scenes": [
+    {
+      "from": 0,
+      "to": 4.5,
+      "transition": "cut",
+      "camera": "push",
+      "fx": [
+        "letterbox"
+      ],
+      "note": "Hook: the paradox in one breath",
+      "media": {
+        "type": "clip",
+        "query": "oil tanker ship ocean aerial"
+      },
+      "items": [
+        {
+          "type": "kinetic",
+          "lines": [
+            "أمريكا دخلت لإسقاط النظام",
+            "وتقاتل اليوم لفتح مضيق",
+            "كان مفتوحًا قبل الحرب"
+          ],
+          "emphasis": [
+            "النظام",
+            "مفتوحًا"
+          ]
+        }
+      ]
+    },
+    {
+      "from": 4.5,
+      "to": 9.5,
+      "transition": "fade",
+      "place": "top",
+      "note": "How it started (Wikipedia, 2026 Iran war)",
+      "media": {
+        "type": "map",
+        "focus": [
+          "IR"
+        ],
+        "highlight": [
+          "IL"
+        ],
+        "routes": [
+          [
+            "IL",
+            "IR"
+          ]
+        ]
+      },
+      "items": [
+        {
+          "type": "kicker",
+          "text": "28 فبراير 2026"
+        },
+        {
+          "type": "title",
+          "text": "بدأت الحرب",
+          "emphasis": [
+            "الحرب"
+          ],
+          "size": "l"
+        },
+        {
+          "type": "text",
+          "text": "ضربات أمريكية وإسرائيلية على إيران قتلت المرشد علي خامنئي"
+        }
+      ]
+    },
+    {
+      "from": 9.5,
+      "to": 14.0,
+      "transition": "mask",
+      "note": "The declared goal",
+      "media": {
+        "type": "photo",
+        "query": "tehran city skyline mountains",
+        "motion": "in"
+      },
+      "items": [
+        {
+          "type": "kinetic",
+          "lines": [
+            "الهدف المعلن:",
+            "تغيير النظام"
+          ],
+          "emphasis": [
+            "النظام"
+          ]
+        },
+        {
+          "type": "text",
+          "text": "ترامب دعا الإيرانيين يوم الضربة إلى السيطرة على حكومتهم"
+        }
+      ]
+    },
+    {
+      "from": 14.0,
+      "to": 19.0,
+      "transition": "zoom",
+      "place": "top",
+      "note": "Hormuz was open before the war",
+      "media": {
+        "type": "map",
+        "focus": [],
+        "highlight": [
+          "IR",
+          "OM"
+        ],
+        "pins": [
+          {
+            "at": "26.57,56.25",
+            "label": "مضيق هرمز"
+          }
+        ],
+        "labels": false
+      },
+      "items": [
+        {
+          "type": "kicker",
+          "text": "قبل الحرب"
+        },
+        {
+          "type": "title",
+          "text": "هرمز كان مفتوحًا",
+          "emphasis": [
+            "مفتوحًا"
+          ],
+          "size": "l"
+        },
+        {
+          "type": "text",
+          "text": "نحو 20 مليون برميل نفط يوميًا… خُمس تجارة النفط البحرية"
+        }
+      ]
+    },
+    {
+      "from": 19.0,
+      "to": 23.5,
+      "transition": "slide",
+      "note": "After: traffic collapsed",
+      "items": [
+        {
+          "type": "kicker",
+          "text": "بعد الحرب"
+        },
+        {
+          "type": "title",
+          "text": "السفن العابرة يوميًا",
+          "size": "m"
+        },
+        {
+          "type": "bars",
+          "items": [
+            {
+              "label": "قبل الحرب",
+              "value": 135
+            },
+            {
+              "label": "منتصف نوفمبر",
+              "value": 38
+            }
+          ],
+          "unit": ""
+        },
+        {
+          "type": "source",
+          "text": "UKMTO · الجزيرة"
+        }
+      ]
+    },
+    {
+      "from": 23.5,
+      "to": 30.5,
+      "transition": "rise",
+      "note": "Every US attempt to reopen it",
+      "items": [
+        {
+          "type": "kicker",
+          "text": "محاولات فتح المضيق"
+        },
+        {
+          "type": "timeline",
+          "events": [
+            {
+              "date": "13 أبريل",
+              "text": "حصار الموانئ الإيرانية"
+            },
+            {
+              "date": "4 مايو",
+              "text": "مرافقة السفن… أُوقفت بعد يومين"
+            },
+            {
+              "date": "17 يونيو",
+              "text": "اتفاق… انهار بعد 3 أسابيع"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "from": 30.5,
+      "to": 36.5,
+      "transition": "flash",
+      "fx": [
+        "shake"
+      ],
+      "note": "November: the worst month at sea",
+      "media": {
+        "type": "photo",
+        "query": "oil tanker ship sea dark",
+        "motion": "left"
+      },
+      "items": [
+        {
+          "type": "stat",
+          "value": 25,
+          "label": "ناقلة أُصيبت حول هرمز بين 14 و21 نوفمبر"
+        },
+        {
+          "type": "text",
+          "text": "أعلى مستوى من الهجمات منذ بدء الحرب"
+        },
+        {
+          "type": "source",
+          "text": "الجزيرة · UKMTO"
+        }
+      ]
+    },
+    {
+      "from": 36.5,
+      "to": 41.5,
+      "transition": "fade",
+      "note": "The goal quietly dropped (Times of Israel / NY Post interview)",
+      "media": {
+        "type": "photo",
+        "query": "white house washington",
+        "motion": "out"
+      },
+      "items": [
+        {
+          "type": "quote",
+          "text": "لم أكن يومًا مع تغيير النظام أو ضده",
+          "by": "دونالد ترامب — 24 نوفمبر 2026"
+        }
+      ]
+    },
+    {
+      "from": 41.5,
+      "to": 46.5,
+      "transition": "whip",
+      "note": "The cost",
+      "media": {
+        "type": "photo",
+        "query": "aircraft carrier ocean",
+        "motion": "right"
+      },
+      "items": [
+        {
+          "type": "stat",
+          "value": 113,
+          "prefix": "$",
+          "suffix": " مليار",
+          "label": "تقدير كلفة الحرب على أمريكا حتى يونيو"
+        },
+        {
+          "type": "text",
+          "text": "وترامب: التمويل يكفي حتى نهاية يناير",
+          "emphasis": [
+            "يناير"
+          ]
+        }
+      ]
+    },
+    {
+      "from": 46.5,
+      "to": 51.5,
+      "transition": "mask",
+      "note": "Washington's side: the blockade bet",
+      "media": {
+        "type": "photo",
+        "query": "cargo ship port containers",
+        "motion": "up"
+      },
+      "items": [
+        {
+          "type": "kicker",
+          "text": "رهان واشنطن الأخير"
+        },
+        {
+          "type": "title",
+          "text": "الحصار",
+          "emphasis": [
+            "الحصار"
+          ],
+          "size": "xl"
+        },
+        {
+          "type": "text",
+          "text": "وزير الخزانة: اقتصاد إيران سيتقلص 25% بحلول مارس 2027. وطهران: سنصمد"
+        }
+      ]
+    },
+    {
+      "from": 51.5,
+      "to": 56.0,
+      "transition": "fade",
+      "fx": [
+        "dust"
+      ],
+      "note": "Payoff",
+      "media": {
+        "type": "clip",
+        "query": "stormy sea waves"
+      },
+      "items": [
+        {
+          "type": "kinetic",
+          "lines": [
+            "بدأت لإسقاط النظام",
+            "وصارت معركة على مضيق",
+            "حرب بلا نصر… حتى الآن"
+          ],
+          "emphasis": [
+            "النظام",
+            "بلا نصر"
+          ]
+        }
+      ]
+    }
+  ],
+  "end": {
+    "kicker": "رأيك؟",
+    "text": "هل خسرت أمريكا حرب إيران؟",
+    "cta": "تابع القناة",
+    "seconds": 3.5
+  }
+}
