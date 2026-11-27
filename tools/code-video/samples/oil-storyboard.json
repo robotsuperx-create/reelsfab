@@ -1,0 +1,19 @@
+{
+  "title": "سلاح لا يُطلق رصاصة",
+  "theme": "documentary",
+  "lang": "ar",
+  "progress": true,
+  "scenes": [
+    { "from": 0, "to": 3, "transition": "rise", "camera": "push", "note": "hook: a weapon without bullets",
+      "items": [ { "type": "kicker", "text": "اقتصاد وسياسة" }, { "type": "title", "text": "سلاح لا يُطلق رصاصة واحدة", "emphasis": ["رصاصة"] } ] },
+    { "from": 3, "to": 6, "transition": "zoom", "camera": "push", "note": "reveal the weapon",
+      "items": [ { "type": "icon", "name": "oil" }, { "type": "kinetic", "lines": ["برميل واحد", "يحرّك العالم كله"], "emphasis": ["العالم كله"] } ] },
+    { "from": 6, "to": 10.5, "transition": "mask", "camera": "drift", "note": "context: three dates",
+      "items": [ { "type": "timeline", "events": [ { "date": "1960", "text": "تأسيس أوبك في بغداد" }, { "date": "1973", "text": "حظر النفط العربي" }, { "date": "2020", "text": "السعر تحت الصفر" } ] } ] },
+    { "from": 10.5, "to": 14, "transition": "flash", "camera": "pull", "note": "proof: the shock of 1973",
+      "items": [ { "type": "stat", "value": 4, "prefix": "×", "label": "تضاعف سعر البرميل بعد حظر 1973" }, { "type": "source", "text": "أرقام تاريخية تقريبية" } ] },
+    { "from": 14, "to": 19, "transition": "slide", "camera": "none", "note": "consequence: two sides",
+      "items": [ { "type": "compare", "left": { "title": "من يملك النفط", "items": ["يفاوض بقوة", "يموّل نفوذه"] }, "right": { "title": "من يستورده", "items": ["يدفع الثمن", "يبحث عن بديل"] } } ] }
+  ],
+  "end": { "kicker": "الخلاصة", "text": "من يملك الطاقة يملك القرار", "emphasis": ["القرار"], "cta": "تابع القناة", "seconds": 3 }
+}

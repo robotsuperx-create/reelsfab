@@ -2,13 +2,31 @@ import { TRPCError } from "@trpc/server";
 import { desc, eq, like } from "drizzle-orm";
 import { z } from "zod";
 import { assets, codeVideos } from "../../drizzle/schema";
-import { codeAgentInputSchema, codeVideoInputSchema, fixInputSchema, inspectInputSchema, overlayInputSchema } from "../../shared/code-video";
+import { codeAgentInputSchema, codeVideoInputSchema, codeVideoSize, fixInputSchema, inspectInputSchema, overlayInputSchema, pageFromPasted } from "../../shared/code-video";
 import { requireDb } from "../db";
 import { memberProcedure } from "../procedures";
 import { router } from "../_core/trpc";
 import { enqueueCodeVideo, kickCodeVideoQueue, listCodeVideos } from "../services/code-videos";
 import { agentEngines, retryAgentVideo, startAgentVideo, startOverlayVideo } from "../services/code-agent";
 import { fixPasted, inspectPasted } from "../services/code-inspect";
+
+/** A pasted storyboard JSON becomes its kit page; HTML passes through. */
+function pasted(text: string, size: string, durationSec: number, styleId?: string) {
+  const { width, height } = codeVideoSize(size);
+  try {
+    return pageFromPasted(text, width, height, durationSec, styleId).html;
+  } catch (e) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function pageFromPastedOrThrow(text: string, width: number, height: number, durationSec: number) {
+  try {
+    return pageFromPasted(text, width, height, durationSec).html;
+  } catch (e) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
+  }
+}
 
 export const codeVideosRouter = router({
   list: memberProcedure.query(() => listCodeVideos()),
@@ -23,16 +41,17 @@ export const codeVideosRouter = router({
 
   /** Queues the conversion and starts the queue at once. */
   convert: memberProcedure.input(codeVideoInputSchema).mutation(async ({ input, ctx }) => {
-    if (!/<(html|body|script|style|div|svg|canvas)\b/i.test(input.html)) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "هذا لا يبدو ملف HTML — ألصق الملف كاملًا كما أعطاك الذكاء الاصطناعي" });
+    const html = pasted(input.html, input.size, input.durationSec);
+    if (!/<(html|body|script|style|div|svg|canvas)\b/i.test(html)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "هذا لا يبدو ملف HTML ولا قصة JSON — ألصقه كاملًا كما أعطاك الذكاء الاصطناعي" });
     }
-    return enqueueCodeVideo(input, ctx.user?.id);
+    return enqueueCodeVideo({ ...input, html }, ctx.user?.id);
   }),
 
   /** Runs pasted code like the renderer and reports measured problems + a message to paste back into the AI. */
   inspect: memberProcedure.input(inspectInputSchema).mutation(async ({ input }) => {
     try {
-      return await inspectPasted(input);
+      return await inspectPasted({ ...input, html: pasted(input.html, input.size, input.durationSec) });
     } catch (e) {
       throw new TRPCError({ code: "BAD_REQUEST", message: `تعذر تشغيل الكود: ${e instanceof Error ? e.message : String(e)}` });
     }
@@ -44,7 +63,7 @@ export const codeVideosRouter = router({
     if (input.engine === "api" && !engines.api) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد مفتاح Claude في مركز التكاملات — أو اختر Claude Code على هذا الجهاز" });
     if (input.engine === "claude-code" && !engines.claudeCode) throw new TRPCError({ code: "BAD_REQUEST", message: "لم أجد Claude Code على هذا الجهاز" });
     try {
-      return await fixPasted(input, ctx.user?.id);
+      return await fixPasted({ ...input, html: pasted(input.html, input.size, input.durationSec, input.styleId) }, ctx.user?.id);
     } catch (e) {
       throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
     }
@@ -87,11 +106,12 @@ export const codeVideosRouter = router({
   /** Render a written draft (or a pasted edit of it). */
   queueDraft: memberProcedure.input(z.object({ id: z.number().int(), html: z.string().max(2_000_000).optional() })).mutation(async ({ input }) => {
     const db = await requireDb();
-    const [row] = await db.select({ status: codeVideos.status, plan: codeVideos.plan }).from(codeVideos).where(eq(codeVideos.id, input.id));
+    const [row] = await db.select({ status: codeVideos.status, plan: codeVideos.plan, width: codeVideos.width, height: codeVideos.height, durationSec: codeVideos.durationSec }).from(codeVideos).where(eq(codeVideos.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "غير موجود" });
     if (row.status === "writing" || row.status === "running") throw new TRPCError({ code: "BAD_REQUEST", message: "انتظر حتى ينتهي العمل الجاري" });
     const single = !(row.plan?.segments?.length && row.plan.segments.length > 1);
-    await db.update(codeVideos).set({ ...(single && input.html ? { html: input.html } : {}), status: "queued", progress: 0, error: null, updatedAt: new Date() }).where(eq(codeVideos.id, input.id));
+    const html = single && input.html ? pageFromPastedOrThrow(input.html, row.width, row.height, row.durationSec) : null;
+    await db.update(codeVideos).set({ ...(html ? { html } : {}), status: "queued", progress: 0, error: null, updatedAt: new Date() }).where(eq(codeVideos.id, input.id));
     void kickCodeVideoQueue();
     return { ok: true };
   }),

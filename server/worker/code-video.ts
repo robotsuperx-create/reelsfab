@@ -8,10 +8,13 @@
  * Google Fonts only). The page never sees the studio's origin, cookies, database or keys.
  */
 import { execFile as execFileCb, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import type { BrowserContext, Route } from "playwright-core";
+import { expandKit } from "../../shared/code-craft/kit";
 import { CINEMA_SCALE, CINEMA_SUBFRAMES, CODE_VIDEO_ALLOWED_HOSTS, CODE_VIDEO_CSP, type RenderQuality } from "../../shared/code-video";
 
 export const RENDER_ORIGIN = "https://code-video.local/";
@@ -128,6 +131,59 @@ export function isAllowedRequest(url: string) {
 export type CodeVideoRender = { video: Buffer; poster: Buffer; frames: number; blocked: string[]; consoleErrors: string[] };
 
 /**
+ * Libraries and fonts from the allowed CDNs are kept on disk after the first download: every render opens a fresh
+ * browser, so without this each one re-downloads GSAP and the fonts (slow, and a render fails if the network blinks).
+ * CODE_VIDEO_CDN_CACHE=off disables it; any other value is the folder to use.
+ */
+export function cdnCacheDir() {
+  const v = process.env.CODE_VIDEO_CDN_CACHE?.trim();
+  if (v === "off" || v === "0") return null;
+  return v || join(homedir(), ".reellllocal", "cdn-cache");
+}
+
+async function fromCdn(route: Route, url: string) {
+  const dir = cdnCacheDir();
+  if (!dir) return route.continue();
+  const key = createHash("sha1").update(url).digest("hex");
+  const bodyFile = join(dir, `${key}.bin`);
+  const metaFile = join(dir, `${key}.json`);
+  try {
+    const [body, meta] = await Promise.all([readFile(bodyFile), readFile(metaFile, "utf8")]);
+    const { contentType } = JSON.parse(meta) as { contentType?: string };
+    return route.fulfill({ status: 200, body, contentType: contentType || "application/octet-stream", headers: { "access-control-allow-origin": "*", "cache-control": "max-age=31536000" } });
+  } catch {
+    /* not cached yet */
+  }
+  try {
+    const res = await route.fetch({ timeout: 30_000 });
+    const body = await res.body();
+    if (res.ok() && body.length) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(bodyFile, body);
+      await writeFile(metaFile, JSON.stringify({ url, contentType: res.headers()["content-type"] ?? "" }));
+    }
+    return route.fulfill({ response: res, body });
+  } catch {
+    return route.abort("failed").catch(() => undefined);
+  }
+}
+
+/** The page (with the motion kit inlined when it asks for it) on the throwaway origin; only allowed hosts get through. */
+async function routeIsolated(context: BrowserContext, html: string, blocked: string[]) {
+  const body = expandKit(html);
+  await context.route("**/*", async route => {
+    const url = route.request().url();
+    if (url === RENDER_ORIGIN) {
+      return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": CODE_VIDEO_CSP, "cache-control": "no-store" }, body });
+    }
+    if (url.startsWith("data:") || url.startsWith("blob:")) return route.continue();
+    if (isAllowedRequest(url)) return fromCdn(route, url);
+    if (blocked.length < 20) blocked.push(url.slice(0, 200));
+    return route.abort("blockedbyclient");
+  });
+}
+
+/**
  * Opens the HTML at width×height, steps the virtual clock 1000/fps ms per frame, screenshots every frame and pipes
  * the JPEGs to ffmpeg (H.264, yuv420p, veryfast). `onProgress` gets 0..1.
  */
@@ -146,15 +202,7 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
   const consoleErrors: string[] = [];
   try {
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, javaScriptEnabled: true, acceptDownloads: false, serviceWorkers: "block", reducedMotion: "no-preference" });
-    await context.route("**/*", async route => {
-      const url = route.request().url();
-      if (url === RENDER_ORIGIN) {
-        return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": CODE_VIDEO_CSP, "cache-control": "no-store" }, body: opts.html });
-      }
-      if (isAllowedRequest(url)) return route.continue();
-      if (blocked.length < 20) blocked.push(url.slice(0, 200));
-      return route.abort("blockedbyclient");
-    });
+    await routeIsolated(context, opts.html, blocked);
     await context.addInitScript({ content: VIRTUAL_TIME_SCRIPT });
     const page = await context.newPage();
     page.on("console", m => { if (m.type() === "error" && consoleErrors.length < 20) consoleErrors.push(m.text().slice(0, 300)); });
@@ -215,13 +263,7 @@ export async function captureStills(opts: { html: string; width: number; height:
   const consoleErrors: string[] = [];
   try {
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: opts.scale ?? 0.5, serviceWorkers: "block" });
-    await context.route("**/*", async route => {
-      const url = route.request().url();
-      if (url === RENDER_ORIGIN) return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": CODE_VIDEO_CSP }, body: opts.html });
-      if (isAllowedRequest(url)) return route.continue();
-      if (blocked.length < 20) blocked.push(url.slice(0, 200));
-      return route.abort("blockedbyclient");
-    });
+    await routeIsolated(context, opts.html, blocked);
     await context.addInitScript({ content: VIRTUAL_TIME_SCRIPT });
     const page = await context.newPage();
     page.on("pageerror", e => { if (consoleErrors.length < 20) consoleErrors.push(String(e.message).slice(0, 300)); });
@@ -250,13 +292,7 @@ async function openIsolatedPage(browser: import("playwright-core").Browser, html
   const blocked: string[] = [];
   const consoleErrors: string[] = [];
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale, serviceWorkers: "block" });
-  await context.route("**/*", async route => {
-    const url = route.request().url();
-    if (url === RENDER_ORIGIN) return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": CODE_VIDEO_CSP, "cache-control": "no-store" }, body: html });
-    if (isAllowedRequest(url)) return route.continue();
-    if (blocked.length < 20) blocked.push(url.slice(0, 200));
-    return route.abort("blockedbyclient");
-  });
+  await routeIsolated(context, html, blocked);
   await context.addInitScript({ content: VIRTUAL_TIME_SCRIPT });
   const page = await context.newPage();
   page.on("console", m => { if (m.type() === "error" && consoleErrors.length < 20) consoleErrors.push(m.text().slice(0, 300)); });

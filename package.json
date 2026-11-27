@@ -14,7 +14,8 @@
     "db:migrate": "drizzle-kit migrate",
     "dev:static": "vite --host 0.0.0.0 --port ${PORT:-3000} --strictPort",
     "build:static": "vite build",
-    "e2e": "tsx server/e2e/full-cycle.ts"
+    "e2e": "tsx server/e2e/full-cycle.ts",
+    "kit:build": "node scripts/build-cv-kit.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

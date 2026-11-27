@@ -15,7 +15,10 @@ import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { assets, codeVideos } from "../../drizzle/schema";
 import { CLAUDE_DEFAULT_MODEL } from "../../shared/domain";
-import { CODE_VIDEO_SEGMENT_MAX, CODE_VIDEO_SINGLE_MAX, MOTION_QUALITY_RULES, STYLE_RECIPES, codeVideoSize, formatDuration, sizeForSource, type CodeAgentEngine, type CodeAgentInput, type CodeVideoPlan, type OverlayInput } from "../../shared/code-video";
+import { CODE_VIDEO_SEGMENT_MAX, CODE_VIDEO_SINGLE_MAX, MOTION_QUALITY_RULES, STYLE_RECIPES, codeVideoSize, formatDuration, sizeForSource, themeFor, type AgentMode, type CodeAgentEngine, type CodeAgentInput, type CodeVideoPlan, type OverlayInput } from "../../shared/code-video";
+import { KIT_API_DOC } from "../../shared/code-craft/kit";
+import { guessKind, type VideoKind } from "../../shared/code-craft/knowledge";
+import { composeVideo, type Review } from "./code-director";
 import { storageDownload, storageKeyFromUrl } from "../storage";
 import { detectScenes, frameTimes, grabFrames, mapForPrompt, probeVideo, sceneIndex, sentencesFrom, transcribeLocal, transcribeOpenAI, type FrameNote, type VideoMap, type Word } from "./video-understanding";
 import { getDb, getSettings, requireDb } from "../db";
@@ -136,7 +139,7 @@ Hard rules:
 - Canvas exactly ${width}x${height}: html, body { width:${width}px; height:${height}px; margin:0; overflow:hidden }. Background covers everything.
 - It starts by itself on load: no clicks, no hover, no audio, no video files, no fetch/XHR, no external images.
 - Draw everything with HTML/CSS, inline SVG, canvas or emoji.
-- Libraries only from cdnjs.cloudflare.com or cdn.jsdelivr.net. Prefer GSAP: <script src="${GSAP}"></script> and ONE gsap.timeline() for the whole piece. Fonts only from Google Fonts (Arabic: Alexandria, Cairo, IBM Plex Sans Arabic, Tajawal; Latin: Inter, Space Grotesk, JetBrains Mono).
+- Libraries only from cdnjs.cloudflare.com or cdn.jsdelivr.net. Prefer the motion kit below (it brings GSAP); otherwise GSAP: <script src="${GSAP}"></script> and ONE gsap.timeline() for the whole piece. Fonts only from Google Fonts (Arabic: Alexandria, Cairo, IBM Plex Sans Arabic, Tajawal; Latin: Inter, Space Grotesk, JetBrains Mono).
 - Timing must come from GSAP/CSS animations/requestAnimationFrame/setTimeout — the recorder controls the clock. Never rely on real time passing between page load and the first frame.
 - Text in the language of the idea; Arabic pages use <html dir="rtl" lang="ar">, Arabic display type line-height ≥ 1.45.
 - Readable on a phone: body text ≥ ${vertical ? 40 : 34}px, titles ≥ ${vertical ? 80 : 64}px.${vertical ? " Keep key content out of the top 180px and bottom 320px (platform UI)." : ""}
@@ -148,6 +151,8 @@ Hard rules:
 ${style ? `STYLE (follow exactly): ${style.recipe}
 ` : ""}Motion quality (what separates a pro piece from a demo):
 ${MOTION_QUALITY_RULES.map(r => `- ${r}`).join("\n")}
+${KIT_API_DOC}
+Use the kit for layout, type and motion wherever it fits, and add your own elements and tweens on cv.tl for what it does not cover.
 Output ONLY the HTML document, starting with <!doctype html> and ending with </html>. No explanations, no markdown fences.`;
 }
 
@@ -264,7 +269,7 @@ export async function startAgentVideo(input: CodeAgentInput, userId?: number | n
   const title = input.idea.replace(/\s+/g, " ").trim().slice(0, 80);
   const [row] = await db
     .insert(codeVideos)
-    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: input.styleId ? { styleId: input.styleId } : null, createdBy: userId ?? null })
+    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: { styleId: input.styleId, mode: input.mode ?? "compose", kind: input.kind, accent: input.accent }, createdBy: userId ?? null })
     .returning({ id: codeVideos.id });
   queue.push(row.id);
   void drainAgent(input.autoConvert);
@@ -287,11 +292,14 @@ async function writeVideo(id: number, autoConvert: boolean) {
   if (!job?.idea || !job.engine) return;
   if (job.sourceKey) return writeOverlay(id, autoConvert);
   const engine = job.engine as CodeAgentEngine;
-  const system = rules(job.width, job.height, (job.analysis as { styleId?: string } | null)?.styleId);
+  const opts = (job.analysis ?? {}) as AgentOptions;
+  const system = rules(job.width, job.height, opts.styleId);
   const ref = { id, userId: job.createdBy, what: "" };
   try {
-    await log(id, `$ agent --engine ${engine} --duration ${job.durationSec}s --size ${job.width}x${job.height}`);
-    if (job.durationSec <= CODE_VIDEO_SINGLE_MAX) {
+    await log(id, `$ agent --engine ${engine} --mode ${opts.mode ?? "code"} --duration ${job.durationSec}s --size ${job.width}x${job.height}`);
+    if (opts.mode === "compose") {
+      await composeJob(id, job, engine, opts, autoConvert);
+    } else if (job.durationSec <= CODE_VIDEO_SINGLE_MAX) {
       await log(id, "› يكتب الأنيميشن…");
       const prompt = `Make an animation of exactly ${job.durationSec} seconds.\nIdea (from the owner): """${job.idea}"""`;
       const html = await writeChecked(engine, system, prompt, job.width, job.height, job.durationSec, { ...ref, what: "الأنيميشن" });
@@ -321,6 +329,50 @@ async function writeVideo(id: number, autoConvert: boolean) {
     await log(id, `✗ ${msg}`).catch(() => undefined);
     await db.update(codeVideos).set({ status: "failed", error: msg.slice(0, 1000), updatedAt: new Date() }).where(eq(codeVideos.id, id));
   }
+}
+
+type AgentOptions = { styleId?: string; mode?: AgentMode; kind?: VideoKind; accent?: string; storyboard?: unknown; reviews?: Review[] };
+
+/**
+ * Compose mode: the director plans storyboards that the motion kit plays, with the critic loop. Long videos keep the
+ * segment plan (one shared look) and compose each segment; segments already written survive a retry.
+ */
+async function composeJob(id: number, job: typeof codeVideos.$inferSelect, engine: CodeAgentEngine, opts: AgentOptions, autoConvert: boolean) {
+  const db = await requireDb();
+  const kind = opts.kind ?? guessKind(job.idea ?? "", job.durationSec);
+  const theme = themeFor(opts.styleId, kind);
+  const ref = { id, userId: job.createdBy, what: "" };
+  const askFor = (system: string, prompt: string, what: string, images?: Buffer[]) => ask(engine, system, prompt, { ...ref, what }, images ?? []);
+  const base = { idea: job.idea ?? "", width: job.width, height: job.height, theme, themeChosen: Boolean(opts.styleId), kind, accent: opts.accent, ask: askFor, log: (line: string) => log(id, line) };
+  if (job.durationSec <= CODE_VIDEO_SINGLE_MAX) {
+    const r = await composeVideo({ ...base, durationSec: job.durationSec });
+    const best = r.reviews[r.best];
+    await db
+      .update(codeVideos)
+      .set({ html: r.html, title: r.storyboard.title?.slice(0, 160) || job.title, analysis: { ...opts, kind, storyboard: r.storyboard, reviews: r.reviews }, status: autoConvert ? "queued" : "draft", updatedAt: new Date() })
+      .where(eq(codeVideos.id, id));
+    await log(id, `✓ جاهز — التقييم ${best?.overall || "—"}/10${autoConvert ? "، دخل طابور التحويل" : "، راجعه ثم حوّله"}`);
+    return;
+  }
+  let plan = job.plan?.segments?.length ? job.plan : null;
+  if (!plan) {
+    await log(id, "› يخطّط المقاطع ودليل الأسلوب…");
+    const raw = extractJson<CodeVideoPlan>(await ask(engine, "You are a senior motion designer and documentary editor. Answer with JSON only.", planPrompt(job.idea ?? "", job.durationSec, job.width, job.height, opts.styleId), { ...ref, what: "خطة المقاطع" }));
+    plan = normalizePlan(raw, job.durationSec);
+    await db.update(codeVideos).set({ plan, updatedAt: new Date() }).where(eq(codeVideos.id, id));
+    await log(id, `✓ الخطة: ${plan.segments.length} مقطع`);
+  }
+  const reviews: Review[] = [];
+  for (let i = 0; i < plan.segments.length; i++) {
+    const seg = plan.segments[i];
+    if (seg.html) continue;
+    const r = await composeVideo({ ...base, durationSec: seg.seconds, themeChosen: true, segment: { index: i, count: plan.segments.length, title: seg.title, brief: seg.brief, style: plan.style }, rounds: 1 });
+    seg.html = r.html;
+    reviews.push(r.reviews[r.best]);
+    await db.update(codeVideos).set({ plan, html: plan.segments[0].html ?? "", updatedAt: new Date() }).where(eq(codeVideos.id, id));
+  }
+  await db.update(codeVideos).set({ status: autoConvert ? "queued" : "draft", analysis: { ...opts, kind, reviews }, updatedAt: new Date() }).where(eq(codeVideos.id, id));
+  await log(id, autoConvert ? "✓ كل المقاطع جاهزة — دخلت طابور التحويل" : "✓ كل المقاطع جاهزة — اضغط تحويل");
 }
 
 function guessTitleFrom(html: string) {

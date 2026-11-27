@@ -4,6 +4,9 @@
  * load libraries from public CDNs and Google Fonts, no access to the studio's origin, cookies or keys.
  */
 import { z } from "zod";
+import { expandKit, type KitTheme } from "./code-craft/kit";
+import { STYLE_TO_THEME, VIDEO_KIND_IDS, guessKind, knowledgeFor, themeForKind, type VideoKind } from "./code-craft/knowledge";
+import { compileStoryboard, looksLikeStoryboard, extractJsonObject, normalizeStoryboard, storyboardDoc } from "./code-craft/storyboard";
 
 export const CODE_VIDEO_SIZES = [
   { id: "1080x1920", width: 1080, height: 1920, label: "1080×1920 — عمودي (ريل)" },
@@ -51,6 +54,14 @@ export const codeVideoInputSchema = z.object({
 });
 export type CodeVideoInput = z.infer<typeof codeVideoInputSchema>;
 
+/**
+ * How the agent works: "compose" = a director writes a storyboard that the tested motion kit plays (consistent,
+ * professional, cheap); "code" = the agent writes the whole animation by hand (free form, for unusual ideas).
+ */
+export const AGENT_MODES = ["compose", "code"] as const;
+export type AgentMode = (typeof AGENT_MODES)[number];
+export const AGENT_MODE_LABELS: Record<AgentMode, string> = { compose: "مخرج + مكتبة القطع (مستحسن)", code: "كود حر بالكامل" };
+
 export const codeAgentInputSchema = z.object({
   idea: z.string().trim().min(8, "اكتب الفكرة بجملة على الأقل").max(4000),
   size: codeVideoInputSchema.shape.size,
@@ -62,8 +73,34 @@ export const codeAgentInputSchema = z.object({
   autoConvert: z.boolean(),
   /** One of STYLE_RECIPES; empty = the agent picks a look that suits the idea. */
   styleId: z.string().max(40).optional(),
+  mode: z.enum(AGENT_MODES).optional(),
+  /** Kind of video (pacing and structure); empty = guessed from the idea and the length. */
+  kind: z.enum(VIDEO_KIND_IDS).optional(),
+  /** Brand colour for the kit's accent (#rrggbb). */
+  accent: z.string().regex(/^#[\da-fA-F]{6}$/).optional(),
 });
 export type CodeAgentInput = z.infer<typeof codeAgentInputSchema>;
+
+/** The kit theme for a video: the owner's style if chosen, otherwise the one that suits its kind. */
+export function themeFor(styleId: string | null | undefined, kind: VideoKind): KitTheme {
+  return (styleId && STYLE_TO_THEME[styleId]) || themeForKind(kind);
+}
+
+/**
+ * Anything pasted into the room as the page to render: a storyboard JSON (written by any AI from the storyboard
+ * prompt) becomes a kit page; HTML stays as is. Throws a readable error for broken JSON.
+ */
+export function pageFromPasted(text: string, width: number, height: number, durationSec: number, styleId?: string | null) {
+  if (!looksLikeStoryboard(text)) return { html: text, storyboard: null, issues: [] as string[] };
+  let raw: unknown;
+  try {
+    raw = extractJsonObject(text);
+  } catch (e) {
+    throw new Error(`القصة (JSON) غير صالحة: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const { storyboard, issues } = normalizeStoryboard(raw, durationSec, styleId ? STYLE_TO_THEME[styleId] : undefined);
+  return { html: compileStoryboard(storyboard, { width, height, durationSec }), storyboard, issues };
+}
 
 /** Segments a long video is cut into (30–60 s each, same total). */
 export function segmentCount(durationSec: number) {
@@ -107,7 +144,9 @@ export const CODE_VIDEO_CSP = [
  * Puts the CSP meta tag first in <head> (before any script of the pasted file can run), keeping the rest as is.
  * Used for the in-browser preview; the server also sends the same policy as a real header.
  */
-export function withCodeVideoCsp(html: string) {
+export function withCodeVideoCsp(page: string) {
+  // The motion kit is inlined where the page asks for it, exactly as the renderer does.
+  const html = expandKit(page);
   const meta = `<meta http-equiv="Content-Security-Policy" content="${CODE_VIDEO_CSP}">`;
   const head = /<head(\s[^>]*)?>/i.exec(html);
   if (head) return html.slice(0, head.index + head[0].length) + meta + html.slice(head.index + head[0].length);
@@ -256,6 +295,23 @@ ${MOTION_QUALITY_RULES.map((r, i) => `${i + 1}. ${r}`).join("\n")}
 الخطوة 2: بعد موافقتي، حوّل الجدول نفسه إلى الكود داخل الهيكل بالضبط. أرجع الملف كاملاً فقط، بلا شرح.
 
 الفكرة: ${idea}`;
+}
+
+/**
+ * The storyboard request for Gemini, DeepSeek or any AI: it only has to write a short JSON (no animation code), which
+ * the room plays with the tested motion kit. Far more reliable than asking a free model for hundreds of lines of GSAP.
+ */
+export function storyboardPrompt(width: number, height: number, seconds: number, styleId: string | null | undefined, idea = "[اكتب الفكرة هنا]", kind?: VideoKind) {
+  const k = kind ?? guessKind(idea, seconds);
+  const chosen = styleId ? STYLE_TO_THEME[styleId] ?? null : null;
+  return `You are a senior motion designer and video director. Plan a ${seconds}-second ${width}x${height} video as a storyboard.
+
+${knowledgeFor(k, { chosenTheme: chosen, vertical: height > width })}
+
+${storyboardDoc(width, height, seconds)}
+
+THE IDEA (from the owner — keep its language for every on-screen word):
+${idea}`;
 }
 
 /* ------------------------------------------------------------ inspection of pasted code */

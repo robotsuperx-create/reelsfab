@@ -31,7 +31,14 @@ import {
   TRANSCRIBERS,
   type TranscriberId,
   type CodeVideoSizeId,
+  AGENT_MODES,
+  AGENT_MODE_LABELS,
+  type AgentMode,
+  pageFromPasted,
+  storyboardPrompt,
 } from "@shared/code-video";
+import { VIDEO_KINDS, CRITIC_RUBRIC, type VideoKind } from "@shared/code-craft/knowledge";
+import { looksLikeStoryboard, type Storyboard } from "@shared/code-craft/storyboard";
 import { Switch } from "@/components/ui/switch";
 import { Bot, CircleAlert, CircleCheck, Code2, Download, Eye, Film, Lock, RefreshCw, ScanSearch, Scissors, ShieldCheck, Sparkles, Terminal, Trash2, TriangleAlert, Undo2, Upload, Wand2, WifiOff } from "lucide-react";
 import { uploadBlob } from "@/lib/api";
@@ -46,7 +53,7 @@ const DRAFT_KEY = "code-video-draft";
 
 function readDraft() {
   try {
-    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality } | null;
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality; agentMode?: AgentMode; kind?: VideoKind | ""; accent?: string } | null;
   } catch {
     return null;
   }
@@ -74,6 +81,9 @@ export default function CodeVideoPage() {
   const [mode, setMode] = useState<"idea" | "video">("idea");
   const [quality, setQuality] = useState<RenderQuality>(draft?.quality ?? "standard");
   const [styleId, setStyleId] = useState<StyleRecipeId | "">(draft?.styleId ?? "");
+  const [agentMode, setAgentMode] = useState<AgentMode>(draft?.agentMode ?? "compose");
+  const [kind, setKind] = useState<VideoKind | "">(draft?.kind ?? "");
+  const [accent, setAccent] = useState(draft?.accent ?? "");
   const [inspection, setInspection] = useState<{ result: CodeInspection; fixedFrom?: { html: string; before: CodeIssue[] } } | null>(null);
   const size = codeVideoSize(sizeId);
   const seconds = Math.round(Number(duration));
@@ -82,10 +92,10 @@ export default function CodeVideoPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality })); } catch { /* private mode */ }
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent })); } catch { /* private mode */ }
     }, 400);
     return () => clearTimeout(t);
-  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality]);
+  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent]);
 
   const utils = trpc.useUtils();
   const engines = trpc.codeVideos.engines.useQuery(undefined, { staleTime: 60_000 });
@@ -144,8 +154,14 @@ export default function CodeVideoPage() {
   const startFix = () => pasted() && fix.mutate({ html, size: sizeId, durationSec: seconds, engine, styleId: styleId || undefined });
 
   const startPreview = () => {
-    if (html.trim().length < 20) return toast.error("ألصق ملف HTML أولًا");
-    setPreview({ html: withCodeVideoCsp(html), key: Date.now() });
+    if (html.trim().length < 20) return toast.error("ألصق ملف HTML أو قصة JSON أولًا");
+    try {
+      const page = pageFromPasted(html, size.width, size.height, durationOk ? seconds : 15, styleId || null);
+      if (page.issues.length) toast.warning(`القصة شُغّلت مع ${page.issues.length} ملاحظة: ${page.issues[0]}`);
+      setPreview({ html: withCodeVideoCsp(page.html), key: Date.now() });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
   };
   const startConvert = () => {
     if (html.trim().length < 20) return toast.error("ألصق ملف HTML أولًا");
@@ -156,7 +172,7 @@ export default function CodeVideoPage() {
   const startAgent = () => {
     if (idea.trim().length < 8) return toast.error("اكتب الفكرة بجملة على الأقل");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
-    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality });
+    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality, mode: agentMode, kind: kind || undefined, accent: /^#[\da-f]{6}$/i.test(accent) ? accent : undefined });
   };
   const e = engines.data;
 
@@ -164,8 +180,13 @@ export default function CodeVideoPage() {
     <div>
       <PageHeader
         title="كود ← فيديو"
-        subtitle="اكتب الفكرة فيكتب الوكيل الأنيميشن، أو ألصق ملف HTML من أي ذكاء اصطناعي. يتحول إلى MP4 فريمًا بفريم حتى 40 دقيقة، مجانًا على جهازك، والكود يشتغل معزولًا بلا وصول للاستوديو أو مفاتيحه. الفيديو يدخل مكتبة الأصول لتستعمله غرفة المونتاج."
-        actions={<CopyButton text={strongPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || "documentary", idea.trim() || undefined)} label="نسخ القالب القوي" variant="secondary" />}
+        subtitle="اكتب الفكرة فيخرجها الوكيل بمكتبة قطع مجرَّبة، أو انسخ «قالب القصة» لأي ذكاء اصطناعي مجاني (DeepSeek، Gemini…) وألصق القصة JSON التي يكتبها، أو ألصق ملف HTML كاملًا. يتحول إلى MP4 فريمًا بفريم حتى 40 دقيقة، مجانًا على جهازك، والكود يشتغل معزولًا بلا وصول للاستوديو أو مفاتيحه. الفيديو يدخل مكتبة الأصول لتستعمله غرفة المونتاج."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <CopyButton text={storyboardPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || null, idea.trim() || undefined, kind || undefined)} label="نسخ قالب القصة (JSON)" variant="default" />
+            <CopyButton text={strongPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || "documentary", idea.trim() || undefined)} label="نسخ قالب الكود (HTML)" variant="secondary" />
+          </div>
+        }
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
@@ -239,6 +260,29 @@ export default function CodeVideoPage() {
               <Label htmlFor="code-video-idea" className="text-xs text-muted-foreground">الفكرة — ماذا يظهر في الفيديو، بأي أسلوب، بأي لغة</Label>
               <Textarea id="code-video-idea" value={idea} onChange={ev => setIdea(ev.target.value)} placeholder="مثال: فيديو يشرح كيف يأكل التضخم الرواتب، أسلوب وثائقي داكن بالأحمر، أرقام كبيرة متحركة، بالعربية" className="min-h-[96px] resize-y bg-black/40 p-3 text-sm leading-6" />
               <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-muted-foreground">طريقة العمل</span>
+                <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="طريقة عمل الوكيل">
+                  {AGENT_MODES.map(m => (
+                    <Chip key={m} on={agentMode === m} onClick={() => setAgentMode(m)} title={m === "compose" ? "المخرج يكتب القصة مشهدًا مشهدًا، وتُبنى بمكتبة قطع مجرَّبة، ثم ناقد يقيّمها ويحسّنها حتى 8/10" : "الوكيل يكتب الأنيميشن كله بالكود — لأفكار غير معتادة"}>
+                      {AGENT_MODE_LABELS[m]}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+              {agentMode === "compose" && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-muted-foreground">نوع الفيديو — يحدد الإيقاع والبناء</span>
+                  <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="نوع الفيديو">
+                    <Chip on={kind === ""} onClick={() => setKind("")} title="يُستنتج من الفكرة والمدة">يختار الوكيل</Chip>
+                    {VIDEO_KINDS.map(k => <Chip key={k.id} on={kind === k.id} onClick={() => setKind(k.id)} title={k.hint}>{k.label}</Chip>)}
+                    <label className="ms-1 flex items-center gap-1.5 text-[11px] text-muted-foreground" title="لون علامتك يصبح لون التأكيد في الفيديو">
+                      <input type="checkbox" checked={Boolean(accent)} onChange={ev => setAccent(ev.target.checked ? "#ff3b30" : "")} className="accent-current" /> لون العلامة
+                      {accent && <input type="color" value={accent} onChange={ev => setAccent(ev.target.value)} aria-label="لون العلامة" className="h-6 w-8 cursor-pointer rounded border border-border bg-transparent" />}
+                    </label>
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5">
                 <span className="text-xs text-muted-foreground">من يكتب</span>
                 <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="المحرّك">
                   {CODE_AGENT_ENGINES.map(en => {
@@ -272,7 +316,7 @@ export default function CodeVideoPage() {
             <div className="cv-bar">
               <i /><i /><i />
               <span className="truncate">root@reellllocal:~/code-video# nano animation.html</span>
-              <span className="ms-auto num">{html.length.toLocaleString("en")} chars</span>
+              <span className="ms-auto num">{looksLikeStoryboard(html) ? "storyboard.json · " : ""}{html.length.toLocaleString("en")} chars</span>
             </div>
             <Label htmlFor="code-video-html" className="sr-only">ملف HTML</Label>
             <Textarea
@@ -289,7 +333,7 @@ export default function CodeVideoPage() {
                 setHtml(`${html.slice(0, a)}  ${html.slice(b)}`);
                 requestAnimationFrame(() => el.setSelectionRange(a + 2, a + 2));
               }}
-              placeholder={"<!doctype html>\n<html>\n<head>…</head>\n<body>…</body>\n</html>"}
+              placeholder={"<!doctype html> … أو قصة JSON:\n{ \"theme\": \"documentary\", \"scenes\": [ … ] }"}
               className="cv-code min-h-[300px] resize-y p-4 font-mono text-[12.5px] leading-5 xl:min-h-[380px]"
             />
             <div className="flex flex-wrap gap-2 border-t border-border p-3" dir="rtl">
@@ -322,6 +366,7 @@ export default function CodeVideoPage() {
               )}
               {current && current.status !== "done" && <JobProgress row={current} />}
               {current?.sourceKey && !["analyzing"].includes(current.status) && <VideoMapView id={current.id} />}
+              {current && !current.sourceKey && !["writing", "analyzing"].includes(current.status) && <StoryboardView id={current.id} />}
             </div>
           </div>
         </section>
@@ -569,6 +614,55 @@ function OverlayPanel(props: { engine: CodeAgentEngine; setEngine: (e: CodeAgent
         </div>
       </div>
     </div>
+  );
+}
+
+/** The director's storyboard and the critic's scores, round by round. */
+function StoryboardView({ id }: { id: number }) {
+  const q = trpc.codeVideos.get.useQuery({ id }, { staleTime: 30_000 });
+  const a = q.data?.analysis as { storyboard?: Storyboard; reviews?: { round: number; overall: number; scores: Record<string, number>; issues: string[]; measured: string[] }[] } | null | undefined;
+  const sb = a?.storyboard;
+  const reviews = a?.reviews ?? [];
+  if (!sb && !reviews.length) return null;
+  const best = reviews.reduce<(typeof reviews)[number] | null>((b, r) => (!b || r.overall > b.overall ? r : b), null);
+  const describe = (it: Record<string, unknown>) => {
+    const t = String(it.type);
+    const txt = typeof it.text === "string" ? it.text : Array.isArray(it.lines) ? (it.lines as string[]).join(" / ") : t === "stat" ? `${it.prefix ?? ""}${it.value}${it.suffix ?? ""} ${it.label ?? ""}` : Array.isArray(it.items) ? `${(it.items as unknown[]).length} عناصر` : Array.isArray(it.events) ? `${(it.events as unknown[]).length} أحداث` : typeof it.name === "string" ? it.name : "";
+    return `${t}${txt ? `: ${txt}` : ""}`;
+  };
+  return (
+    <details className="mt-3 rounded-lg border border-border bg-black/40 p-3 text-sm" open>
+      <summary className="cursor-pointer text-xs text-muted-foreground">
+        قصة المخرج{sb ? ` — ${sb.scenes.length} مشهد · ${sb.theme}` : ""}{best ? ` · التقييم ${best.overall}/10` : ""}{reviews.length > 1 ? ` بعد ${reviews.length} جولات` : ""}
+      </summary>
+      {best && Object.keys(best.scores).length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {CRITIC_RUBRIC.map(r => best.scores[r.id] !== undefined && (
+            <span key={r.id} className={cn("cv-chip num", best.scores[r.id] >= 8 ? "text-tally" : best.scores[r.id] < 6 ? "text-[var(--stop,#ff5a4f)]" : "")}>{r.label} {best.scores[r.id]}</span>
+          ))}
+        </div>
+      )}
+      {sb && (
+        <ol className="mt-3 flex flex-col gap-2">
+          {sb.scenes.map((sc, i) => (
+            <li key={i} className="flex gap-2 text-[13px] leading-6">
+              <span className="num shrink-0 text-tally" dir="ltr">{sc.from.toFixed(1)}–{sc.to.toFixed(1)}s</span>
+              <span className="min-w-0">
+                {sc.note && <span className="text-muted-foreground">{sc.note} — </span>}
+                {sc.items.map(it => describe(it as Record<string, unknown>)).join(" · ")}
+              </span>
+            </li>
+          ))}
+          {sb.end && <li className="flex gap-2 text-[13px] leading-6"><span className="num shrink-0 text-tally">END</span><span>{sb.end.text}{sb.end.cta ? ` · ${sb.end.cta}` : ""}</span></li>}
+        </ol>
+      )}
+      {best && (best.issues.length > 0 || best.measured.length > 0) && (
+        <div className="mt-3 border-t border-border pt-2 text-[12px] leading-6 text-muted-foreground">
+          <div className="mb-1 font-semibold text-foreground">ملاحظات الناقد الباقية</div>
+          {[...best.measured, ...best.issues].slice(0, 6).map((x, i) => <div key={i}>• {x}</div>)}
+        </div>
+      )}
+    </details>
   );
 }
 
