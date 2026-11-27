@@ -8,6 +8,8 @@
  * then one file per segment, all rendered and joined. Every file is test-rendered for a second; errors go back
  * to the agent once to be fixed.
  */
+import { libraryForDirector, prepareStoryboard } from "./code-media";
+import type { Storyboard } from "../../shared/code-craft/storyboard";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -269,7 +271,7 @@ export async function startAgentVideo(input: CodeAgentInput, userId?: number | n
   const title = input.idea.replace(/\s+/g, " ").trim().slice(0, 80);
   const [row] = await db
     .insert(codeVideos)
-    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: { styleId: input.styleId, mode: input.mode ?? "compose", kind: input.kind, accent: input.accent, sound: input.sound ?? "auto", mood: input.mood, musicAssetId: input.musicAssetId }, createdBy: userId ?? null })
+    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: { styleId: input.styleId, mode: input.mode ?? "compose", kind: input.kind, accent: input.accent, sound: input.sound ?? "auto", mood: input.mood, musicAssetId: input.musicAssetId, stock: input.stock === true, library: input.library === true }, createdBy: userId ?? null })
     .returning({ id: codeVideos.id });
   queue.push(row.id);
   void drainAgent(input.autoConvert);
@@ -331,7 +333,7 @@ async function writeVideo(id: number, autoConvert: boolean) {
   }
 }
 
-type AgentOptions = { styleId?: string; mode?: AgentMode; kind?: VideoKind; accent?: string; storyboard?: unknown; reviews?: Review[] };
+type AgentOptions = { styleId?: string; mode?: AgentMode; kind?: VideoKind; accent?: string; storyboard?: unknown; reviews?: Review[]; stock?: boolean; library?: boolean; credits?: string[] };
 
 /**
  * Compose mode: the director plans storyboards that the motion kit plays, with the critic loop. Long videos keep the
@@ -343,13 +345,23 @@ async function composeJob(id: number, job: typeof codeVideos.$inferSelect, engin
   const theme = themeFor(opts.styleId, kind);
   const ref = { id, userId: job.createdBy, what: "" };
   const askFor = (system: string, prompt: string, what: string, images?: Buffer[]) => ask(engine, system, prompt, { ...ref, what }, images ?? []);
-  const base = { idea: job.idea ?? "", width: job.width, height: job.height, theme, themeChosen: Boolean(opts.styleId), kind, accent: opts.accent, ask: askFor, log: (line: string) => log(id, line) };
+  // Pictures: what the director may ask for, and one shared "already used" set so a long video never repeats one.
+  const library = opts.library ? await libraryForDirector().catch(() => null) : null;
+  const media = { stock: opts.stock === true, library: opts.library === true, libraryText: library?.text };
+  const used = new Set<string>();
+  const credits = new Set<string>();
+  const prepare = async (sb: Storyboard) => {
+    const r = await prepareStoryboard(sb, { stock: media.stock, library: media.library, width: job.width, height: job.height, userId: job.createdBy, used });
+    r.credits.forEach(c => credits.add(c));
+    return r;
+  };
+  const base = { idea: job.idea ?? "", width: job.width, height: job.height, theme, themeChosen: Boolean(opts.styleId), kind, accent: opts.accent, ask: askFor, log: (line: string) => log(id, line), media, prepare };
   if (job.durationSec <= CODE_VIDEO_SINGLE_MAX) {
     const r = await composeVideo({ ...base, durationSec: job.durationSec });
     const best = r.reviews[r.best];
     await db
       .update(codeVideos)
-      .set({ html: r.html, title: r.storyboard.title?.slice(0, 160) || job.title, analysis: { ...opts, kind, storyboard: r.storyboard, reviews: r.reviews }, status: autoConvert ? "queued" : "draft", updatedAt: new Date() })
+      .set({ html: r.html, title: r.storyboard.title?.slice(0, 160) || job.title, analysis: { ...opts, kind, storyboard: r.storyboard, reviews: r.reviews, credits: [...credits] }, status: autoConvert ? "queued" : "draft", updatedAt: new Date() })
       .where(eq(codeVideos.id, id));
     await log(id, `✓ جاهز — التقييم ${best?.overall || "—"}/10${autoConvert ? "، دخل طابور التحويل" : "، راجعه ثم حوّله"}`);
     return;
@@ -371,7 +383,7 @@ async function composeJob(id: number, job: typeof codeVideos.$inferSelect, engin
     reviews.push(r.reviews[r.best]);
     await db.update(codeVideos).set({ plan, html: plan.segments[0].html ?? "", updatedAt: new Date() }).where(eq(codeVideos.id, id));
   }
-  await db.update(codeVideos).set({ status: autoConvert ? "queued" : "draft", analysis: { ...opts, kind, reviews }, updatedAt: new Date() }).where(eq(codeVideos.id, id));
+  await db.update(codeVideos).set({ status: autoConvert ? "queued" : "draft", analysis: { ...opts, kind, reviews, credits: [...credits] }, updatedAt: new Date() }).where(eq(codeVideos.id, id));
   await log(id, autoConvert ? "✓ كل المقاطع جاهزة — دخلت طابور التحويل" : "✓ كل المقاطع جاهزة — اضغط تحويل");
 }
 

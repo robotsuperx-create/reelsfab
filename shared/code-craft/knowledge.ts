@@ -87,8 +87,27 @@ const THEMES_DOC = `THEMES (pick the one that fits unless the owner chose):
 - storybook: warm sky, rounded friendly shapes — kids, stories, gentle topics.`;
 
 /** The modules a director needs for one video. */
-export function knowledgeFor(kind: VideoKind, opts: { chosenTheme?: KitTheme | null; vertical: boolean }) {
-  return [DIRECTION, HOOKS, PACING[kind], COMPONENTS_FIT, FX_SOUND, COPY_AR, opts.chosenTheme ? `THEME: "${opts.chosenTheme}" (chosen by the owner — keep it).` : THEMES_DOC, opts.vertical ? "FORMAT: vertical 9:16 for phones — the kit keeps texts inside the safe area; keep lines short." : "FORMAT: horizontal 16:9 — wider lines are fine, keep the same discipline."].join("\n\n");
+/** Pictures, clips and maps: when they lift a video and when they only decorate it. */
+function mediaGuide(kind: VideoKind, m: { stock?: boolean; library?: boolean; libraryText?: string }) {
+  const pics = m.stock || m.library;
+  const lines = [`PICTURES, CLIPS AND MAPS (scene "media" backdrops and "photo" items):
+- MAPS whenever a country, a region, a border, a trade route or a "from X to Y" is named: zoom onto the focus country, highlight the others involved, draw the routes, pin the cities/places. Put the scene's text at "place":"top" or "bottom" so the map shows. One map scene can carry a whole geopolitical point.`];
+  if (pics) {
+    lines.push(`- PHOTOS make abstract topics concrete: a real place, an object, a crowd, nature, an industry (${kind === "data" || kind === "quote" ? "this kind of video lives on typography and data: use 1–2 pictures at most, for the hook or the payoff" : "use them on the scenes that SHOW something — usually 30–60% of scenes, never all"}).
+- A picture is a BACKDROP: keep 1–2 short items over it (kicker + title, or a stat). Lists, bars, timelines and comparisons read best without one.
+- CLIPS (moving backdrops) are the strongest hook: one in the first scene is often worth it; then at most one every ~15 s, on scenes of 3–8 s.
+- Alternate picture scenes with typography/data scenes: picture → stat → picture → kinetic. Vary "motion" (in, out, left, right, up).
+- "photo" items (framed card/polaroid/circle) suit people-free objects, products and "before/after" pairs inside an explainer.`);
+    if (m.stock) lines.push(`- Search words: ENGLISH, 2–5 concrete visual nouns + one mood/light word ("oil tanker ocean sunset", "empty supermarket shelves", "Marrakech medina alley"). No abstract words ("inflation", "success"), no text, no logos, no brand names, no named people.
+- Stock pictures are illustrations: never present one as a specific named person or a specific real event (no "this is the president", no "the 2008 crash" photo). For named people use a lowerThird or a quote, not a stranger's face.`);
+    if (m.library) lines.push(`- THE OWNER'S LIBRARY (prefer these when they fit — they are the owner's own pictures): use "asset": n.
+${m.libraryText?.trim() || "(the library is empty)"}`);
+  } else lines.push("- Free photos and clips are OFF for this video: do not use photo items or photo/clip backdrops (maps are fine).");
+  return lines.join("\n");
+}
+
+export function knowledgeFor(kind: VideoKind, opts: { chosenTheme?: KitTheme | null; vertical: boolean; media?: { stock?: boolean; library?: boolean; libraryText?: string } }) {
+  return [DIRECTION, HOOKS, PACING[kind], COMPONENTS_FIT, mediaGuide(kind, opts.media ?? {}), FX_SOUND, COPY_AR, opts.chosenTheme ? `THEME: "${opts.chosenTheme}" (chosen by the owner — keep it).` : THEMES_DOC, opts.vertical ? "FORMAT: vertical 9:16 for phones — the kit keeps texts inside the safe area; keep lines short." : "FORMAT: horizontal 16:9 — wider lines are fine, keep the same discipline."].join("\n\n");
 }
 
 /** What the critic scores (0–10 each). */
@@ -97,6 +116,6 @@ export const CRITIC_RUBRIC = [
   { id: "hierarchy", label: "الترتيب البصري", en: "Each frame has one clear hero element; supporting items are visibly secondary; emphasis is on the right 1–2 words." },
   { id: "composition", label: "التكوين", en: "Uses the frame well: balanced, centred in the safe area, not cramped, not a tiny cluster in a big empty frame." },
   { id: "story", label: "القصة والإيقاع", en: "Hook is strong, scenes add information in a logical order, variety between scenes, ends on a composed payoff." },
-  { id: "polish", label: "الاحتراف", en: "Looks like a professional motion-design piece, not a template or a slideshow; consistent style; nothing broken." },
+  { id: "polish", label: "الاحتراف", en: "Looks like a professional motion-design piece, not a template or a slideshow; consistent style; pictures and maps (if any) fit what the scene says and blend with the look instead of looking pasted on; nothing broken." },
 ] as const;
 export type CriticScores = Record<(typeof CRITIC_RUBRIC)[number]["id"], number>;

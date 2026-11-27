@@ -46,7 +46,7 @@ import {
 import { VIDEO_KINDS, CRITIC_RUBRIC, type VideoKind } from "@shared/code-craft/knowledge";
 import { looksLikeStoryboard, type Storyboard } from "@shared/code-craft/storyboard";
 import { Switch } from "@/components/ui/switch";
-import { Bot, CircleAlert, CircleCheck, Code2, Download, Eye, Film, Lock, RefreshCw, ScanSearch, Scissors, ShieldCheck, Sparkles, Terminal, Trash2, TriangleAlert, Undo2, Upload, Wand2, WifiOff } from "lucide-react";
+import { Bot, CircleAlert, CircleCheck, Code2, Download, Eye, Film, Image as ImageIcon, Lock, Map as MapIcon, RefreshCw, ScanSearch, Scissors, Search, ShieldCheck, Shuffle, Sparkles, Terminal, Trash2, TriangleAlert, Undo2, Upload, Wand2, WifiOff } from "lucide-react";
 import { uploadBlob } from "@/lib/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
@@ -59,7 +59,7 @@ const DRAFT_KEY = "code-video-draft";
 
 function readDraft() {
   try {
-    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality; agentMode?: AgentMode; kind?: VideoKind | ""; accent?: string; sound?: SoundModeId; mood?: SoundMoodId | ""; musicAssetId?: number | null } | null;
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality; agentMode?: AgentMode; kind?: VideoKind | ""; accent?: string; sound?: SoundModeId; mood?: SoundMoodId | ""; musicAssetId?: number | null; stock?: boolean; library?: boolean } | null;
   } catch {
     return null;
   }
@@ -93,6 +93,11 @@ export default function CodeVideoPage() {
   const [sound, setSound] = useState<SoundModeId>(draft?.sound ?? "auto");
   const [mood, setMood] = useState<SoundMoodId | "">(draft?.mood ?? "");
   const [musicAssetId, setMusicAssetId] = useState<number | null>(draft?.musicAssetId ?? null);
+  // Pictures: free photos/clips only when switched on; the owner's library likewise.
+  const [stock, setStock] = useState(draft?.stock ?? false);
+  const [library, setLibrary] = useState(draft?.library ?? false);
+  const [slots, setSlots] = useState<MediaSlotView[]>([]);
+  const [credits, setCredits] = useState<string[]>([]);
   const [inspection, setInspection] = useState<{ result: CodeInspection; fixedFrom?: { html: string; before: CodeIssue[] } } | null>(null);
   const size = codeVideoSize(sizeId);
   const seconds = Math.round(Number(duration));
@@ -101,12 +106,13 @@ export default function CodeVideoPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId })); } catch { /* private mode */ }
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId, stock, library })); } catch { /* private mode */ }
     }, 400);
     return () => clearTimeout(t);
-  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId]);
+  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId, stock, library]);
   const tracks = trpc.codeVideos.musicTracks.useQuery(undefined, { staleTime: 60_000 });
   const soundOpts = { sound, mood: mood || undefined, musicAssetId: sound !== "off" && musicAssetId ? musicAssetId : undefined };
+  const mediaOpts = { stock, library };
 
   const utils = trpc.useUtils();
   const engines = trpc.codeVideos.engines.useQuery(undefined, { staleTime: 60_000 });
@@ -128,11 +134,28 @@ export default function CodeVideoPage() {
     if (!current || loadedFor.current === current.id) return;
     if (current.status === "draft" || (current.status === "queued" && current.engine)) {
       loadedFor.current = current.id;
-      void utils.codeVideos.get.fetch({ id: current.id }).then(full => { if (full.html) setHtml(full.html); });
+      void utils.codeVideos.get.fetch({ id: current.id }).then(full => {
+        if (!full.html) return;
+        setHtml(full.html);
+        // A storyboard with pictures or maps: show it with them, and the strip to swap any picture before export.
+        if (current.status === "draft" && /id="cv-storyboard"/.test(full.html) && /"media"|"type":"photo"/.test(full.html)) previewMut.mutate({ html: full.html, size: sizeId, durationSec: full.durationSec, ...mediaOpts });
+      });
     }
   }, [current, utils]);
 
   const done = () => void utils.codeVideos.list.invalidate();
+  type MediaResult = { html: string; preview: string; slots: MediaSlotView[]; notes: string[]; issues: string[]; credits: string[] };
+  const showMedia = (r: MediaResult) => {
+    setHtml(r.html);
+    setSlots(r.slots);
+    setCredits(r.credits);
+    setPreview({ html: withCodeVideoCsp(r.preview), key: Date.now() });
+    if (r.notes.length) toast.warning(r.notes.slice(0, 2).join(" · "));
+  };
+  const previewMut = trpc.codeVideos.preview.useMutation({ onSuccess: r => { showMedia(r); if (r.issues.length) toast.warning(`القصة شُغّلت مع ${r.issues.length} ملاحظة: ${r.issues[0]}`); }, onError: e => toast.error(e.message) });
+  const swapMut = trpc.codeVideos.swapMedia.useMutation({ onSuccess: r => { showMedia(r); toast.success("تبدّلت الصورة"); }, onError: e => toast.error(e.message) });
+  const swap = (slot: MediaSlotView, change: { query?: string; asset?: number; remove?: boolean }) =>
+    swapMut.mutate({ html, size: sizeId, durationSec: durationOk ? seconds : 15, styleId: styleId || undefined, stock: true, library, slot: { scene: slot.scene, item: slot.item }, ...change });
   const convert = trpc.codeVideos.convert.useMutation({ onSuccess: r => { setCurrentId(r.id); toast.success("دخل الطابور — التحويل بدأ"); done(); }, onError: e => toast.error(e.message) });
   const queueDraft = trpc.codeVideos.queueDraft.useMutation({ onSuccess: () => { toast.success("دخل الطابور — التحويل بدأ"); done(); }, onError: e => toast.error(e.message) });
   const agent = trpc.codeVideos.agentWrite.useMutation({
@@ -161,14 +184,19 @@ export default function CodeVideoPage() {
     if (!durationOk) { toast.error("اختر مدة بين ثانية و40 دقيقة"); return false; }
     return true;
   };
-  const startInspect = () => pasted() && inspect.mutate({ html, size: sizeId, durationSec: seconds });
-  const startFix = () => pasted() && fix.mutate({ html, size: sizeId, durationSec: seconds, engine, styleId: styleId || undefined });
+  const startInspect = () => pasted() && inspect.mutate({ html, size: sizeId, durationSec: seconds, ...mediaOpts });
+  const startFix = () => pasted() && fix.mutate({ html, size: sizeId, durationSec: seconds, engine, styleId: styleId || undefined, ...mediaOpts });
 
   const startPreview = () => {
     if (html.trim().length < 20) return toast.error("ألصق ملف HTML أو قصة JSON أولًا");
+    if (looksLikeStoryboard(html) || /id="cv-storyboard"/.test(html)) {
+      previewMut.mutate({ html, size: sizeId, durationSec: durationOk ? seconds : 15, styleId: styleId || undefined, ...mediaOpts });
+      return;
+    }
     try {
       const page = pageFromPasted(html, size.width, size.height, durationOk ? seconds : 15, styleId || null);
       if (page.issues.length) toast.warning(`القصة شُغّلت مع ${page.issues.length} ملاحظة: ${page.issues[0]}`);
+      setSlots([]);
       setPreview({ html: withCodeVideoCsp(page.html), key: Date.now() });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
@@ -178,12 +206,12 @@ export default function CodeVideoPage() {
     if (html.trim().length < 20) return toast.error("ألصق ملف HTML أولًا");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
     if (current && current.status === "draft") return queueDraft.mutate({ id: current.id, html: current.segments > 1 ? undefined : html });
-    convert.mutate({ html, size: sizeId, durationSec: seconds, fps, quality, ...soundOpts });
+    convert.mutate({ html, size: sizeId, durationSec: seconds, fps, quality, ...soundOpts, ...mediaOpts });
   };
   const startAgent = () => {
     if (idea.trim().length < 8) return toast.error("اكتب الفكرة بجملة على الأقل");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
-    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality, mode: agentMode, kind: kind || undefined, accent: /^#[\da-f]{6}$/i.test(accent) ? accent : undefined, ...soundOpts });
+    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality, mode: agentMode, kind: kind || undefined, accent: /^#[\da-f]{6}$/i.test(accent) ? accent : undefined, ...soundOpts, ...mediaOpts });
   };
   const e = engines.data;
 
@@ -194,7 +222,7 @@ export default function CodeVideoPage() {
         subtitle="اكتب الفكرة فيخرجها الوكيل بمكتبة قطع مجرَّبة، أو انسخ «قالب القصة» لأي ذكاء اصطناعي مجاني (DeepSeek، Gemini…) وألصق القصة JSON التي يكتبها، أو ألصق ملف HTML كاملًا. يتحول إلى MP4 فريمًا بفريم حتى 40 دقيقة، مجانًا على جهازك، والكود يشتغل معزولًا بلا وصول للاستوديو أو مفاتيحه. الفيديو يدخل مكتبة الأصول لتستعمله غرفة المونتاج."
         actions={
           <div className="flex flex-wrap gap-2">
-            <CopyButton text={storyboardPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || null, idea.trim() || undefined, kind || undefined)} label="نسخ قالب القصة (JSON)" variant="default" />
+            <CopyButton text={storyboardPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || null, idea.trim() || undefined, kind || undefined, { stock })} label="نسخ قالب القصة (JSON)" variant="default" />
             <CopyButton text={strongPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || "documentary", idea.trim() || undefined)} label="نسخ قالب الكود (HTML)" variant="secondary" />
           </div>
         }
@@ -282,6 +310,7 @@ export default function CodeVideoPage() {
                 </>
               )}
             </div>
+            <MediaSettings stock={stock} setStock={setStock} library={library} setLibrary={setLibrary} />
           </div>
 
           <div className="cv-term" aria-label="الوكيل">
@@ -397,6 +426,8 @@ export default function CodeVideoPage() {
                   <div className="flex flex-col items-center gap-2 p-6"><Code2 className="size-6" />اكتب فكرة للوكيل، أو ألصق الكود ثم اضغط «معاينة»</div>
                 </div>
               )}
+              {slots.length > 0 && current?.status !== "done" && <MediaStrip slots={slots} credits={credits} busy={swapMut.isPending || previewMut.isPending} onSwap={swap} />}
+              {previewMut.isPending && <p className="mt-2 text-xs text-muted-foreground">يجلب الصور ويرسم الخرائط…</p>}
               {current && current.status !== "done" && <JobProgress row={current} />}
               {current?.sourceKey && !["analyzing"].includes(current.status) && <VideoMapView id={current.id} />}
               {current && !current.sourceKey && !["writing", "analyzing"].includes(current.status) && <StoryboardView id={current.id} />}
@@ -780,6 +811,120 @@ function InspectPanel({ data, onUndo, onClose }: { data: { result: CodeInspectio
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+type MediaSlotView = { scene: number; item: number | null; kind: "photo" | "clip"; query: string | null; asset: number | null; credit: string | null; url: string | null };
+
+/** Pictures: free photos and clips (Pexels / Pixabay) on a switch, the owner's own library (photos, logo), maps always. */
+function MediaSettings({ stock, setStock, library, setLibrary }: { stock: boolean; setStock: (v: boolean) => void; library: boolean; setLibrary: (v: boolean) => void }) {
+  const status = trpc.codeVideos.stockStatus.useQuery(undefined, { staleTime: 60_000, enabled: stock });
+  const lib = trpc.codeVideos.libraryMedia.useQuery(undefined, { staleTime: 30_000, enabled: library });
+  const utils = trpc.useUtils();
+  const [uploading, setUploading] = useState<"" | "photo" | "logo">("");
+  const noKey = stock && status.data && status.data.sources.length === 0;
+  const own = (lib.data?.items ?? []).filter(i => !i.stock);
+  const upload = async (file: File, as: "photo" | "logo") => {
+    setUploading(as);
+    try {
+      const name = file.name.replace(/\.[^.]+$/, "");
+      const dims = await new Promise<{ w: number; h: number }>(res => {
+        const img = new Image();
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => res({ w: 0, h: 0 });
+        img.src = URL.createObjectURL(file);
+      });
+      await uploadBlob(file, { kind: as === "logo" ? "other" : "background", filename: file.name, title: as === "logo" ? `شعار — ${name}` : name, width: dims.w || undefined, height: dims.h || undefined });
+      toast.success(as === "logo" ? "رُفع الشعار — يظهر في خاتمة كل فيديو حين تفعّل «مكتبتي»" : "رُفعت الصورة إلى مكتبتك");
+      void utils.codeVideos.libraryMedia.invalidate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading("");
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-3">
+      <span className="text-xs text-muted-foreground">الصور — المخرج يضعها حيث تفيد فقط، بنفس ألوان الفيديو وبحركة كاميرا بطيئة. الخرائط المتحركة تعمل دائمًا بلا مفاتيح.</span>
+      <label className="flex items-center gap-2 text-xs">
+        <Switch checked={stock} onCheckedChange={setStock} aria-label="صور ومقاطع مجانية" />
+        <ImageIcon className="size-3.5 text-muted-foreground" /> صور ومقاطع مجانية (Pexels / Pixabay)
+        {stock && status.data && status.data.sources.length > 0 && <span className="cv-chip">{status.data.sources.join(" + ")}</span>}
+      </label>
+      {noKey && (
+        <span className="text-[11px] leading-5 text-hold">
+          لا يوجد مفتاح بعد: أضف مفتاح Pixabay (مجاني، pixabay.com/api/docs) أو Pexels في <Link href="/integrations" className="underline">مركز التكاملات</Link> — بدونه تُحذف الصور ويبقى الفيديو بالكتابة والخرائط.
+        </span>
+      )}
+      <label className="flex items-center gap-2 text-xs">
+        <Switch checked={library} onCheckedChange={setLibrary} aria-label="مكتبتي" />
+        مكتبتي — صوري وشعاري
+        {library && lib.data && <span className="cv-chip num">{own.length} من صورك{lib.data.hasLogo ? " · شعار ✓" : ""}</span>}
+      </label>
+      {library && (
+        <div className="flex flex-wrap items-center gap-2">
+          {(["photo", "logo"] as const).map(as => (
+            <Button key={as} asChild variant="outline" size="sm" disabled={!!uploading}>
+              <label className="cursor-pointer">
+                <Upload /> {uploading === as ? "يرفع…" : as === "logo" ? "ارفع الشعار" : "ارفع صورًا"}
+                <input type="file" accept="image/png,image/jpeg,image/webp" multiple={as === "photo"} className="sr-only" onChange={async ev => { const files = [...(ev.target.files ?? [])]; ev.target.value = ""; for (const f of files) await upload(f, as); }} />
+              </label>
+            </Button>
+          ))}
+          <span className="text-[11px] text-muted-foreground">المخرج يرى أسماءها فيختار المناسب؛ والشعار يوضع في الخاتمة تلقائيًا.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The pictures the director chose, before export: another result, other search words, one from the library, or none. */
+function MediaStrip({ slots, credits, busy, onSwap }: { slots: MediaSlotView[]; credits: string[]; busy: boolean; onSwap: (s: MediaSlotView, change: { query?: string; asset?: number; remove?: boolean }) => void }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [words, setWords] = useState("");
+  const [picking, setPicking] = useState<string | null>(null);
+  const lib = trpc.codeVideos.libraryMedia.useQuery(undefined, { staleTime: 30_000, enabled: picking !== null });
+  const id = (s: MediaSlotView) => `${s.scene}-${s.item ?? "bg"}`;
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-black/40 p-3">
+      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><ImageIcon className="size-3.5" /> صور الفيديو ({slots.length}) — بدّل ما لا يعجبك قبل التحويل</div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {slots.map(s => (
+          <div key={id(s)} className="flex min-w-0 flex-col gap-1.5 rounded-md border border-border p-1.5">
+            <div className="relative aspect-video overflow-hidden rounded bg-black">
+              {s.url ? <img src={s.url} alt="" className="size-full object-cover" loading="lazy" /> : <div className="grid size-full place-items-center text-[11px] text-muted-foreground">لا صورة</div>}
+              <span className="cv-chip absolute start-1 top-1 num">مشهد {s.scene + 1}{s.kind === "clip" ? " · مقطع" : s.item !== null ? " · إطار" : ""}</span>
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground" dir="auto" title={s.credit ?? undefined}>{s.query ?? (s.asset ? `من مكتبتك #${s.asset}` : "")}</div>
+            {editing === id(s) ? (
+              <form className="flex gap-1" onSubmit={ev => { ev.preventDefault(); if (words.trim()) onSwap(s, { query: words.trim() }); setEditing(null); }}>
+                <Input value={words} onChange={ev => setWords(ev.target.value)} placeholder="english words" dir="ltr" className="h-7 text-xs" autoFocus />
+                <Button type="submit" size="sm" className="h-7 px-2" disabled={busy}><Search /></Button>
+              </form>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {s.query && <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" disabled={busy} onClick={() => onSwap(s, {})} title="النتيجة التالية لنفس البحث"><Shuffle /> أخرى</Button>}
+                <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" disabled={busy} onClick={() => { setEditing(id(s)); setWords(s.query ?? ""); }} title="ابحث بكلمات أخرى (بالإنجليزية)"><Search /></Button>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" disabled={busy} onClick={() => setPicking(picking === id(s) ? null : id(s))} title="من مكتبتك"><ImageIcon /></Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={busy} onClick={() => onSwap(s, { remove: true })} title="بلا صورة في هذا المشهد"><Trash2 /></Button>
+              </div>
+            )}
+            {picking === id(s) && (
+              <div className="grid max-h-40 grid-cols-3 gap-1 overflow-y-auto">
+                {(lib.data?.items ?? []).filter(i => (s.kind === "clip") === i.video).slice(0, 30).map(i => (
+                  <button key={i.id} type="button" className="aspect-square overflow-hidden rounded border border-border hover:border-tally" title={i.title ?? ""} onClick={() => { setPicking(null); onSwap(s, { asset: i.id }); }}>
+                    {i.video ? <span className="grid size-full place-items-center text-[10px]">{(i.title ?? `#${i.id}`).slice(0, 18)}</span> : <img src={i.url} alt="" className="size-full object-cover" loading="lazy" />}
+                  </button>
+                ))}
+                {lib.data && !lib.data.items.some(i => (s.kind === "clip") === i.video) && <span className="col-span-3 text-[11px] text-muted-foreground">مكتبتك فارغة لهذا النوع</span>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {credits.length > 0 && <p className="mt-2 text-[10px] leading-4 text-muted-foreground" dir="ltr">{credits.slice(0, 8).join(" · ")}</p>}
+      <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground"><MapIcon className="size-3" /> الخرائط لا تحتاج تبديلًا: تُرسم من أسماء الدول في القصة.</p>
     </div>
   );
 }

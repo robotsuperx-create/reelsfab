@@ -41,6 +41,10 @@ export type ComposeOptions = {
   /** Critic-driven revisions after the first version (default 2) and the passing score (default 8). */
   rounds?: number;
   passScore?: number;
+  /** Free photos/clips (Pexels, Pixabay) and the owner's library: what the director may ask for. */
+  media?: { stock?: boolean; library?: boolean; libraryText?: string };
+  /** Turns picture requests into stored files and computes map geometry before each recording. */
+  prepare?: (sb: Storyboard) => Promise<{ storyboard: Storyboard; geo: Record<string, unknown>; notes?: string[] }>;
 };
 
 export type Review = { round: number; overall: number; scores: Partial<CriticScores>; issues: string[]; measured: string[] };
@@ -66,9 +70,9 @@ ${o.segment.index === 0 ? "It opens the video: start with a strong hook." : "It 
 ${o.segment.index === o.segment.count - 1 ? "It closes the video: end with the \"end\" card (final line + call to action)." : "Do NOT add an \"end\" card: the story continues in the next segment."}
 `
     : "";
-  return `${knowledgeFor(o.kind, { chosenTheme: o.themeChosen ? o.theme : null, vertical })}
+  return `${knowledgeFor(o.kind, { chosenTheme: o.themeChosen ? o.theme : null, vertical, media: o.media })}
 
-${storyboardDoc(o.width, o.height, seconds(o))}
+${storyboardDoc(o.width, o.height, seconds(o), { stock: o.media?.stock, library: o.media?.library })}
 
 ${o.themeChosen ? `Theme: "${o.theme}" (fixed).` : `Suggested theme: "${o.theme}" — keep it unless another theme clearly fits the idea better.`}${o.accent ? ` Brand accent colour: ${o.accent} (put it in "accent").` : ""}
 ${segment}
@@ -87,7 +91,7 @@ ${JSON.stringify(sb)}
 PROBLEMS FOUND (measured by the recorder and seen by the creative director):
 ${notes.map(n => `- ${n}`).join("\n")}
 
-Revise it: fix every point, keep what already works, keep the total duration exactly ${seconds(o)} s. Return ONLY the revised storyboard JSON.`;
+Revise it: fix every point, keep what already works, keep the total duration exactly ${seconds(o)} s. Pictures already chosen carry a "key": keep the key (and its fields) to keep that picture, or replace the whole media object with a new "query" to get another one. Return ONLY the revised storyboard JSON.`;
 }
 
 /** Moments to photograph: each scene once everything in it has arrived (just before it leaves), plus the end card. */
@@ -105,7 +109,7 @@ function sceneSummary(sb: Storyboard, times: number[]) {
     .map((t, i) => {
       const s = sb.scenes.find(x => t > x.from && t <= x.to);
       if (!s) return `frame ${i + 1} (${t}s): end card — ${sb.end?.text ?? ""}${sb.end?.cta ? ` / CTA: ${sb.end.cta}` : ""}`;
-      const what = s.items.map(it => it.type).join(" + ");
+      const what = [s.media ? `${s.media.type} backdrop` : "", ...s.items.map(it => it.type)].filter(Boolean).join(" + ");
       return `frame ${i + 1} (${t}s): scene ${sb.scenes.indexOf(s) + 1}${s.note ? ` [${s.note}]` : ""} — ${what}`;
     })
     .join("\n");
@@ -170,7 +174,16 @@ export async function composeVideo(o: ComposeOptions): Promise<ComposeResult> {
   const reviews: Review[] = [];
   let best: { html: string; storyboard: Storyboard; overall: number } | null = null;
   for (let round = 0; round <= rounds; round++) {
-    const html = compileStoryboard(storyboard, { width: o.width, height: o.height, durationSec: o.durationSec });
+    let geo: Record<string, unknown> = {};
+    if (o.prepare) {
+      const pics = storyboard.scenes.filter(s => s.media).length + storyboard.scenes.reduce((a, s) => a + s.items.filter(i => i.type === "photo").length, 0);
+      if (pics) await log(`› يجلب ${pics} صورة/مقطع/خريطة للمشاهد…`);
+      const ready = await o.prepare(storyboard);
+      storyboard = ready.storyboard;
+      geo = ready.geo;
+      for (const n of (ready.notes ?? []).slice(0, 4)) await log(`› ${n}`);
+    }
+    const html = compileStoryboard(storyboard, { width: o.width, height: o.height, durationSec: o.durationSec, geo });
     await log(`› ${storyboard.scenes.length} مشهد${storyboard.end ? " + خاتمة" : ""} — يجرّبه في المصوّر ويقيس`);
     const measured = (await measure(html, o.width, o.height, o.durationSec).catch(() => [] as CodeIssue[])).filter(i => i.severity === "error" || ["small", "spaced-arabic"].includes(i.code));
     const at = settledTimes(storyboard, o.durationSec);

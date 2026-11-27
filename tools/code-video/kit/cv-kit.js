@@ -241,6 +241,40 @@
       ".cv-bar-lb{position:absolute;left:0;right:0;height:" + Math.round(H * 0.075) + "px;background:#000;z-index:24}",
       ".cv-stripes{position:absolute;inset:0;display:flex;z-index:60;pointer-events:none}",
       ".cv-stripes i{flex:1;height:100%;transform:scaleY(0);transform-origin:top center}",
+      ".cv-box{display:flex;flex-direction:column;align-items:inherit;justify-content:center;gap:" + px(36) + ";max-width:100%}",
+      ".cv-plate.wide{width:100%}",
+      ".cv-plate{background:var(--plate);border-radius:" + px(t.radius + 6) + ";padding:" + px(34) + " " + px(44) + ";box-shadow:0 " + px(20) + " " + px(60) + " rgba(0,0,0,.35)}",
+      ".cv-media{position:absolute;inset:0;overflow:hidden;background:var(--bg)}",
+      ".cv-media>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;will-change:transform}",
+      ".cv-media .g,.cv-media .sh{position:absolute;inset:0}",
+      ".cv-media svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}",
+      ".cv-onmedia .cv-title,.cv-onmedia .cv-text,.cv-onmedia .cv-kicker span,.cv-onmedia .cv-stat .lbl,.cv-onmedia .cv-quote blockquote,.cv-onmedia .cv-quote .by,.cv-onmedia .cv-ev .t,.cv-onmedia .cv-ev .d{text-shadow:var(--tsh)}",
+      ".cv-onmedia .cv-stat .n{text-shadow:var(--tsh)}",
+      ".cv-onmedia .cv-panel{background:var(--mpanel);border-color:var(--mline)}",
+      ".cv-onmedia .cv-plate .cv-title,.cv-onmedia .cv-plate .cv-text,.cv-onmedia .cv-panel *{text-shadow:none}",
+      ".cv-ph-wrap{margin:0;display:flex;flex-direction:column;align-items:center;gap:" + px(18) + ";flex:none}",
+      ".cv-ph{position:relative;overflow:hidden;border-radius:" + px(t.radius + 4) + ";box-shadow:0 " + px(26) + " " + px(70) + " rgba(0,0,0,.42);background:#000}",
+      ".cv-ph .im{position:relative;overflow:hidden}",
+      ".cv-ph .im img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}",
+      ".cv-ph .im .g{position:absolute;inset:0}",
+      ".cv-ph.circle,.cv-ph.circle .im{border-radius:50%}",
+      ".cv-ph.polaroid{background:#fbfaf6;border-radius:" + px(6) + ";padding:" + px(20) + " " + px(20) + " " + px(24) + "}",
+      ".cv-ph.polaroid .cap{color:#2b2d42;font-family:var(--display);font-weight:800;font-size:" + px(sz.small + 6) + ";text-align:center;padding-top:" + px(16) + ";line-height:1.35}",
+      ".cv-ph-cap{font-size:" + px(sz.small + 4) + ";color:var(--mute);line-height:1.4}",
+      ".cv-ph.outline{border:" + px(5) + " solid var(--ink)}",
+      ".cv-mapl{position:absolute;inset:0;pointer-events:none}",
+      ".cv-mapl .lb{position:absolute;transform:translate(-50%,-50%);padding:" + px(8) + " " + px(20) + ";border-radius:" + px(12) + ";font-family:var(--display);font-weight:800;font-size:" + px(sz.small + 6) + ";white-space:nowrap;background:var(--mpanel);color:var(--ink);line-height:1.35;border:1px solid var(--mline)}",
+      ".cv-mapl .pin{position:absolute;width:" + px(28) + ";height:" + px(28) + ";margin:" + px(-14) + " 0 0 " + px(-14) + ";border-radius:50%;background:var(--accent);border:" + px(5) + " solid var(--bg)}",
+      ".cv-mapl .ring{position:absolute;width:" + px(120) + ";height:" + px(120) + ";margin:" + px(-60) + " 0 0 " + px(-60) + ";border-radius:50%;border:" + px(5) + " solid var(--accent)}",
+      ".cv-logo{display:block;height:" + px(130) + ";width:auto;max-width:60%;object-fit:contain}",
+      ".cv-wm{position:absolute;top:" + Math.round(safeT * 0.42) + "px;inset-inline-end:" + Math.round(safeX * 0.7) + "px;height:" + px(70) + ";width:auto;max-width:" + px(260) + ";object-fit:contain;opacity:.85;z-index:39}",
+      ".cv-cap-in{display:inline;padding:" + px(6) + " " + px(18) + ";border-radius:" + px(14) + ";-webkit-box-decoration-break:clone;box-decoration-break:clone}",
+      ".cv-over .cv-cap-in{background:rgba(8,10,14,.62)}",
+      ".cv-over .cv-cap .cv-w{opacity:.62;text-shadow:none}",
+      ".cv-over .cv-cap .cv-w.on{opacity:1}",
+      ".cv-over .cv-title,.cv-over .cv-text,.cv-over .cv-kicker span,.cv-over .cv-stat .lbl,.cv-over .cv-quote blockquote,.cv-over .cv-quote .by{text-shadow:0 " + px(2) + " " + px(3) + " rgba(0,0,0,.6)," + "0 " + px(8) + " " + px(28) + " rgba(0,0,0,.65)}",
+      ".cv-over .cv-stat .n{text-shadow:0 " + px(6) + " " + px(30) + " rgba(0,0,0,.6)}",
+      ".cv-over .cv-plate .cv-title,.cv-over .cv-plate .cv-text{text-shadow:none}",
     ].join("\n");
   }
 
@@ -324,19 +358,36 @@
     if (o.ink) t.ink = o.ink;
     if (o.fonts && o.fonts.display) t.display = o.fonts.display;
     if (o.fonts && o.fonts.body) t.body = o.fonts.body;
+    // Overlay: the page is laid over the owner's own video — transparent stage, no backgrounds or colour fields,
+    // white type with shadows, translucent plates for text-heavy scenes.
+    var overlay = Boolean(o.overlay);
+    if (overlay) {
+      t.fields = null;
+      t.layers = [];
+      if (!o.ink) t.ink = "#ffffff";
+      t.ink2 = "#ffffff";
+      t.mute = "rgba(255,255,255,.78)";
+      t.panel = "rgba(10,12,16,.6)";
+      t.line = "rgba(255,255,255,.2)";
+      t.shadow = false;
+      t.outline = false;
+    }
     var lang = o.lang || document.documentElement.lang || "ar";
     var rtl = o.dir ? o.dir === "rtl" : /^(ar|fa|ur|he)/i.test(lang);
     document.documentElement.lang = lang;
     document.documentElement.dir = rtl ? "rtl" : "ltr";
     var u = Math.min(W, H) / 1080;
     var style = el("style", "", document.head);
-    style.textContent = css(t, W, H, u);
+    style.textContent = css(t, W, H, u) + (overlay ? "\nhtml,body{background:transparent!important}#cv-stage.cv-over{background:transparent}" : "");
     var st = el("div", "", null);
     st.id = "cv-stage";
     var vars = { "--bg": t.bg, "--ink": t.ink, "--ink2": t.ink2 || t.ink, "--mute": t.mute, "--accent": t.accent, "--accent2": t.accent2 || t.accent, "--panel": t.panel, "--line": t.line,
       "--display": "'" + t.display + "'" + FONT_FALLBACK, "--body": "'" + t.body + "'" + FONT_FALLBACK, "--displayw": String(t.displayWeight || 800), "--bodyw": String(t.bodyWeight || 500),
-      "--markink": inkOn(t.accent, "#ffffff", "#111111") };
+      "--markink": inkOn(t.accent, "#ffffff", "#111111"), "--plate": overlay ? "rgba(8,10,14,.62)" : t.panel,
+      "--mpanel": lum(t.bg) < 0.45 ? "rgba(10,12,16,.66)" : "rgba(255,255,255,.86)", "--mline": lum(t.bg) < 0.45 ? "rgba(255,255,255,.16)" : "rgba(20,22,26,.12)",
+      "--tsh": lum(t.bg) < 0.45 ? "0 " + Math.round(2 * u) + "px " + Math.round(3 * u) + "px rgba(0,0,0,.55),0 " + Math.round(8 * u) + "px " + Math.round(30 * u) + "px rgba(0,0,0,.6)" : "0 0 " + Math.round(24 * u) + "px rgba(255,255,255,.9),0 0 " + Math.round(6 * u) + "px rgba(255,255,255,.8)" };
     for (var v in vars) st.style.setProperty(v, vars[v]);
+    if (overlay) st.classList.add("cv-over");
     if (t.emStyle === "marker") st.classList.add("cv-mark");
     if (t.emStyle === "glow" || t.glow) st.classList.add("cv-glow");
     document.body.appendChild(st);
@@ -348,7 +399,10 @@
       if (b && b.immediateRender === undefined && !(typeof pos === "number" && pos <= 0)) b.immediateRender = false;
       return fromTo(target, a, b, pos);
     };
-    var cv = { W: W, H: H, duration: D, theme: t, u: u, tl: tl, stage: st, rtl: rtl, pace: num(o.pace, t.pace || 1), scenes: [], fieldIndex: 0 };
+    var vertical = H > W;
+    var cv = { W: W, H: H, duration: D, theme: t, u: u, tl: tl, stage: st, rtl: rtl, pace: num(o.pace, t.pace || 1), scenes: [], fieldIndex: 0, overlay: overlay,
+      themeName: THEMES[o.theme] ? o.theme : "documentary", grade: o.grade, geo: o.geo || {}, mediaCount: 0,
+      safe: { t: vertical ? 200 * u : 90 * u, b: vertical ? 330 * u : 110 * u, x: vertical ? 76 * u : 150 * u } };
     // Sound design: every movement logs a cue (time, effect, gain); the recorder turns them into the soundtrack,
     // over a music bed of the chosen mood. Nothing plays in the page itself.
     var snd = o.sound || {};
@@ -374,6 +428,8 @@
         if (start >= D) c.kill();
         else if (start + c.totalDuration() > D + 0.001) c.totalDuration(Math.max(0.01, D - start));
       });
+      var last = cv.scenes[cv.scenes.length - 1];
+      if (last && last.to < D - 0.05) exitScene(cv, last);
       tl.set({}, {}, D);
       return cv;
     };
@@ -382,6 +438,15 @@
   }
 
   /* ------------------------------------------------------------------ scenes */
+
+  /** Where a scene sits: [vertical, horizontal] in flex terms (horizontal start = right in Arabic). */
+  var PLACES = { center: ["center", "center"], top: ["flex-start", "center"], bottom: ["flex-end", "center"], start: ["center", "flex-start"], end: ["center", "flex-end"], "top-start": ["flex-start", "flex-start"], "top-end": ["flex-start", "flex-end"], "bottom-start": ["flex-end", "flex-start"], "bottom-end": ["flex-end", "flex-end"] };
+
+  function exitScene(cv, sc) {
+    if (sc.exited) return;
+    sc.exited = true;
+    cv.tl.to(sc.root, { autoAlpha: 0, duration: 0.3, ease: "power1.in" }, Math.max(sc.from + 0.2, sc.to - 0.3));
+  }
 
   var TRANSITIONS = ["fade", "mask", "zoom", "slide", "flash", "cut", "rise", "iris", "stripes", "whip", "glitch"];
   var TRANSITION_SOUND = { rise: ["swell", 0.45, 0.25], fade: ["whoosh-soft", 0.75, 0.15], mask: ["whoosh", 0.8, 0.5], slide: ["whoosh", 0.85, 0.5], zoom: ["zoom", 0.85, 0.4], flash: ["impact", 1, 0], cut: ["hit", 0.7, 0], iris: ["whoosh-soft", 0.9, 0.45], stripes: ["whoosh", 0.95, 0.5], whip: ["whoosh", 1, 0.12], glitch: ["glitch", 0.9, 0] };
@@ -395,9 +460,17 @@
     var root = el("div", "cv-scene", cv.stage);
     root.style.zIndex = String(5 + cv.scenes.length);
     var cam = el("div", "cv-cam", root);
-    if (s.align === "top") cam.style.justifyContent = "flex-start";
+    var place = PLACES[s.place] || (s.align === "top" ? PLACES.top : PLACES.center);
+    cam.style.justifyContent = place[0];
+    cam.style.alignItems = place[1];
+    if (place[1] !== "center") {
+      cam.style.textAlign = place[1] === "flex-start" ? "start" : "end";
+      // Side placements keep to their side of the frame (the subject is on the other side).
+      cam.style[place[1] === "flex-start" ? "paddingInlineEnd" : "paddingInlineStart"] = Math.round(cv.W * (cv.W > cv.H ? 0.45 : 0.3)) + "px";
+    }
+    var box = s.plate ? el("div", "cv-box cv-plate", cam) : cam;
     // Kinetic look: every scene sits on its own colour field, and the ink follows it.
-    if (t.fields || s.bg) {
+    if ((t.fields || s.bg) && !(s.media && !cv.overlay)) {
       var field = s.bg || t.fields[cv.fieldIndex++ % t.fields.length];
       root.style.background = field;
       var ink = inkOn(field, "#ffffff", "#111111");
@@ -412,10 +485,13 @@
       root.style.setProperty("--markink", inkOn(getComputedStyle(root).getPropertyValue("--accent").trim() || t.accent, "#ffffff", "#111111"));
     }
     var prev = cv.scenes[cv.scenes.length - 1];
-    var sc = { cv: cv, from: from, to: to, root: root, cam: cam, T: T, transition: tr, items: 0, cursor: 0, last: false };
+    // A gap before this scene (overlays leave room for the person on camera): the previous one leaves on its own.
+    if (prev && from > prev.to + 0.05) { exitScene(cv, prev); prev = null; }
+    var sc = { cv: cv, from: from, to: to, root: root, cam: cam, box: box, T: T, transition: tr, items: 0, cursor: 0, last: false, place: s.place };
     // The previous scene's content clears in the first 0.2 s of the transition and this scene's content arrives during
     // the move itself: the frame is never empty, and two texts never share a frame.
     sc.start = from + (tr === "cut" || tr === "glitch" ? 0.04 : tr === "stripes" ? T * 0.55 : Math.min(0.24, Math.max(0.12, T * 0.5)));
+    if (s.media && !cv.overlay) sc.media = backdrop(sc, s.media);
     if (cv.scenes.length || from > 0.05) {
       var ts = TRANSITION_SOUND[tr];
       if (ts && s.sfx !== false) cv.cue(from + ts[2] * (tr === "rise" || tr === "fade" || tr === "whip" ? 1 : T), ts[0], ts[1], { v: cv.scenes.length % 3 / 3 });
@@ -453,10 +529,14 @@
       var leave = tr === "mask" || tr === "slide" || tr === "iris" ? from + T : tr === "stripes" ? from + T * 0.5 : from;
       if (tr === "whip") tl.to(prev.root, { x: (cv.rtl ? 0.4 : -0.4) * cv.W, filter: "blur(" + Math.round(22 * u) + "px)", duration: 0.3, ease: "power3.in" }, from);
       // Its texts go first (its background, if it has one, stays under a wipe until the wipe has covered it).
-      if (tr !== "cut") tl.to(Array.prototype.slice.call(prev.root.children), { autoAlpha: 0, duration: Math.min(0.2, Math.max(0.1, T * 0.4)), ease: "power1.in" }, from);
+      // A picture behind it stays until the new scene covers it (a real cross-dissolve between two pictures).
+      var texts = Array.prototype.filter.call(prev.root.children, function (c) { return !c.classList.contains("cv-media"); });
+      if (tr !== "cut") tl.to(texts, { autoAlpha: 0, duration: Math.min(0.2, Math.max(0.1, T * 0.4)), ease: "power1.in" }, from);
+      var dissolve = prev.media && (tr === "fade" || tr === "rise");
+      if (dissolve) leave = from + Math.max(0.3, T);
       if (tr === "zoom") tl.to(prev.root, { autoAlpha: 0, scale: 0.92, duration: Math.min(0.3, T), ease: "power2.in" }, from);
       else if (tr === "slide") tl.to(prev.root, { xPercent: cv.rtl ? 100 : -100, duration: T, ease: "power3.inOut" }, from);
-      else if (tr === "fade") tl.to(prev.root, { autoAlpha: 0, duration: Math.min(0.2, T), ease: "power1.in" }, from);
+      else if (tr === "fade" && !dissolve) tl.to(prev.root, { autoAlpha: 0, duration: Math.min(0.2, T), ease: "power1.in" }, from);
       tl.set(prev.root, { autoAlpha: 0 }, leave);
       prev.last = false;
     }
@@ -638,13 +718,213 @@
     img.src = EMOJI_CDN + files[0] + ".webp";
   }
 
+  /* ------------------------------------------------------------------ pictures, clips and maps */
+
+  /** The recorder serves stored pictures under this host; the in-browser preview inlines them (window.__cvMedia). */
+  var MEDIA_HOST = "https://code-video.local/";
+  function mediaUrl(key) {
+    var table = window.__cvMedia;
+    if (table && table[key]) return table[key];
+    if (/^data:image\//.test(key)) return key;
+    return MEDIA_HOST + "cv-media/" + encodeURIComponent(key);
+  }
+  /** Pictures still decoding: the recorder waits for them before it photographs a frame. */
+  var waits = [];
+  function track(img) { try { if (img.decode) waits.push(img.decode().catch(function () {})); } catch (e) {} }
+  window.__cvSettle = function () { if (!waits.length) return null; var p = waits; waits = []; return Promise.all(p); };
+
+  /** One colour treatment for every picture, per theme (or the storyboard's "grade"): photos join the look. */
+  var THEME_GRADE = {
+    documentary: { f: "saturate(.62) contrast(1.12) brightness(.82) sepia(.18)" },
+    kinetic: { f: "grayscale(1) contrast(1.22) brightness(.98)", tint: "accent2", blend: "multiply", a: 0.92 },
+    neon: { f: "saturate(.55) brightness(.72) contrast(1.2)", tint: "grad", blend: "color", a: 0.5 },
+    infographic: { f: "saturate(.9) contrast(1.04)" },
+    storybook: { f: "saturate(1.15) brightness(1.04)", tint: "#ffd6a5", blend: "soft-light", a: 0.5 },
+  };
+  var GRADES = {
+    mono: { f: "grayscale(1) contrast(1.16) brightness(.88)" },
+    warm: { f: "sepia(.3) saturate(1.12) contrast(1.06)", tint: "#ff9a3c", blend: "soft-light", a: 0.3 },
+    cool: { f: "saturate(.8) contrast(1.08) brightness(.9)", tint: "#2a6cff", blend: "soft-light", a: 0.32 },
+    vivid: { f: "saturate(1.3) contrast(1.1)" },
+    none: { f: "" },
+  };
+  function gradeOf(cv) { return (cv.grade && GRADES[cv.grade]) || THEME_GRADE[cv.themeName] || THEME_GRADE.documentary; }
+  function applyGrade(cv, img, box) {
+    var gr = gradeOf(cv), t = cv.theme;
+    if (gr.f) img.style.filter = gr.f;
+    if (gr.tint) {
+      var tint = el("div", "g", box);
+      tint.style.background = gr.tint === "grad" ? "linear-gradient(135deg," + t.accent + "," + (t.accent2 || t.accent) + ")" : gr.tint === "accent2" ? t.accent2 || t.accent : gr.tint;
+      tint.style.mixBlendMode = gr.blend;
+      tint.style.opacity = String(gr.a);
+    }
+    return gr;
+  }
+  function rgbOf(hex) {
+    var h = String(hex || "#000").replace("#", "");
+    if (h.length === 3) h = h.replace(/./g, "$&$&");
+    var v = parseInt(h.slice(0, 6), 16) || 0;
+    return [(v >> 16) & 255, (v >> 8) & 255, v & 255].join(",");
+  }
+  /** Shade over a picture so the scene's words stay readable: darker where text and captions sit. */
+  function shade(cv, box, m, place) {
+    var t = cv.theme, c = rgbOf(t.bg), d = num(m.dim, lum(t.bg) < 0.45 ? 0.42 : 0.5);
+    var top = Math.min(0.92, d + 0.3), bot = Math.min(0.95, d + 0.45);
+    if (place && /^top/.test(place)) { top = Math.min(0.95, d + 0.45); bot = Math.min(0.9, d + 0.25); }
+    var sh = el("div", "sh", box);
+    sh.style.background = "linear-gradient(0deg,rgba(" + c + "," + bot + ") 0%,rgba(" + c + "," + d + ") 42%,rgba(" + c + "," + (d * 0.75).toFixed(2) + ") 64%,rgba(" + c + "," + top + ") 100%)";
+  }
+  /** Slow camera move on a picture (Ken Burns), varied scene to scene. */
+  function kenBurns(cv, img, motion, from, span, idx) {
+    var m = motion || ["in", "left", "out", "right", "up"][idx % 5];
+    var a = { scale: 1.03, x: 0, y: 0 }, b = { scale: 1.15, x: 0, y: 0 };
+    if (m === "out") { a.scale = 1.16; b.scale = 1.03; }
+    else if (m === "left" || m === "right") { a.scale = b.scale = 1.14; a.x = (m === "left" ? 1 : -1) * cv.W * 0.045; b.x = -a.x; }
+    else if (m === "up" || m === "down") { a.scale = b.scale = 1.14; a.y = (m === "up" ? 1 : -1) * cv.H * 0.035; b.y = -a.y; }
+    g.set(img, a);
+    b.duration = span; b.ease = "none";
+    cv.tl.fromTo(img, a, b, from);
+  }
+
+  /** A scene backdrop: a photo, a moving clip, or an animated map. Returns the element (or null). */
+  function backdrop(sc, m) {
+    var cv = sc.cv, tl = cv.tl;
+    if (!m || !m.type) return null;
+    var span = Math.max(0.1, Math.min(sc.to - sc.from + 0.7, cv.duration - sc.from));
+    if (m.type === "map") {
+      var geo = cv.geo[m.geoId];
+      if (!geo) return null;
+      var mb = el("div", "cv-media", null);
+      sc.root.insertBefore(mb, sc.cam);
+      sc.root.classList.add("cv-onmedia");
+      mapInto(sc, m, mb, geo);
+      return mb;
+    }
+    if (!m.key) return null;
+    var box = el("div", "cv-media", null);
+    sc.root.insertBefore(box, sc.cam);
+    sc.root.classList.add("cv-onmedia");
+    var img = el("img", "", box);
+    img.alt = "";
+    img.decoding = "sync";
+    if (m.position) img.style.objectPosition = "50% " + (m.position === "top" ? "20%" : m.position === "bottom" ? "80%" : "50%");
+    var gr = applyGrade(cv, img, box);
+    shade(cv, box, m, sc.place);
+    var idx = cv.mediaCount++;
+    var moving = m.type === "clip" && !window.__cvMedia && clipFrames(sc, m, img, span);
+    if (!moving) {
+      img.src = mediaUrl(m.type === "clip" ? m.poster || m.key : m.key);
+      track(img);
+      kenBurns(cv, img, m.motion, sc.from, span, idx);
+    } else tl.fromTo(img, { scale: 1.02 }, { scale: 1.07, duration: span, ease: "none" }, sc.from);
+    // Focus pull as it arrives: the picture settles into the frame instead of being pasted on.
+    if (sc.transition !== "cut" && sc.transition !== "glitch") tl.fromTo(box, { filter: "blur(" + Math.round(16 * cv.u) + "px) brightness(.7)" }, { filter: "blur(0px) brightness(1)", duration: 0.8, ease: "power2.out" }, sc.from);
+    return box;
+  }
+
+  /** A clip as a frame sequence the recorder extracts (25 fps), shown frame by frame on the virtual clock. */
+  function clipFrames(sc, m, img, span) {
+    var cv = sc.cv, fps = 25, base = MEDIA_HOST + "cv-clip/" + encodeURIComponent(m.key) + "/" + Math.round(num(m.start, 0) * 1000) + "/";
+    var last = Math.max(0, Math.floor(Math.min(num(m.dur, 30), 20) * fps) - 1), shown = -1, st = { t: 0 };
+    var show = function () {
+      var n = Math.min(last, Math.max(0, Math.floor(st.t * fps + 1e-6)));
+      if (n === shown) return;
+      shown = n;
+      img.src = base + n + ".jpg";
+      track(img);
+    };
+    show();
+    cv.tl.fromTo(st, { t: 0 }, { t: span, duration: span, ease: "none", onUpdate: show }, sc.from);
+    return true;
+  }
+
+  var SVG = "http://www.w3.org/2000/svg";
+  /** Map: starts wide, zooms onto the focus, fills the highlighted countries, draws routes, pops pins and labels. */
+  function mapInto(sc, m, box, geo) {
+    var cv = sc.cv, tl = cv.tl, t = cv.theme, u = cv.u;
+    var dark = lum(t.bg) < 0.45;
+    var landFill = dark ? "rgba(255,255,255,0.08)" : "rgba(20,22,26,0.07)", border = dark ? "rgba(255,255,255,0.24)" : "rgba(20,22,26,0.25)";
+    var svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("viewBox", "0 0 " + cv.W + " " + cv.H);
+    box.appendChild(svg);
+    var grp = document.createElementNS(SVG, "g");
+    svg.appendChild(grp);
+    var path = function (d, fill, stroke, w, scaling) {
+      var p = document.createElementNS(SVG, "path");
+      p.setAttribute("d", d);
+      p.style.fill = fill;
+      if (stroke) { p.style.stroke = stroke; p.setAttribute("stroke-width", String(w)); p.setAttribute("stroke-linejoin", "round"); if (!scaling) p.setAttribute("vector-effect", "non-scaling-stroke"); }
+      grp.appendChild(p);
+      return p;
+    };
+    if (geo.grat) path(geo.grat, "none", dark ? "rgba(255,255,255,0.055)" : "rgba(20,22,26,0.06)", Math.max(1, u));
+    path(geo.land, landFill, border, Math.max(1, 1.3 * u));
+    var his = (geo.hi || []).map(function (h) { return path(h.d, landFill, border, Math.max(1.5, 2.4 * u)); });
+    var z = geo.zoom, st = { p: 0 };
+    var apply = function () {
+      var p = st.p, s = Math.pow(z.k, p);
+      var fx = z.f[0] + (z.to[0] - z.f[0]) * Math.min(1, p), fy = z.f[1] + (z.to[1] - z.f[1]) * Math.min(1, p);
+      grp.setAttribute("transform", "translate(" + (fx - z.f[0] * s).toFixed(2) + "," + (fy - z.f[1] * s).toFixed(2) + ") scale(" + s.toFixed(4) + ")");
+    };
+    apply();
+    var Z0 = sc.start, Z = geo.world ? 0.1 : Math.min(2.4, Math.max(1.2, (sc.to - sc.from) * 0.42)), Z1 = Z0 + Z;
+    if (!geo.world) {
+      tl.fromTo(st, { p: 0 }, { p: 1, duration: Z, ease: "power2.inOut", onUpdate: apply }, Z0);
+      cv.cue(Z0 + 0.05, "zoom", 0.7);
+    }
+    var tail = Math.max(0.1, sc.to - Z1 + 0.6);
+    tl.fromTo(st, { p: 1 }, { p: 1.04, duration: tail, ease: "none", onUpdate: apply }, Z1);
+    if (his.length) {
+      his.forEach(function (p, i) {
+        var h = geo.hi[i];
+        tl.to(p, { fill: h.focus || geo.hi.length === 1 ? t.accent : t.accent2 || t.accent, fillOpacity: h.focus ? 0.9 : 0.62, stroke: "#ffffff", duration: 0.6, ease: "power2.out" }, Z0 + Z * 0.6 + i * 0.12);
+      });
+      cv.cue(Z0 + Z * 0.6, "blip", 0.55);
+    }
+    (geo.routes || []).forEach(function (r, i) {
+      var p = path(r.d, "none", t.accent2 || t.accent, Math.max(2, 6 * u) / z.k, true);
+      p.setAttribute("stroke-linecap", "round");
+      p.setAttribute("pathLength", "1");
+      p.style.strokeDasharray = "1";
+      p.style.strokeDashoffset = "1";
+      tl.to(p, { strokeDashoffset: 0, duration: 1.1, ease: "power2.inOut" }, Z1 + i * 0.3);
+      cv.cue(Z1 + i * 0.3, "whoosh-soft", 0.5, { v: i / 4 });
+    });
+    var ov = el("div", "cv-mapl", box);
+    var marks = (geo.pins || []).map(function (p) { return { at: p.at, lb: p.lb, label: p.label, pin: true }; });
+    if (m.labels !== false) (geo.hi || []).forEach(function (h) { if (h.lb) marks.push({ at: h.at, lb: h.lb, label: h.name, pin: false }); });
+    marks.forEach(function (p, i) {
+      var at = Z1 + 0.15 + i * 0.16;
+      if (p.pin) {
+        var dot = el("div", "pin", ov);
+        dot.style.left = p.at[0] + "px"; dot.style.top = p.at[1] + "px";
+        g.set(dot, { scale: 0 });
+        tl.to(dot, { scale: 1, duration: 0.4, ease: "back.out(2.5)" }, at);
+      }
+      if (p.label) {
+        var lb = el("div", "lb " + (AR.test(p.label) ? "cv-ar" : "cv-lat"), ov, esc(p.label));
+        var pos = p.lb || p.at;
+        lb.style.left = pos[0] + "px"; lb.style.top = pos[1] + "px";
+        g.set(lb, { autoAlpha: 0, y: 16 * u });
+        tl.to(lb, { autoAlpha: 1, y: 0, duration: 0.45, ease: "power3.out" }, at + 0.06);
+      }
+      cv.cue(at, "pop", 0.5, { v: i / 5 });
+    });
+    if (geo.hi && geo.hi[0]) {
+      var ring = el("div", "ring", ov);
+      ring.style.left = geo.hi[0].at[0] + "px"; ring.style.top = geo.hi[0].at[1] + "px";
+      g.set(ring, { scale: 0.2, autoAlpha: 0 });
+      tl.fromTo(ring, { scale: 0.2, autoAlpha: 0.9 }, { scale: 2.6, autoAlpha: 0, duration: 1.2, ease: "power2.out" }, Z1 + 0.05);
+    }
+  }
+
   /* ------------------------------------------------------------------ components */
 
   var COMPONENTS = {
     emoji: function (sc, ch, o) {
       o = o || {};
       var cv = sc.cv, tl = cv.tl, u = cv.u, at = when(sc, o.at, 0.45);
-      var n = el("div", "cv-emoji", sc.cam);
+      var n = el("div", "cv-emoji", sc.box);
       if (o.size) { n.style.width = n.style.height = Math.round(o.size * u) + "px"; }
       emojiInto(n, ch || "✨");
       g.set(n, { autoAlpha: 0, scale: 0, rotation: -25 });
@@ -660,6 +940,38 @@
       else if (motion === "wiggle") tl.to(n, { rotation: 12, duration: period / 2, yoyo: true, repeat: reps, ease: "sine.inOut" }, t1);
       else tl.to(n, { y: -16 * u, rotation: 4, duration: period / 2, yoyo: true, repeat: reps, ease: "sine.inOut" }, t1);
     },
+    photo: function (sc, o) {
+      o = o || {};
+      if (!o.key) return;
+      var cv = sc.cv, tl = cv.tl, u = cv.u, at = when(sc, o.at, 0.6);
+      var vertical = cv.H > cv.W;
+      var frame = o.frame || (cv.themeName === "storybook" ? "polaroid" : "card");
+      var cw = cv.W - 2 * cv.safe.x;
+      var w = Math.round(cw * ({ s: 0.5, m: 0.7, l: 0.92 }[o.size] || 0.7));
+      var ratio = frame === "wide" ? 9 / 16 : frame === "circle" || frame === "polaroid" ? 1 : vertical ? 1.15 : 0.66;
+      var h = Math.round(w * ratio);
+      var maxH = cv.H * (vertical ? 0.42 : 0.56);
+      if (h > maxH) { w = Math.round(w * (maxH / h)); h = Math.round(maxH); }
+      var wrap = el("figure", "cv-ph-wrap", sc.box);
+      var fr = el("div", "cv-ph " + frame + (cv.theme.outline && frame !== "polaroid" ? " outline" : ""), wrap);
+      var im = el("div", "im", fr);
+      im.style.width = w + "px"; im.style.height = h + "px";
+      var img = el("img", "", im);
+      img.alt = "";
+      img.src = mediaUrl(o.key);
+      track(img);
+      applyGrade(cv, img, im);
+      if (o.caption) {
+        if (frame === "polaroid") el("div", "cap " + (AR.test(o.caption) ? "cv-ar" : "cv-lat"), fr, esc(o.caption));
+        else el("figcaption", "cv-ph-cap " + (AR.test(o.caption) ? "cv-ar" : "cv-lat"), wrap, esc(o.caption));
+      }
+      var tilt = frame === "polaroid" ? (sc.items % 2 ? 3 : -3) : 0;
+      g.set(wrap, { autoAlpha: 0, y: 70 * u, scale: 0.9, rotation: tilt * 2.5 });
+      tl.to(wrap, { autoAlpha: 1, y: 0, scale: 1, rotation: tilt, duration: 0.8, ease: "back.out(1.35)" }, at);
+      tl.fromTo(img, { scale: 1.12 }, { scale: 1.02, duration: Math.max(0.5, sc.to - at + 0.5), ease: "none" }, at);
+      if (o.sfx !== false) cv.cue(at, "whoosh-soft", 0.5);
+      sc.cursor = Math.max(sc.cursor, at + 0.7);
+    },
     sfx: function (sc, name, o) {
       o = o || {};
       sc.cv.cue(sc.from + num(o.at, 0), name, num(o.gain, 1));
@@ -668,7 +980,7 @@
       o = o || {};
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.35);
       if (o.sfx !== false) cv.cue(at, "tick", 0.5);
-      var n = el("div", "cv-kicker " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.cam, "<i></i><span>" + esc(text) + "</span>");
+      var n = el("div", "cv-kicker " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.box, "<i></i><span>" + esc(text) + "</span>");
       g.set(n.firstChild, { scaleX: 0, transformOrigin: cv.rtl ? "right center" : "left center" });
       g.set(n.lastChild, { autoAlpha: 0, x: (cv.rtl ? -24 : 24) * cv.u });
       tl.to(n.firstChild, { scaleX: 1, duration: 0.45, ease: "power3.out" }, at);
@@ -677,12 +989,12 @@
     title: function (sc, text, o) {
       o = o || {};
       var at = when(sc, o.at, 0.5);
-      var n = el("h1", "cv-title " + sizeFor(text, o.size) + " " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.cam, wordsHtml(text, o.emphasis));
+      var n = el("h1", "cv-title " + sizeFor(text, o.size) + " " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.box, wordsHtml(text, o.emphasis));
       var len = wordsIn(sc, n, at, o);
       var mode = o.enter || sc.cv.theme.enter;
       if (o.sfx !== false && (mode === "punch" || mode === "pop")) sc.cv.cue(at, mode === "pop" ? "pop" : "hit", 0.55);
       if (o.underline) {
-        var line = el("i", "cv-under", sc.cam);
+        var line = el("i", "cv-under", sc.box);
         g.set(line, { scaleX: 0 });
         sc.cv.tl.to(line, { scaleX: 1, duration: 0.5, ease: "power3.out" }, at + len - 0.3);
       }
@@ -691,7 +1003,7 @@
     text: function (sc, text, o) {
       o = o || {};
       var at = when(sc, o.at, 0.4);
-      var n = el("p", "cv-text " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.cam, wordsHtml(text, o.emphasis));
+      var n = el("p", "cv-text " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.box, wordsHtml(text, o.emphasis));
       if (o.size) n.style.fontSize = Math.round(o.size * sc.cv.u) + "px";
       var len = wordsIn(sc, n, at, { enter: sc.cv.theme.enter === "punch" ? "rise" : sc.cv.theme.enter, stagger: 0.035 });
       sc.cursor = Math.max(sc.cursor, at + Math.min(len, 0.9));
@@ -702,7 +1014,7 @@
       var cv = sc.cv, at = when(sc, o.at, 0.3);
       var per = num(o.per, Math.max(0.45, Math.min(1.1, (sc.to - at - 0.8) / Math.max(1, lines.length))));
       lines.forEach(function (line, i) {
-        var n = el("div", "cv-title " + sizeFor(line, o.size || (String(line).length <= 12 ? "xl" : "l")) + " " + (AR.test(line) ? "cv-ar" : "cv-lat"), sc.cam, wordsHtml(line, o.emphasis));
+        var n = el("div", "cv-title " + sizeFor(line, o.size || (String(line).length <= 12 ? "xl" : "l")) + " " + (AR.test(line) ? "cv-ar" : "cv-lat"), sc.box, wordsHtml(line, o.emphasis));
         wordsIn(sc, n, at + i * per, { enter: o.enter || (cv.theme.enter === "blur" ? "rise" : cv.theme.enter === "rise" ? "rise" : "punch"), stagger: 0.06 });
         if (o.sfx !== false) cv.cue(at + i * per, "hit", cv.theme.enter === "punch" ? 0.65 : 0.38, { v: i / 4 });
       });
@@ -711,7 +1023,7 @@
     stat: function (sc, o) {
       o = o || {};
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.8);
-      var n = el("div", "cv-stat", sc.cam, '<div class="n"></div>' + (o.label ? '<div class="lbl ' + (AR.test(o.label) ? "cv-ar" : "cv-lat") + '">' + wordsHtml(o.label, o.emphasis) + "</div>" : ""));
+      var n = el("div", "cv-stat", sc.box, '<div class="n"></div>' + (o.label ? '<div class="lbl ' + (AR.test(o.label) ? "cv-ar" : "cv-lat") + '">' + wordsHtml(o.label, o.emphasis) + "</div>" : ""));
       var box = n.firstChild, dec = Math.max(0, Math.min(3, num(o.decimals, 0)));
       var to = num(o.value, 0), from = num(o.from, 0), counter = { v: from };
       var fmt = function (v) {
@@ -735,7 +1047,8 @@
       items = [].concat(items || []).slice(0, 6);
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.6);
       var max = num(o.max, Math.max.apply(null, items.map(function (x) { return Math.abs(num(x.value, 0)); }).concat([1])));
-      var wrap = el("div", "cv-bars", sc.cam);
+      if (sc.box !== sc.cam) sc.box.classList.add("wide");
+      var wrap = el("div", "cv-bars", sc.box);
       items.forEach(function (it, i) {
         var row = el("div", "cv-bar", wrap, '<div class="top"><span>' + esc(it.label) + '</span><span class="v"></span></div><div class="track"><div class="fill"></div></div>');
         var v = row.querySelector(".v"), fill = row.querySelector(".fill"), c = { v: 0 };
@@ -759,7 +1072,8 @@
       o = o || {};
       items = [].concat(items || []).slice(0, 6);
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.5);
-      var wrap = el("div", "cv-list", sc.cam);
+      if (sc.box !== sc.cam) sc.box.classList.add("wide");
+      var wrap = el("div", "cv-list", sc.box);
       var gap = num(o.per, Math.max(0.3, Math.min(0.9, (sc.to - at - 1) / Math.max(1, items.length))));
       items.forEach(function (it, i) {
         var badge = o.numbered ? String(i + 1) : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="' + ICONS[o.icon || "check"] + '"/></svg>';
@@ -777,7 +1091,8 @@
       events = [].concat(events || []).slice(0, 5);
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.6);
       var wide = cv.W > cv.H;
-      var wrap = el("div", "cv-tl" + (wide ? " h" : ""), sc.cam, '<div class="rail"><i></i></div>');
+      if (sc.box !== sc.cam) sc.box.classList.add("wide");
+      var wrap = el("div", "cv-tl" + (wide ? " h" : ""), sc.box, '<div class="rail"><i></i></div>');
       var gap = Math.max(0.45, Math.min(1.1, (sc.to - at - 1) / Math.max(1, events.length)));
       var axis = wide ? "scaleX" : "scaleY";
       var a0 = {}, a1 = { duration: gap * events.length, ease: "none" };
@@ -801,7 +1116,8 @@
         side = side || {};
         return '<div class="cv-card cv-panel"><h3>' + esc(side.title) + "</h3>" + [].concat(side.items || []).slice(0, 4).map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") + "</div>";
       };
-      var wrap = el("div", "cv-cmp", sc.cam, card(o.left) + card(o.right) + (o.vs === false ? "" : '<div class="cv-vs">' + esc(o.vs || "VS") + "</div>"));
+      if (sc.box !== sc.cam) sc.box.classList.add("wide");
+      var wrap = el("div", "cv-cmp", sc.box, card(o.left) + card(o.right) + (o.vs === false ? "" : '<div class="cv-vs">' + esc(o.vs || "VS") + "</div>"));
       var a = wrap.children[0], b = wrap.children[1], vs = wrap.children[2];
       g.set(a, { autoAlpha: 0, x: (cv.rtl ? 80 : -80) * cv.u });
       g.set(b, { autoAlpha: 0, x: (cv.rtl ? -80 : 80) * cv.u });
@@ -819,7 +1135,7 @@
     quote: function (sc, text, o) {
       o = o || {};
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.8);
-      var n = el("figure", "cv-quote", sc.cam, '<div class="qm">“</div><blockquote class="' + (AR.test(text) ? "cv-ar" : "cv-lat") + '">' + wordsHtml(text, o.emphasis) + "</blockquote>" + (o.by ? '<figcaption class="by">— ' + esc(o.by) + "</figcaption>" : ""));
+      var n = el("figure", "cv-quote", sc.box, '<div class="qm">“</div><blockquote class="' + (AR.test(text) ? "cv-ar" : "cv-lat") + '">' + wordsHtml(text, o.emphasis) + "</blockquote>" + (o.by ? '<figcaption class="by">— ' + esc(o.by) + "</figcaption>" : ""));
       g.set(n.firstChild, { autoAlpha: 0, scale: 0.4, y: 30 * cv.u });
       tl.to(n.firstChild, { autoAlpha: 1, scale: 1, y: 0, duration: 0.6, ease: "back.out(1.8)" }, at);
       if (o.sfx !== false) cv.cue(at + 0.2, "swell", 0.45);
@@ -832,7 +1148,7 @@
       o = o || {};
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.5);
       var d = ICONS[name] || ICONS.spark;
-      var n = el("div", "cv-icon", sc.cam, '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" d="' + d + '"/></svg>');
+      var n = el("div", "cv-icon", sc.box, '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" d="' + d + '"/></svg>');
       if (o.size) { n.style.width = n.style.height = Math.round(o.size * cv.u) + "px"; }
       if (o.color) n.style.color = o.color;
       var path = n.querySelector("path");
@@ -845,7 +1161,7 @@
     divider: function (sc, o) {
       o = o || {};
       var at = when(sc, o.at, 0.2);
-      var n = el("div", "cv-div", sc.cam);
+      var n = el("div", "cv-div", sc.box);
       g.set(n, { scaleX: 0 });
       sc.cv.tl.to(n, { scaleX: 1, duration: 0.5, ease: "power3.out" }, at);
     },
@@ -868,7 +1184,7 @@
     cta: function (sc, text, o) {
       o = o || {};
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.6);
-      var n = el("div", "cv-cta " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.cam, esc(text));
+      var n = el("div", "cv-cta " + (AR.test(text) ? "cv-ar" : "cv-lat"), sc.box, esc(text));
       g.set(n, { autoAlpha: 0, scale: 0.7 });
       tl.to(n, { autoAlpha: 1, scale: 1, duration: 0.55, ease: "back.out(2)" }, at);
       if (o.sfx !== false) cv.cue(at, "ding", 0.7);
@@ -899,6 +1215,7 @@
       case "lowerThird": sc.lowerThird(it.name, it.role, it); break;
       case "cta": sc.cta(it.text, it); break;
       case "emoji": sc.emoji(it.char || it.text, it); break;
+      case "photo": sc.photo(it); break;
       case "sfx": sc.sfx(it.name, it); break;
     }
     return sc;
@@ -912,15 +1229,16 @@
     var box = el("div", "cv-cap " + (cv.rtl ? "cv-ar" : "cv-lat"), cv.stage);
     for (var i = 0; i < words.length; i += per) {
       var page = words.slice(i, i + per);
-      var p = el("div", "", box, page.map(function (w) { return '<span class="cv-w">' + esc(w.w || w.word) + "</span>"; }).join(" "));
+      var p = el("div", "", box, '<span class="cv-cap-in">' + page.map(function (w) { return '<span class="cv-w">' + esc(w.w || w.word) + "</span>"; }).join(" ") + "</span>");
       p.style.position = "absolute"; p.style.left = "0"; p.style.right = "0"; p.style.bottom = "0";
       g.set(p, { autoAlpha: 0 });
       var a = num(page[0].start, 0), b = num(page[page.length - 1].end, a + 1);
       var next = words[i + per] ? num(words[i + per].start, b) : b + 0.3;
       tl.set(p, { autoAlpha: 1 }, a);
       tl.set(p, { autoAlpha: 0 }, Math.max(b, Math.min(next, b + 0.6)));
-      Array.prototype.forEach.call(p.children, function (s, k) {
+      Array.prototype.forEach.call(p.firstChild.children, function (s, k) {
         tl.set(s, { attr: { class: "cv-w on" } }, num(page[k].start, a));
+        tl.fromTo(s, { scale: 1.12 }, { scale: 1, duration: 0.16, ease: "power2.out" }, num(page[k].start, a));
         tl.set(s, { attr: { class: "cv-w" } }, num(page[k].end, b));
       });
     }
@@ -930,6 +1248,14 @@
     var from = num(e.from, Math.max(0, cv.duration - num(e.seconds, 2.6)));
     var sc = scene(cv, { from: from, to: cv.duration, transition: e.transition || "zoom", camera: "pull", fx: e.fx, fxEmoji: e.fxEmoji });
     if (e.sfx !== false) cv.cue(from, "riser", 0.55);
+    if (cv.brand && cv.brand.logo) {
+      var logo = el("img", "cv-logo", sc.box);
+      logo.alt = "";
+      logo.src = mediaUrl(cv.brand.logo);
+      track(logo);
+      g.set(logo, { autoAlpha: 0, scale: 0.6 });
+      cv.tl.to(logo, { autoAlpha: 1, scale: 1, duration: 0.6, ease: "back.out(2)" }, sc.start + 0.1);
+    }
     if (e.kicker) sc.kicker(e.kicker);
     if (e.text) sc.title(e.text, { emphasis: e.emphasis, size: e.size });
     if (e.cta) sc.cta(e.cta);
@@ -945,8 +1271,19 @@
   function play(sb, o) {
     o = o || {};
     sb = sb || {};
-    var cv = create({ width: o.width || sb.width, height: o.height || sb.height, duration: o.duration || sb.duration, theme: sb.theme, accent: sb.accent, accent2: sb.accent2, lang: sb.lang, fonts: sb.fonts, pace: sb.pace, sound: sb.sound });
+    var cv = create({ width: o.width || sb.width, height: o.height || sb.height, duration: o.duration || sb.duration, theme: sb.theme, accent: sb.accent, accent2: sb.accent2, lang: sb.lang, fonts: sb.fonts, pace: sb.pace, sound: sb.sound, overlay: o.overlay || sb.overlay, grade: sb.grade, geo: sb.__geo });
     if (sb.progress) cv.progress();
+    if (sb.brand && sb.brand.logo) {
+      cv.brand = sb.brand;
+      if (sb.brand.watermark) {
+        var wm = el("img", "cv-wm", cv.stage);
+        wm.alt = "";
+        wm.src = mediaUrl(sb.brand.logo);
+        track(wm);
+        g.set(wm, { autoAlpha: 0 });
+        cv.tl.to(wm, { autoAlpha: 0.85, duration: 0.6 }, 0.5);
+      }
+    }
     (sb.scenes || []).forEach(function (s) {
       var sc = cv.scene(s);
       (s.items || []).forEach(function (it) { sc.add(it); });
@@ -957,5 +1294,5 @@
     return cv;
   }
 
-  window.CV = { create: create, play: play, themes: THEMES, icons: Object.keys(ICONS), components: API.slice(), version: "1.1.0" };
+  window.CV = { create: create, play: play, themes: THEMES, icons: Object.keys(ICONS), components: API.slice(), version: "1.3.0" };
 })();

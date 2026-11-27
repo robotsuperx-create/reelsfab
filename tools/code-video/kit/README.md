@@ -19,6 +19,24 @@ for it (`<script data-cv-kit></script>`, or any call to `CV.play` / `CV.create`)
   `letterbox`, `dust`, `glitch`. Transitions: `rise`, `fade`, `mask`, `zoom`, `slide`, `flash`, `cut`, `iris`,
   `stripes`, `whip`, `glitch`.
 
+## Pictures, clips and maps (v1.3)
+
+- Scene `media` backdrop: `{"type":"photo"}` (Ken Burns move, focus pull on arrival), `{"type":"clip"}` (a moving
+  backdrop, played frame by frame on the virtual clock), `{"type":"map"}` (zooms onto the focus countries, fills the
+  highlighted ones, draws routes as arcs, pops pins and labels). `photo` item: a framed picture (card, polaroid,
+  circle, wide) inside a scene.
+- Pictures come from a search (`query`, Pexels / Pixabay — only when the room's «صور ومقاطع مجانية» switch is on), the
+  owner's library (`asset`), or a stored file (`key`, filled by the studio). `server/services/code-media.ts` resolves
+  them before every recording; what cannot be found is dropped and the scene keeps its typography.
+- One colour grade for every picture (per theme, or `grade`: mono, warm, cool, vivid, none), a shade under the text
+  and the theme's grain and vignette on top, so pictures look like part of the video.
+- Maps: geometry is computed on the server (`server/services/code-maps.ts`, world-atlas + d3-geo, ISC) and carried in
+  the page — no map library or download in the recorder. Morocco is drawn whole with its Sahara (`"sahara":"separate"`
+  to change it). Countries by ISO code or English/Arabic name.
+- The recorder serves stored pictures at `https://code-video.local/cv-media/…` and clip frames at `…/cv-clip/…`
+  (`server/worker/media-routes.ts`); the in-browser preview gets small inlined copies instead.
+- `brand.logo`: the owner's logo on the end card (and a corner watermark with `watermark: true`).
+
 ## Sound (server/worker/sound)
 
 The kit logs a cue for each movement (`window.__cvSound`): whoosh on transitions, hit on slammed lines, ticks while a

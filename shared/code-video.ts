@@ -15,6 +15,11 @@ export const SOUND_MODE_LABELS: Record<SoundModeId, string> = { auto: "مؤثر�
 export const SOUND_MOODS = SB_MOODS;
 export type SoundMoodId = (typeof SB_MOODS)[number];
 export const SOUND_MOOD_LABELS: Record<SoundMoodId, string> = { tense: "توتر وثائقي", upbeat: "حماسي", tech: "تقني", calm: "هادئ", playful: "مرح", epic: "ملحمي" };
+/** Pictures: free photos and clips (Pexels/Pixabay, off unless switched on) and the owner's library. */
+export const mediaFields = {
+  stock: z.boolean().optional(),
+  library: z.boolean().optional(),
+};
 const soundFields = {
   sound: z.enum(SOUND_MODES).optional(),
   /** Music mood; empty = the storyboard's (the director chooses) or the theme's. */
@@ -67,6 +72,7 @@ export const codeVideoInputSchema = z.object({
   fps: z.union([z.literal(30), z.literal(60)]),
   quality: z.enum(["standard", "cinema"]).optional(),
   ...soundFields,
+  ...mediaFields,
 });
 export type CodeVideoInput = z.infer<typeof codeVideoInputSchema>;
 
@@ -95,6 +101,7 @@ export const codeAgentInputSchema = z.object({
   /** Brand colour for the kit's accent (#rrggbb). */
   accent: z.string().regex(/^#[\da-fA-F]{6}$/).optional(),
   ...soundFields,
+  ...mediaFields,
 });
 export type CodeAgentInput = z.infer<typeof codeAgentInputSchema>;
 
@@ -148,7 +155,7 @@ export const CODE_VIDEO_CSP = [
   `script-src 'unsafe-inline' 'unsafe-eval' blob: ${LIBS}`,
   `style-src 'unsafe-inline' https://fonts.googleapis.com ${LIBS}`,
   `font-src data: https://fonts.gstatic.com ${LIBS}`,
-  `img-src data: blob: ${LIBS}`,
+  `img-src data: blob: ${LIBS} https://code-video.local`,
   "media-src data: blob:",
   `connect-src data: blob: ${LIBS}`,
   "worker-src blob:",
@@ -318,14 +325,16 @@ ${MOTION_QUALITY_RULES.map((r, i) => `${i + 1}. ${r}`).join("\n")}
  * The storyboard request for Gemini, DeepSeek or any AI: it only has to write a short JSON (no animation code), which
  * the room plays with the tested motion kit. Far more reliable than asking a free model for hundreds of lines of GSAP.
  */
-export function storyboardPrompt(width: number, height: number, seconds: number, styleId: string | null | undefined, idea = "[اكتب الفكرة هنا]", kind?: VideoKind) {
+export function storyboardPrompt(width: number, height: number, seconds: number, styleId: string | null | undefined, idea = "[اكتب الفكرة هنا]", kind?: VideoKind, media: { stock?: boolean } = {}) {
   const k = kind ?? guessKind(idea, seconds);
   const chosen = styleId ? STYLE_TO_THEME[styleId] ?? null : null;
+  // Another AI cannot see the owner's library: only free photos (searched by the studio) and maps.
+  const m = { stock: media.stock === true };
   return `You are a senior motion designer and video director. Plan a ${seconds}-second ${width}x${height} video as a storyboard.
 
-${knowledgeFor(k, { chosenTheme: chosen, vertical: height > width })}
+${knowledgeFor(k, { chosenTheme: chosen, vertical: height > width, media: m })}
 
-${storyboardDoc(width, height, seconds)}
+${storyboardDoc(width, height, seconds, m)}
 
 THE IDEA (from the owner — keep its language for every on-screen word):
 ${idea}`;
@@ -349,6 +358,16 @@ export const inspectInputSchema = z.object({
   html: codeVideoInputSchema.shape.html,
   size: codeVideoInputSchema.shape.size,
   durationSec: codeVideoInputSchema.shape.durationSec,
+  ...mediaFields,
+});
+
+/** Preview with pictures, and swapping one picture of a storyboard before export. */
+export const mediaPreviewSchema = inspectInputSchema.extend({ styleId: z.string().max(40).optional() });
+export const swapMediaSchema = mediaPreviewSchema.extend({
+  slot: z.object({ scene: z.number().int().min(0), item: z.number().int().min(0).nullable() }),
+  query: z.string().trim().max(80).optional(),
+  asset: z.number().int().positive().optional(),
+  remove: z.boolean().optional(),
 });
 
 export const fixInputSchema = inspectInputSchema.extend({ engine: z.enum(CODE_AGENT_ENGINES), styleId: z.string().max(40).optional() });

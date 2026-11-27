@@ -103,7 +103,7 @@ export const assets = pgTable(
   t => [index("assets_kind_idx").on(t.kind), index("assets_char_idx").on(t.characterId)],
 );
 export type Asset = typeof assets.$inferSelect;
-export type AssetMeta = { source?: string; sourceId?: string; sourceUrl?: string; credit?: string; query?: string; model?: string; prompt?: string; costUsd?: number };
+export type AssetMeta = { source?: string; sourceId?: string; sourceUrl?: string; credit?: string; query?: string; model?: string; prompt?: string; costUsd?: number; /** Clips: storage key of a still of the first frame (code videos). */ poster?: string };
 
 export const batches = pgTable("batches", {
   id: integer("id").generatedAlwaysAsIdentity().primaryKey(),

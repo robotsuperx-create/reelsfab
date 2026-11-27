@@ -67,6 +67,7 @@ Then, in one <script> after it:
   s.compare({ left: { title, items: [] }, right: { title, items: [] } }) · s.quote("...", { by: "..." }) · s.icon("globe")
   s.emoji("🔥", { motion: "float"|"bounce"|"spin"|"pulse"|"wiggle", size: 240 })   // glossy 3D emoji
   s.divider() · s.cta("...") · s.source("...") · s.lowerThird(name, role)
+  // Pictures and maps are easier through a storyboard (CV.play): the studio fetches them and draws the maps.
   cv.cue(seconds, "impact"|"hit"|"whoosh"|"pop"|"ding"|"chime"|"riser"|"sparkle"|..., gain)   // extra sound (kit movements already make theirs)
   // every component takes { at: seconds from the scene start } — omit it and items follow one another.
   cv.end({ text: "...", cta: "...", seconds: 2.6 });   // optional composed final card

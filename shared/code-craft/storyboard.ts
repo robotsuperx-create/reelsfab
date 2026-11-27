@@ -5,7 +5,7 @@
  */
 import { KIT_ICONS, KIT_PLACEHOLDER, KIT_THEMES, type KitTheme } from "./kit";
 
-export const SB_ITEM_TYPES = ["kicker", "title", "text", "kinetic", "stat", "bars", "list", "timeline", "compare", "quote", "icon", "emoji", "divider", "source", "lowerThird", "cta", "sfx"] as const;
+export const SB_ITEM_TYPES = ["kicker", "title", "text", "kinetic", "stat", "bars", "list", "timeline", "compare", "quote", "icon", "emoji", "photo", "divider", "source", "lowerThird", "cta", "sfx"] as const;
 export type SbItemType = (typeof SB_ITEM_TYPES)[number];
 export const SB_TRANSITIONS = ["rise", "fade", "mask", "zoom", "slide", "flash", "cut", "iris", "stripes", "whip", "glitch"] as const;
 export const SB_FX = ["confetti", "sparkles", "shake", "rings", "lightleak", "letterbox", "dust", "glitch"] as const;
@@ -13,9 +13,44 @@ export const SB_EMOJI_MOTIONS = ["float", "bounce", "spin", "pulse", "wiggle"] a
 export const SB_MOODS = ["tense", "upbeat", "tech", "calm", "playful", "epic"] as const;
 export const SB_SFX = ["whoosh", "whoosh-soft", "zoom", "impact", "hit", "pop", "tick", "blip", "ding", "chime", "riser", "swell", "shimmer", "sparkle", "glitch"] as const;
 export const SB_CAMERAS = ["push", "pull", "drift", "none"] as const;
+export const SB_PLACES = ["center", "top", "bottom", "start", "end", "top-start", "top-end", "bottom-start", "bottom-end"] as const;
+/** Scene backdrops: a free photo or a moving clip (Pexels/Pixabay, or the owner's library), or an animated map. */
+export const SB_MEDIA_TYPES = ["photo", "clip", "map"] as const;
+export const SB_MEDIA_MOTIONS = ["in", "out", "left", "right", "up", "down"] as const;
+/** One colour grade for every picture of the video, so photos look like part of it, not pasted on. */
+export const SB_GRADES = ["theme", "mono", "warm", "cool", "vivid", "none"] as const;
+export const SB_PHOTO_FRAMES = ["card", "polaroid", "circle", "wide"] as const;
+
+/** Where a picture comes from: a search (resolved by the studio), an asset of the owner's library, or a stored file. */
+export type SbMediaRef = {
+  query?: string;
+  asset?: number;
+  /** Storage key once resolved (the studio fills it — keep it unless you want another picture). */
+  key?: string;
+  /** Clips: a still of the first frame (preview and fallback), where the clip starts and how long it lasts. */
+  poster?: string;
+  start?: number;
+  dur?: number;
+  credit?: string;
+  /** Provider and id of the chosen result (so "another one" can skip it), and how many times it was swapped. */
+  ref?: string;
+  pick?: number;
+};
+export type SbMap = {
+  focus: string[];
+  highlight?: string[];
+  routes?: [string, string][];
+  pins?: { at: string; label?: string }[];
+  world?: boolean;
+  labels?: boolean;
+  sahara?: "merged" | "separate";
+};
+export type SbMedia =
+  | ({ type: "photo" | "clip"; motion?: (typeof SB_MEDIA_MOTIONS)[number]; dim?: number; position?: "top" | "center" | "bottom" } & SbMediaRef)
+  | ({ type: "map"; geoId?: string } & SbMap);
 
 export type SbItem = { type: SbItemType; at?: number } & Record<string, unknown>;
-export type SbScene = { from: number; to: number; transition?: (typeof SB_TRANSITIONS)[number]; camera?: (typeof SB_CAMERAS)[number]; bg?: string; note?: string; fx?: (typeof SB_FX)[number][]; fxEmoji?: string; items: SbItem[] };
+export type SbScene = { from: number; to: number; transition?: (typeof SB_TRANSITIONS)[number]; camera?: (typeof SB_CAMERAS)[number]; bg?: string; note?: string; fx?: (typeof SB_FX)[number][]; fxEmoji?: string; place?: (typeof SB_PLACES)[number]; media?: SbMedia; items: SbItem[] };
 export type SbSound = { mood?: (typeof SB_MOODS)[number]; sfx?: boolean; music?: boolean };
 export type Storyboard = {
   title?: string;
@@ -27,6 +62,9 @@ export type Storyboard = {
   scenes: SbScene[];
   end?: { text?: string; cta?: string; kicker?: string; emphasis?: string[]; seconds?: number; fx?: (typeof SB_FX)[number][]; fxEmoji?: string };
   sound?: SbSound;
+  grade?: (typeof SB_GRADES)[number];
+  /** The owner's logo (library): shown on the end card, and small in a corner when `watermark` is on. */
+  brand?: { logo?: string; asset?: number; watermark?: boolean };
 };
 
 /** One emoji (a grapheme of at most a few code points), or "". */
@@ -83,6 +121,7 @@ export function itemWords(it: SbItem): number {
     }
     case "stat": return 2 + s("label");
     case "quote": return s("text") + s("by");
+    case "photo": return s("caption");
     case "source": case "lowerThird": case "icon": case "divider": case "emoji": case "sfx": return 0;
     default: return s("text");
   }
@@ -171,9 +210,62 @@ function cleanItemBody(raw: unknown, issues: string[], where: string): SbItem | 
       if (!(SB_SFX as readonly string[]).includes(name)) { issues.push(`${where}: unknown sound "${name}" (use one of ${SB_SFX.join(", ")})`); return null; }
       return { ...base, name, gain: Math.max(0.1, Math.min(1.2, n(o.gain, 1))) };
     }
+    case "photo": {
+      const ref = mediaRef(o);
+      if (!ref) { issues.push(`${where}: photo item needs a "query" (English search words) or an "asset" from the owner's library`); return null; }
+      return { ...base, ...ref, ...((SB_PHOTO_FRAMES as readonly string[]).includes(String(o.frame)) ? { frame: String(o.frame) } : {}), ...(["s", "m", "l"].includes(String(o.size)) ? { size: String(o.size) } : {}), ...(str(o.caption, 60) ? { caption: str(o.caption, 60) } : {}) };
+    }
     case "divider": return base;
   }
   return null;
+}
+
+const KEY_RE = /^[\w\-./]{3,300}$/;
+/** A picture reference as written: search words, a library asset, and (once resolved) the stored file. */
+function mediaRef(o: Record<string, unknown>): SbMediaRef | null {
+  const query = str(o.query, 80).replace(/[^\p{L}\p{N} '&,-]/gu, "").trim();
+  const asset = Number.isInteger(o.asset) && (o.asset as number) > 0 ? (o.asset as number) : undefined;
+  const key = typeof o.key === "string" && KEY_RE.test(o.key) && !o.key.includes("..") ? o.key : undefined;
+  if (!query && !asset && !key) return null;
+  const out: SbMediaRef = {};
+  if (query) out.query = query;
+  if (asset) out.asset = asset;
+  if (key) out.key = key;
+  if (key && typeof o.poster === "string" && KEY_RE.test(o.poster) && !o.poster.includes("..")) out.poster = o.poster;
+  if (key && o.start !== undefined) out.start = r2(Math.max(0, n(o.start, 0)));
+  if (key && o.dur !== undefined) out.dur = r2(Math.max(0.5, n(o.dur, 10)));
+  if (key && str(o.credit, 120)) out.credit = str(o.credit, 120);
+  if (typeof o.ref === "string" && /^[a-z]+:[\w-]{1,40}$/.test(o.ref)) out.ref = o.ref;
+  if (Number.isInteger(o.pick) && (o.pick as number) > 0) out.pick = Math.min(50, o.pick as number);
+  return out;
+}
+
+const codes = (v: unknown, max: number) => (Array.isArray(v) ? v : typeof v === "string" ? [v] : []).map(x => str(x, 40)).filter(Boolean).slice(0, max);
+
+/** A scene backdrop: photo / clip (a picture reference + how it moves) or a map (countries by ISO code or name). */
+function cleanMedia(raw: unknown, issues: string[], where: string): SbMedia | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const type = String(o.type ?? (o.focus || o.routes ? "map" : "photo"));
+  if (type === "map") {
+    const focus = codes(o.focus, 6);
+    const highlight = codes(o.highlight, 12);
+    const routes = (Array.isArray(o.routes) ? o.routes : []).map(r => (Array.isArray(r) ? r : [(r as { from?: unknown })?.from, (r as { to?: unknown })?.to]).map(x => str(x, 40))).filter(r => r[0] && r[1]).slice(0, 6) as [string, string][];
+    const pins = (Array.isArray(o.pins) ? o.pins : []).map(p => (typeof p === "string" ? { at: str(p, 40) } : { at: str((p as { at?: unknown })?.at, 40), ...(str((p as { label?: unknown })?.label, 40) ? { label: str((p as { label?: unknown }).label, 40) } : {}) })).filter(p => p.at).slice(0, 6);
+    const world = o.world === true;
+    if (!focus.length && !routes.length && !pins.length && !world) { issues.push(`${where}: map needs "focus" (ISO country codes like "MA") or "routes"/"pins", or "world": true`); return undefined; }
+    return { type: "map", focus, ...(highlight.length ? { highlight } : {}), ...(routes.length ? { routes } : {}), ...(pins.length ? { pins } : {}), ...(world ? { world } : {}), ...(o.labels === false ? { labels: false } : {}), ...(o.sahara === "separate" ? { sahara: "separate" as const } : {}) };
+  }
+  if (type !== "photo" && type !== "clip") { issues.push(`${where}: unknown media type "${type}" (use photo, clip or map)`); return undefined; }
+  const ref = mediaRef(o);
+  if (!ref) { issues.push(`${where}: ${type} backdrop needs a "query" (English search words) or an "asset"`); return undefined; }
+  return {
+    type,
+    ...ref,
+    ...((SB_MEDIA_MOTIONS as readonly string[]).includes(String(o.motion)) ? { motion: o.motion as (typeof SB_MEDIA_MOTIONS)[number] } : {}),
+    ...(o.dim !== undefined ? { dim: r2(Math.max(0, Math.min(0.85, n(o.dim, 0.45)))) } : {}),
+    ...(["top", "center", "bottom"].includes(String(o.position)) ? { position: o.position as "top" | "center" | "bottom" } : {}),
+  };
 }
 
 export type StoryboardCheck = { storyboard: Storyboard; issues: string[] };
@@ -218,11 +310,14 @@ export function normalizeStoryboard(raw: unknown, durationSec: number, fallbackT
     t = k === sorted.length - 1 ? bodyEnd : t + (lens[k] * bodyEnd) / total;
     const to = r2(t);
     const where = `scene ${k + 1} (${from}–${to} s)`;
+    const media = cleanMedia(s.media ?? s.backdrop, issues, where);
     const items = (Array.isArray(s.items) ? s.items : []).map(it => cleanItem(it, issues, where)).filter((x): x is SbItem => Boolean(x));
+    if (items.filter(i => i.type === "photo").length > 2) issues.push(`${where}: more than 2 photo cards in one scene — keep one hero picture`);
     const main = items.filter(i => i.type !== "source" && i.type !== "lowerThird" && i.type !== "sfx");
     if (main.length > MAX_ITEMS) issues.push(`${where}: ${main.length} items is crowded — keep at most ${MAX_ITEMS} (one idea per scene)`);
     const kept = [...main.slice(0, MAX_ITEMS), ...items.filter(i => i.type === "source" || i.type === "lowerThird" || i.type === "sfx")];
-    if (!kept.length) issues.push(`${where}: empty scene`);
+    if (!kept.length && !media) issues.push(`${where}: empty scene`);
+    if (media?.type === "clip" && to - from > 10) issues.push(`${where}: a clip backdrop longer than 10 s gets dull — split the scene or use a photo`);
     const words = kept.reduce((a, it) => a + itemWords(it), 0);
     const need = r2(words * 0.28 + 0.7);
     if (words && to - from < need) issues.push(`${where}: ${words} words need about ${need} s to read but the scene lasts ${r2(to - from)} s — cut words or give it more time`);
@@ -237,6 +332,8 @@ export function normalizeStoryboard(raw: unknown, durationSec: number, fallbackT
       note: str(s.note, 200) || undefined,
       ...(fxList(s.fx).length ? { fx: fxList(s.fx) } : {}),
       ...(emojiChar(s.fxEmoji) ? { fxEmoji: emojiChar(s.fxEmoji) } : {}),
+      ...((SB_PLACES as readonly string[]).includes(String(s.place)) ? { place: s.place as SbScene["place"] } : {}),
+      ...(media ? { media } : {}),
       items: kept,
     };
   });
@@ -259,24 +356,54 @@ export function normalizeStoryboard(raw: unknown, durationSec: number, fallbackT
     scenes,
     end,
     ...(sound && Object.keys(sound).length ? { sound } : {}),
+    ...((SB_GRADES as readonly string[]).includes(String(o.grade)) && o.grade !== "theme" ? { grade: o.grade as Storyboard["grade"] } : {}),
+    ...(brandOf(o.brand) ? { brand: brandOf(o.brand) } : {}),
   };
+  const pictures = scenes.filter(s => s.media && s.media.type !== "map").length + scenes.reduce((a, s) => a + s.items.filter(i => i.type === "photo").length, 0);
+  if (scenes.length >= 4 && pictures > Math.ceil(scenes.length * 0.75)) issues.push(`${pictures} pictures in ${scenes.length} scenes — keep pictures for the scenes they explain; typography and data scenes carry the rest`);
   return { storyboard, issues };
+}
+
+function brandOf(v: unknown): Storyboard["brand"] | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  const logo = typeof o.logo === "string" && KEY_RE.test(o.logo) && !o.logo.includes("..") ? o.logo : undefined;
+  const asset = Number.isInteger(o.asset) && (o.asset as number) > 0 ? (o.asset as number) : undefined;
+  if (!logo && !asset) return undefined;
+  return { ...(logo ? { logo } : {}), ...(asset ? { asset } : {}), ...(o.watermark === true ? { watermark: true } : {}) };
+}
+
+/** Every picture slot of a storyboard (scene backdrops and photo cards), in order. */
+export type MediaSlot = { scene: number; item: number | null; kind: "photo" | "clip"; ref: SbMediaRef };
+export function mediaSlots(sb: Storyboard): MediaSlot[] {
+  const out: MediaSlot[] = [];
+  sb.scenes.forEach((s, i) => {
+    if (s.media && s.media.type !== "map") out.push({ scene: i, item: null, kind: s.media.type, ref: s.media });
+    s.items.forEach((it, j) => { if (it.type === "photo") out.push({ scene: i, item: j, kind: "photo", ref: it as unknown as SbMediaRef }); });
+  });
+  return out;
 }
 
 /* ------------------------------------------------------------ compile */
 
 /** A storyboard as a self-contained page for the recorder (the kit is inlined at render time). */
-export function compileStoryboard(sb: Storyboard, opts: { width: number; height: number; durationSec: number }) {
+/**
+ * `geo`: map geometry per scene (computed by the studio), carried inside the page. `media`: pictures inlined for the
+ * in-browser preview (the recorder fetches them itself).
+ */
+export function compileStoryboard(sb: Storyboard, opts: { width: number; height: number; durationSec: number; geo?: Record<string, unknown>; media?: Record<string, string> }) {
   const lang = sb.lang ?? (/[؀-ۿ]/.test(JSON.stringify(sb.scenes)) ? "ar" : "en");
   const dir = /^(ar|fa|ur|he)$/.test(lang) ? "rtl" : "ltr";
-  const json = JSON.stringify({ ...sb, lang }).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const safe = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const json = safe({ ...sb, lang, ...(opts.geo && Object.keys(opts.geo).length ? { __geo: opts.geo } : {}) });
+  const table = opts.media && Object.keys(opts.media).length ? `<script>window.__cvMedia=${safe(opts.media)};</script>\n` : "";
   const title = (sb.title ?? "").replace(/[<>&]/g, "");
   return `<!doctype html>
 <html lang="${lang}" dir="${dir}">
 <head>
 <meta charset="utf-8">
 <title>${title}</title>
-${KIT_PLACEHOLDER}
+${table}${KIT_PLACEHOLDER}
 </head>
 <body>
 <script type="application/json" id="cv-storyboard">${json}</script>
@@ -289,14 +416,27 @@ ${KIT_PLACEHOLDER}
 export function storyboardFromHtml(html: string): Storyboard | null {
   const m = /<script type="application\/json" id="cv-storyboard">([\s\S]*?)<\/script>/.exec(html);
   if (!m) return null;
-  try { return JSON.parse(m[1]) as Storyboard; } catch { return null; }
+  try {
+    const sb = JSON.parse(m[1]) as Storyboard & { __geo?: unknown };
+    delete sb.__geo;
+    return sb;
+  } catch { return null; }
 }
 
 /* ------------------------------------------------------------ the format, for writers */
 
 /** The storyboard format — given to our director and copied into any other AI. */
-export function storyboardDoc(width: number, height: number, seconds: number) {
+export function storyboardDoc(width: number, height: number, seconds: number, media: { stock?: boolean; library?: boolean } = { stock: true }) {
   const vertical = height > width;
+  const pics = media.stock || media.library;
+  const src = media.stock ? `"query":"oil refinery at night"` : `"asset":12`;
+  const backdrop = `SCENE BACKDROP (optional, "media" on a scene — fills the frame behind the items${pics ? ", graded to the video's look, with a slow camera move" : ""}):
+${pics ? `- {"type":"photo",${src},"motion":"in|out|left|right|up|down"}   ${media.stock ? "a free photo (Pexels/Pixabay) — query in ENGLISH, 2–5 concrete visual words" : "a picture from the owner's library (by its number)"}${media.library && media.stock ? `, or "asset": n for a picture of the owner's library` : ""}
+- {"type":"clip",${media.stock ? `"query":"city traffic timelapse"` : `"asset":7`}}   a short video clip as a moving backdrop (at most one every ~15 s, scenes ≤ 8 s)
+` : ""}- {"type":"map","focus":["MA"],"highlight":["DZ","TN"],"routes":[["MA","ES"]],"pins":[{"at":"EG","label":"..."}]}   an animated map: zooms onto the focus countries (ISO codes), fills the highlighted ones, draws routes and pins. {"type":"map","world":true} for the whole world.
+${pics ? `  Optional: "dim": 0–0.85 (how much the picture is darkened under text, default ≈0.45).
+  Pictures are illustrations, never evidence: do not use a stock photo as a named real person or a specific real event.
+"grade" (top level, optional): "theme|mono|warm|cool|vivid|none" — one colour treatment for every picture (default: the theme's).` : "  Photos and clips are switched off for this video: no photo items, no photo/clip backdrops."}`;
   return `OUTPUT FORMAT — a storyboard JSON that a tested motion kit plays as the finished ${width}x${height} video (${seconds} s). No HTML, no code.
 {
   "title": "short title",
@@ -311,7 +451,9 @@ export function storyboardDoc(width: number, height: number, seconds: number) {
   "end": { "kicker": "...", "text": "final line", "cta": "short call to action", "seconds": 2.6, "fx": ["confetti"] },   // optional closing card (takes the last seconds)
   "sound": { "mood": "tense|upbeat|tech|calm|playful|epic" }   // music bed that suits the topic; sound effects follow the motion automatically
 }
-SCENE EXTRAS (optional, on a scene): "fx": up to 2 of ["confetti","sparkles","shake","rings","lightleak","letterbox","dust","glitch"], "fxEmoji": "💸" (confetti made of that emoji).
+SCENE EXTRAS (optional, on a scene): "fx": up to 2 of ["confetti","sparkles","shake","rings","lightleak","letterbox","dust","glitch"], "fxEmoji": "💸" (confetti made of that emoji),
+  "place": "center|top|bottom" (where the scene's text sits — put it at "top" or "bottom" over a map or a busy picture).
+${backdrop}
 ITEMS (every item may have "at": seconds from the scene start; omit it and items follow one another):
 - {"type":"kicker","text":"small label above a title"}                  max 40 chars
 - {"type":"title","text":"...","emphasis":["word or phrase"],"size":"xl|l|m"}   max 70 chars, emphasis = 1–2 key words that get the accent
@@ -324,7 +466,7 @@ ITEMS (every item may have "at": seconds from the scene start; omit it and items
 - {"type":"compare","left":{"title":"...","items":["..."]},"right":{"title":"...","items":["..."]}}
 - {"type":"quote","text":"...","by":"who said it"}
 - {"type":"icon","name":"${KIT_ICONS.join("|")}"}
-- {"type":"emoji","char":"🔥","motion":"float|bounce|spin|pulse|wiggle","size":240}   a glossy 3D emoji that pops in and keeps moving
+- {"type":"emoji","char":"🔥","motion":"float|bounce|spin|pulse|wiggle","size":240}   a glossy 3D emoji that pops in and keeps moving${pics ? `\n- {"type":"photo",${media.stock ? `"query":"vintage oil barrels"` : `"asset":12`},"frame":"card|polaroid|circle|wide","size":"s|m|l","caption":"short caption"}   a framed picture inside the scene` : ""}
 - {"type":"sfx","name":"impact|hit|ding|chime|riser|whoosh|pop|sparkle|…","at":1.2}   an extra sound at a precise moment (most sounds are automatic)
 - {"type":"cta","text":"short button-like call"} · {"type":"divider"} · {"type":"source","text":"source credit"} · {"type":"lowerThird","name":"...","role":"..."}
 TIMING RULES:

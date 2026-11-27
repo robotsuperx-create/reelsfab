@@ -18,6 +18,7 @@ import { expandKit } from "../../shared/code-craft/kit";
 import { CINEMA_SCALE, CINEMA_SUBFRAMES, CODE_VIDEO_ALLOWED_HOSTS, CODE_VIDEO_CSP, type RenderQuality } from "../../shared/code-video";
 import { cleanCues, designSoundtrack, moodOf, type PageSound, type SoundMode } from "./sound/soundtrack";
 import type { Mood } from "./sound/music";
+import { MediaRoutes } from "./media-routes";
 
 export const RENDER_ORIGIN = "https://code-video.local/";
 
@@ -177,18 +178,32 @@ async function fromCdn(route: Route, url: string) {
 }
 
 /** The page (with the motion kit inlined when it asks for it) on the throwaway origin; only allowed hosts get through. */
-async function routeIsolated(context: BrowserContext, html: string, blocked: string[]) {
+async function routeIsolated(context: BrowserContext, html: string, blocked: string[], size?: { width: number; height: number }) {
   const body = expandKit(html);
+  // Stored pictures and clip frames the page shows (served from the studio's storage, nothing else).
+  const media = new MediaRoutes(size?.width ?? 1080, size?.height ?? 1920);
+  context.on("close", () => void media.dispose());
   await context.route("**/*", async route => {
     const url = route.request().url();
     if (url === RENDER_ORIGIN) {
       return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": CODE_VIDEO_CSP, "cache-control": "no-store" }, body });
     }
+    if (media.handles(url)) return media.fulfill(route, url);
     if (url.startsWith("data:") || url.startsWith("blob:")) return route.continue();
     if (isAllowedRequest(url)) return fromCdn(route, url);
     if (blocked.length < 20) blocked.push(url.slice(0, 200));
     return route.abort("blockedbyclient");
   });
+}
+
+/** Moves the virtual clock, then waits for the pictures the page just asked for (clip frames, photos) to decode. */
+function advanceSettled(page: import("playwright-core").Page, dt: number) {
+  return page.evaluate(async d => {
+    const w = window as unknown as { __cv: { advance: (x: number) => void }; __cvSettle?: () => Promise<unknown> | null };
+    w.__cv.advance(d);
+    const p = w.__cvSettle?.();
+    if (p) await p;
+  }, dt);
 }
 
 /**
@@ -210,7 +225,7 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
   const consoleErrors: string[] = [];
   try {
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, javaScriptEnabled: true, acceptDownloads: false, serviceWorkers: "block", reducedMotion: "no-preference" });
-    await routeIsolated(context, opts.html, blocked);
+    await routeIsolated(context, opts.html, blocked, { width, height });
     await context.addInitScript({ content: VIRTUAL_TIME_SCRIPT });
     const page = await context.newPage();
     page.on("console", m => { if (m.type() === "error" && consoleErrors.length < 20) consoleErrors.push(m.text().slice(0, 300)); });
@@ -244,7 +259,7 @@ export async function renderCodeVideo(opts: { html: string; width: number; heigh
       for (let k = 0; k < sub; k++) {
         // Frame 0 is painted half a (sub)frame in, as a browser paints after its first animation frame: GSAP and
         // similar tickers only apply a tween's starting state (gsap.from) once their clock has moved past one tick.
-        await page.evaluate(dt => (window as unknown as { __cv: { advance: (d: number) => void } }).__cv.advance(dt), i === 0 && k === 0 ? subStep / 2 : subStep);
+        await advanceSettled(page, i === 0 && k === 0 ? subStep / 2 : subStep);
         const shot = await page.screenshot({ type: "jpeg", quality: cinema ? 95 : 92, animations: "allow", caret: "hide", scale: cinema ? "device" : "css" });
         if (i === posterFrame && k === sub - 1) poster = shot;
         await write(shot);
@@ -291,7 +306,7 @@ export async function captureStills(opts: { html: string; width: number; height:
   const consoleErrors: string[] = [];
   try {
     const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: opts.scale ?? 0.5, serviceWorkers: "block" });
-    await routeIsolated(context, opts.html, blocked);
+    await routeIsolated(context, opts.html, blocked, { width, height });
     await context.addInitScript({ content: VIRTUAL_TIME_SCRIPT });
     const page = await context.newPage();
     page.on("pageerror", e => { if (consoleErrors.length < 20) consoleErrors.push(String(e.message).slice(0, 300)); });
@@ -304,7 +319,7 @@ export async function captureStills(opts: { html: string; width: number; height:
       const ms = Math.max(16, target * 1000);
       while (t < ms) {
         const dt = Math.min(50, ms - t);
-        await page.evaluate(d => (window as unknown as { __cv: { advance: (x: number) => void } }).__cv.advance(d), dt);
+        await advanceSettled(page, dt);
         t += dt;
       }
       stills.push(await page.screenshot({ type: "jpeg", quality: 80, scale: "device" }));
@@ -320,7 +335,7 @@ async function openIsolatedPage(browser: import("playwright-core").Browser, html
   const blocked: string[] = [];
   const consoleErrors: string[] = [];
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale, serviceWorkers: "block" });
-  await routeIsolated(context, html, blocked);
+  await routeIsolated(context, html, blocked, { width, height });
   await context.addInitScript({ content: VIRTUAL_TIME_SCRIPT });
   const page = await context.newPage();
   page.on("console", m => { if (m.type() === "error" && consoleErrors.length < 20) consoleErrors.push(m.text().slice(0, 300)); });
@@ -329,7 +344,7 @@ async function openIsolatedPage(browser: import("playwright-core").Browser, html
   await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
   await page.evaluate(() => (document as Document & { fonts?: FontFaceSet }).fonts?.ready).catch(() => undefined);
   if (!(await page.evaluate(() => Boolean((window as unknown as { __cv?: unknown }).__cv)))) throw new Error("تعذر تجهيز الساعة الافتراضية في الصفحة");
-  const advance = (dt: number) => page.evaluate(d => (window as unknown as { __cv: { advance: (x: number) => void } }).__cv.advance(d), dt);
+  const advance = (dt: number) => advanceSettled(page, dt);
   return { page, blocked, consoleErrors, advance };
 }
 
