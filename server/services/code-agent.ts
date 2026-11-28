@@ -496,7 +496,7 @@ export async function sourceToFile(key: string) {
 function describePlan(c: CompiledOverlay) {
   const n: Record<string, number> = {};
   for (const it of c.items) n[it.type] = (n[it.type] ?? 0) + 1;
-  const names: Record<string, string> = { punch: "جملة", counter: "عداد", icon: "أيقونة", list: "قائمة", lower3: "اسم", chapter: "فصل", photo: "صورة", flash: "وميض", crack: "تشقق", glow: "ضوء", particles: "جزيئات", quote: "خاتمة" };
+  const names: Record<string, string> = { punch: "جملة", counter: "عداد", icon: "أيقونة", list: "قائمة", lower3: "اسم", chapter: "فصل", photo: "صورة", flash: "وميض", crack: "تشقق", glow: "ضوء", particles: "جزيئات", quote: "خاتمة", emoji: "رمز متحرك" };
   const parts = Object.entries(n).map(([k, v]) => `${v} ${names[k] ?? k}`);
   if (c.zooms.length) parts.push(`${c.zooms.length} تقريب كاميرا`);
   if (c.cutaways.length) parts.push(`${c.cutaways.length} لقطة قطع`);
