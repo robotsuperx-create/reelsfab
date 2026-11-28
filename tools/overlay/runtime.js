@@ -74,7 +74,17 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
 .ph .im{overflow:hidden;position:relative;background:#222}
 .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .ph .cp{color:#151515;font-weight:800;text-align:center;margin-top:${12 * U}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#flash{position:absolute;inset:0;background:#fff;opacity:0}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;z-index:6}
+.el{z-index:3}
+.dec{position:absolute;inset:0;visibility:hidden;z-index:1;pointer-events:none}
+svg.dec path{fill:none;stroke-linecap:round}
+.qt{left:0;right:0;text-align:center;z-index:2}
+.qt .bgq{position:absolute;left:0;right:0;top:-40%;bottom:-40%;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.62) 30%,rgba(0,0,0,.62) 70%,rgba(0,0,0,0))}
+.qt .orn{position:relative;margin:0 auto ${18 * U}px;height:${3 * U}px;background:linear-gradient(90deg,transparent,var(--acc),transparent)}
+.qt .tx{position:relative;font-family:Amiri,Cairo,serif;font-weight:700;line-height:1.45;padding:0 8%;white-space:normal}
+.qt .tx .qw{display:inline-block;white-space:pre}
+.qt .tx .em{color:var(--acc)}
+.qt .au{position:relative;font-weight:700;color:var(--acc);margin-top:${18 * U}px;opacity:.9}
 #prog{position:absolute;left:0;top:0;height:${7 * U}px;background:var(--acc);box-shadow:0 0 ${12 * U}px var(--acc)}
 `;
   document.head.appendChild(css);
@@ -182,6 +192,51 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
       if (it.caption) { const cp = mk("div", "cp", card, it.caption); cp.style.fontSize = (VERT ? 38 : 32) * U + "px"; cp.dir = isRtl(it.caption) ? "rtl" : "ltr"; }
       it.row = row; it.card = card; it.img = img;
       it.tilt = (it.side === "right" ? 1 : -1) * 3.5;
+    }
+  }
+  // Decor: light leaks, particles, cracks, and the closing quote.
+  const GLOW = { warm: ["255,150,60", "255,90,40"], gold: ["255,200,90", "230,160,40"], red: ["255,60,60", "200,20,40"], cold: ["90,160,255", "60,90,220"], pink: ["255,110,170", "255,70,120"] };
+  for (const it of items) {
+    if (it.type === "glow") { it.el = mk("div", "dec", ov); it.cols = GLOW[it.color] || GLOW.warm; }
+    if (it.type === "particles") {
+      const c = mk("canvas", "dec", ov); c.width = W; c.height = H; it.el = c; it.g = c.getContext("2d");
+      let seed = 7 + Math.round(it.start * 100);
+      const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      const n = { hearts: 26, bokeh: 34, sparks: 60, dust: 70, snow: 80 }[it.kind] || 40;
+      it.ps = Array.from({ length: n }, () => ({ x: r(), y: r(), z: 0.35 + r() * 0.65, ph: r() * 6.28, sp: 0.5 + r(), hue: r() }));
+    }
+    if (it.type === "crack") {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "dec"); svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      let seed = 42 + Math.round(it.start * 10);
+      const r = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      const cx = it.x * W, cy = it.y * H;
+      let html = "";
+      for (let k = 0; k < 15; k++) {
+        let a = (k / 15) * Math.PI * 2 + r() * 0.35, x = cx, y = cy, d = `M${cx.toFixed(1)} ${cy.toFixed(1)}`;
+        const len = (420 + r() * 900) * U;
+        for (let q = 0; q < 12; q++) { a += (r() - 0.5) * 0.55; x += Math.cos(a) * (len / 12); y += Math.sin(a) * (len / 12); d += ` L${x.toFixed(1)} ${y.toFixed(1)}`; }
+        html += `<path d="${d}" stroke="rgba(255,255,255,.92)" stroke-width="${((2 + r() * 3.5) * U).toFixed(1)}" style="filter:drop-shadow(0 0 ${6 * U}px rgba(255,255,255,.7))"/>`;
+        if (r() > 0.4) { const bx = cx + (x - cx) * (0.3 + r() * 0.4), by = cy + (y - cy) * (0.3 + r() * 0.4); html += `<path d="M${bx.toFixed(1)} ${by.toFixed(1)} l${((r() - 0.5) * 260 * U).toFixed(1)} ${((r() - 0.5) * 260 * U).toFixed(1)}" stroke="rgba(255,255,255,.75)" stroke-width="${(1.5 * U).toFixed(1)}"/>`; }
+      }
+      html += `<circle cx="${cx}" cy="${cy}" r="${26 * U}" fill="rgba(255,255,255,.85)" style="filter:blur(${10 * U}px)"/>`;
+      svg.innerHTML = html;
+      ov.appendChild(svg);
+      it.el = svg;
+      it.paths = [...svg.querySelectorAll("path")].map(p => { p.setAttribute("pathLength", "1"); p.style.strokeDasharray = "1"; p.style.strokeDashoffset = "1"; return p; });
+      it.dot = svg.querySelector("circle");
+    }
+    if (it.type === "quote") {
+      const el = mk("div", "el qt", ov); place(el, it.y);
+      mk("div", "bgq", el);
+      it.orn = mk("div", "orn", el);
+      const tx = mk("div", "tx sh", el); tx.dir = isRtl(it.text) ? "rtl" : "ltr";
+      tx.style.fontSize = (VERT ? 92 : 72) * U + "px";
+      const ws = it.text.split(/\s+/).filter(Boolean);
+      const em = (it.emphasis || "").split(/\s+/).filter(Boolean).map(e => e.replace(/[.,!?؟،]/g, ""));
+      it.ws = ws.map((w, i) => mk("span", "qw" + (em.includes(w.replace(/[.,!?؟،]/g, "")) ? " em" : ""), tx, w + (i < ws.length - 1 ? " " : "")));
+      if (it.author) { const au = mk("div", "au", el, it.author); au.style.fontSize = (VERT ? 44 : 38) * U + "px"; it.au = au; }
+      it.el = el;
     }
   }
   // Captions.
@@ -303,6 +358,63 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
     it.row.style.opacity = Math.min(1, a * 3).toFixed(3);
     it.row.style.transform = "translateY(-50%)";
   }
+  function drawGlow(it, t) {
+    const { a, b, life } = enterExit(it, t, 0.6, 0.6);
+    const k = E.inOut(a) * E.inOut(b);
+    const x1 = lerp(-10, 70, life), x2 = lerp(110, 40, life), [c1, c2] = it.cols;
+    it.el.style.background = `radial-gradient(55% 40% at ${x1.toFixed(1)}% 18%,rgba(${c1},.55),rgba(${c1},0) 70%),radial-gradient(50% 45% at ${x2.toFixed(1)}% 88%,rgba(${c2},.38),rgba(${c2},0) 70%),linear-gradient(180deg,rgba(${c1},.10),rgba(${c2},.06))`;
+    it.el.style.opacity = (k * 0.85).toFixed(3);
+  }
+  function heart(g, x, y, s) {
+    g.beginPath(); g.moveTo(x, y + s * 0.3);
+    g.bezierCurveTo(x, y, x - s * 0.5, y, x - s * 0.5, y + s * 0.3);
+    g.bezierCurveTo(x - s * 0.5, y + s * 0.6, x, y + s * 0.8, x, y + s);
+    g.bezierCurveTo(x, y + s * 0.8, x + s * 0.5, y + s * 0.6, x + s * 0.5, y + s * 0.3);
+    g.bezierCurveTo(x + s * 0.5, y, x, y, x, y + s * 0.3); g.fill();
+  }
+  function drawParticles(it, t) {
+    const { a, b } = enterExit(it, t, 0.5, 0.5);
+    const env = E.inOut(a) * E.inOut(b), g = it.g, e = t - it.start;
+    g.clearRect(0, 0, W, H);
+    for (const p of it.ps) {
+      let x = p.x * W, y = p.y * H, al = env;
+      if (it.kind === "hearts") {
+        y = ((p.y * H - e * 120 * U * p.sp * p.z) % (H + 200) + H + 200) % (H + 200) - 100; x += Math.sin(e * 1.6 + p.ph) * 40 * U;
+        g.fillStyle = `rgba(255,${Math.round(60 + p.hue * 80)},${Math.round(110 + p.hue * 60)},${(0.55 * al * p.z).toFixed(3)})`;
+        heart(g, x, y, (26 + 30 * p.z) * U);
+      } else if (it.kind === "bokeh") {
+        x += Math.sin(e * 0.4 + p.ph) * 60 * U; y += Math.cos(e * 0.3 + p.ph) * 40 * U - e * 18 * U * p.z;
+        const rad = (30 + 70 * p.z) * U, gr = g.createRadialGradient(x, y, 0, x, y, rad);
+        gr.addColorStop(0, `rgba(255,${Math.round(190 + p.hue * 50)},${Math.round(120 + p.hue * 60)},${(0.32 * al * p.z).toFixed(3)})`); gr.addColorStop(1, "rgba(255,200,140,0)");
+        g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, 6.283); g.fill();
+      } else if (it.kind === "sparks") {
+        y = ((p.y * H - e * 260 * U * p.sp) % H + H) % H; x += Math.sin(e * 3 + p.ph) * 20 * U;
+        g.fillStyle = `rgba(255,${Math.round(190 + p.hue * 50)},90,${(0.8 * al * (0.5 + 0.5 * Math.sin(e * 9 + p.ph))).toFixed(3)})`;
+        g.beginPath(); g.arc(x, y, (2 + 3 * p.z) * U, 0, 6.283); g.fill();
+      } else if (it.kind === "snow") {
+        y = ((p.y * H + e * 90 * U * p.sp) % H + H) % H; x += Math.sin(e + p.ph) * 30 * U;
+        g.fillStyle = `rgba(255,255,255,${(0.7 * al * p.z).toFixed(3)})`; g.beginPath(); g.arc(x, y, (2 + 4 * p.z) * U, 0, 6.283); g.fill();
+      } else {
+        x += Math.sin(e * 0.3 + p.ph) * 50 * U; y += Math.cos(e * 0.25 + p.ph) * 50 * U;
+        g.fillStyle = `rgba(255,240,210,${(0.35 * al * p.z).toFixed(3)})`; g.beginPath(); g.arc(x, y, (1.2 + 2 * p.z) * U, 0, 6.283); g.fill();
+      }
+    }
+  }
+  function drawCrack(it, t) {
+    const e = t - it.start, out = clamp((it.end - t) / 0.35);
+    it.paths.forEach((p, i) => { p.style.strokeDashoffset = (1 - E.out3((e - i * 0.008) / 0.22)).toFixed(4); });
+    it.dot.style.opacity = (Math.max(0, 1 - e / 0.4)).toFixed(3);
+    it.el.style.opacity = out.toFixed(3);
+  }
+  function drawQuote(it, t) {
+    const { a, b } = enterExit(it, t, 0.5, 0.45);
+    it.el.style.opacity = (E.inOut(a) * E.inOut(b)).toFixed(3);
+    it.el.style.transform = "translateY(-50%)";
+    it.orn.style.width = `${(E.inOut((t - it.start) / 0.8) * 46).toFixed(2)}%`;
+    const per = Math.min(0.16, Math.max(0.07, (it.end - it.start - 1.2) / Math.max(1, it.ws.length)));
+    it.ws.forEach((w, i) => { const k = E.out3((t - it.start - 0.25 - i * per) / 0.45); w.style.opacity = k.toFixed(3); w.style.transform = `translateY(${((1 - k) * 0.35).toFixed(3)}em)`; w.style.filter = k < 1 ? `blur(${((1 - k) * 6 * U).toFixed(1)}px)` : "none"; });
+    if (it.au) it.au.style.opacity = E.out3((t - it.start - 0.4 - it.ws.length * per) / 0.4).toFixed(3);
+  }
   function drawCaptions(t) {
     const i = cap.chunks.findIndex(c => t >= c.s && t < c.e);
     if (i < 0) { cap.el.style.visibility = "hidden"; return; }
@@ -323,6 +435,7 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
       const said = t >= w.s;
       if (cap.style === "clean") { sp.style.color = "#fff"; return; }
       if (cap.style === "karaoke") { sp.style.color = said ? ACC : "#fff"; return; }
+      if (cap.style === "reveal") { const q = E.out3((t - w.s) / 0.18); sp.style.color = "#fff"; sp.style.opacity = q.toFixed(3); sp.style.transform = `translateY(${((1 - q) * 0.25).toFixed(3)}em)`; return; }
       sp.style.color = on ? ACC : "#fff";
       const p = on ? E.out3((t - w.s) / 0.1) : 0;
       sp.style.transform = `scale(${(1 + 0.1 * p).toFixed(4)})`;
@@ -342,13 +455,17 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
       else if (it.type === "lower3") drawLower3(it, t);
       else if (it.type === "chapter") drawChapter(it, t);
       else if (it.type === "photo" && it.card) drawPhoto(it, t);
+      else if (it.type === "glow") drawGlow(it, t);
+      else if (it.type === "particles") drawParticles(it, t);
+      else if (it.type === "crack") drawCrack(it, t);
+      else if (it.type === "quote") drawQuote(it, t);
     }
     let fl = 0;
     for (const it of items) if (it.type === "flash" && t >= it.start && t < it.start + 0.3) fl = Math.max(fl, 0.75 * (1 - (t - it.start) / 0.3));
     flash.style.opacity = fl.toFixed(3);
     if (cap) {
       // A chapter card takes the screen: the captions step aside for it.
-      const chapter = items.some(it => it.type === "chapter" && t >= it.start && t < it.end);
+      const chapter = items.some(it => (it.type === "chapter" || it.type === "quote") && t >= it.start && t < it.end);
       if (chapter) cap.el.style.visibility = "hidden"; else drawCaptions(t);
     }
     if (prog) prog.style.width = `${(clamp(t / P.duration) * 100).toFixed(3)}%`;

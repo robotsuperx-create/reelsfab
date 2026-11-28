@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { captionChunks, compileOverlay, parseOverlayPlan, zoomAt } from "../../shared/overlay";
-import { zoomExpr } from "../worker/code-video";
+import { gradeChain, zoomExpr } from "../worker/code-video";
 import { buildOverlayHtml, iconSvg } from "./overlay-director";
 
 const words = "مرحبا بكم اليوم سأخبركم بثلاثة أسرار لزيادة دخلك الشهري. أولا الادخار ثانيا الاستثمار".split(" ").map((w, i) => ({ word: w, start: 0.5 + i * 0.4, end: 0.5 + i * 0.4 + 0.3 }));
@@ -62,5 +62,21 @@ describe("overlay plans", () => {
     expect(html).toContain('"rocket"');
     expect(html).toContain("window.renderAt");
     expect(html).not.toMatch(/<\/script>\s*<\/script>/);
+  });
+
+  it("a full edit: cutaways kept apart, decor not counted as clutter, the quote off the face, dark footage lifted", () => {
+    const { plan } = parseOverlayPlan({ grade: { look: "warm" }, music: { mood: "calm" }, items: [
+      { type: "cutaway", at: 2, until: 4, query: "couple arguing" }, { type: "cutaway", at: 3, until: 5, query: "x" },
+      { type: "crack", at: 5 }, { type: "glow", at: 6, until: 9 }, { type: "particles", at: 6, until: 9, kind: "hearts" },
+      { type: "punch", at: 5, until: 7, text: "يهدم" }, { type: "quote", t: 4.5, end: 5.9, text: "لا تجعل خلافًا عابرًا يهدم علاقة جميلة" },
+    ] });
+    const c = compileOverlay(plan, opts);
+    expect(c.cutaways).toHaveLength(1);
+    expect(c.problems.some(p => /elements are on screen together/.test(p))).toBe(false);
+    const q = c.items.find(i => i.type === "quote")!;
+    expect(q.y - 0.16).toBeGreaterThan(0.355);
+    expect(c.grade.look).toBe("warm");
+    expect(gradeChain(c.grade, 0.15).post).toMatch(/gamma=1\.2/);
+    expect(gradeChain({ look: "none", enhance: true }, 0.1).post).toBe("");
   });
 });

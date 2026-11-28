@@ -12,7 +12,11 @@ export type OverlayBand = (typeof OVERLAY_BANDS)[number];
 export const OVERLAY_ACCENTS = { yellow: "#FFD21F", gold: "#E9B949", red: "#FF3B30", green: "#22C55E", blue: "#3B82F6", orange: "#FF7A1A", pink: "#FF3D8B", white: "#FFFFFF" } as const;
 export type OverlayAccent = keyof typeof OVERLAY_ACCENTS;
 export const OVERLAY_PUNCH_STYLES = ["slam", "show", "highlight", "kicker", "stamp", "typewriter"] as const;
-export const OVERLAY_CAPTION_STYLES = ["pop", "box", "karaoke", "clean"] as const;
+export const OVERLAY_CAPTION_STYLES = ["pop", "box", "karaoke", "clean", "reveal"] as const;
+/** Colour looks applied to the owner's video (and the cutaways) before anything is laid on top. */
+export const OVERLAY_LOOKS = ["natural", "warm", "cinematic", "cold", "vivid", "bw", "none"] as const;
+export type OverlayLook = (typeof OVERLAY_LOOKS)[number];
+export const OVERLAY_MUSIC = ["none", "calm", "epic", "tense", "upbeat", "tech", "playful"] as const;
 /** Icons the director may pick (all exist in lucide). Kept short on purpose: concrete, readable at a glance. */
 export const OVERLAY_ICONS = [
   "trending-up", "trending-down", "chart-no-axes-column-increasing", "dollar-sign", "banknote", "wallet", "piggy-bank", "coins", "credit-card", "percent",
@@ -47,6 +51,15 @@ export const overlayItemSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("photo"), ...when, wiki: txt(120).optional(), query: txt(80).optional(), caption: txt(50).optional(), position: band, side }),
   z.object({ type: z.literal("zoom"), ...when, scale: z.number().min(1.04).max(1.35).catch(1.15).default(1.15), x: z.number().min(0).max(100).catch(50).default(50), y: z.number().min(0).max(100).catch(35).default(35), ease: z.enum(["cut", "smooth"]).catch("cut").default("cut") }),
   z.object({ type: z.literal("flash"), ...when }),
+  // Full-frame b-roll that replaces the speaker for a moment (her voice continues under it).
+  z.object({ type: z.literal("cutaway"), ...when, query: txt(80), transition: z.enum(["cut", "dissolve"]).catch("dissolve").default("dissolve") }),
+  // The screen cracks from a point (a break, a betrayal, "destroys").
+  z.object({ type: z.literal("crack"), ...when, x: z.number().min(0).max(100).catch(50).default(50), y: z.number().min(0).max(100).catch(45).default(45) }),
+  // A warm light leak washing over the frame (love, memory, hope).
+  z.object({ type: z.literal("glow"), ...when, color: z.enum(["warm", "gold", "red", "cold", "pink"]).catch("warm").default("warm") }),
+  z.object({ type: z.literal("particles"), ...when, kind: z.enum(["hearts", "bokeh", "sparks", "dust", "snow"]).catch("bokeh").default("bokeh") }),
+  // The closing card: the message in elegant type over a soft dark gradient.
+  z.object({ type: z.literal("quote"), ...when, text: txt(140), emphasis: txt(40).optional(), author: txt(40).optional() }),
 ]);
 export type OverlayItem = z.infer<typeof overlayItemSchema>;
 export const overlayPlanSchema = z.object({
@@ -58,6 +71,8 @@ export const overlayPlanSchema = z.object({
     words: z.number().int().min(1).max(7).catch(3).default(3),
   }).default({ on: true, style: "pop", position: "lower", words: 3 }),
   sfx: z.boolean().default(true),
+  grade: z.object({ look: z.enum(OVERLAY_LOOKS).catch("natural").default("natural"), enhance: z.boolean().catch(true).default(true) }).default({ look: "natural", enhance: true }),
+  music: z.object({ mood: z.enum(OVERLAY_MUSIC).catch("none").default("none"), volume: z.number().min(0).max(1).catch(0.5).default(0.5) }).default({ mood: "none", volume: 0.5 }),
   progress: z.boolean().default(false),
   items: z.array(z.unknown()).max(80).default([]),
 });
@@ -79,7 +94,8 @@ export function parseOverlayPlan(raw: unknown): { plan: OverlayPlan; dropped: st
 export type OWord = { word: string; start: number; end: number };
 export type OFrame = { t: number; subjectBox?: [number, number, number, number]; free?: string[] };
 export type OverlayZoom = { start: number; end: number; scale: number; x: number; y: number; ease: "cut" | "smooth" };
-export type OverlayCue = { t: number; name: "whoosh" | "whoosh-soft" | "impact" | "hit" | "pop" | "tick" | "ding" | "count" | "glitch" | "zoom"; gain?: number; dur?: number };
+export type OverlayCue = { t: number; name: "whoosh" | "whoosh-soft" | "impact" | "hit" | "pop" | "tick" | "ding" | "count" | "glitch" | "zoom" | "riser" | "swell" | "shimmer" | "chime" | "sparkle"; gain?: number; dur?: number };
+export type OverlayCutaway = { start: number; end: number; query: string; transition: "cut" | "dissolve"; key?: string | null };
 export type CompiledItem = Record<string, unknown> & { type: OverlayItem["type"]; start: number; end: number; y: number };
 export type CompiledOverlay = {
   w: number;
@@ -91,7 +107,10 @@ export type CompiledOverlay = {
   captions: null | { style: string; y: number; chunks: { s: number; e: number; words: { w: string; s: number; e: number }[] }[] };
   items: CompiledItem[];
   zooms: OverlayZoom[];
+  cutaways: OverlayCutaway[];
   cues: OverlayCue[];
+  grade: { look: OverlayLook; enhance: boolean };
+  music: { mood: string; volume: number };
   problems: string[];
 };
 
@@ -110,6 +129,7 @@ function itemHalfHeight(it: OverlayItem, vert: boolean) {
     case "photo": return 0.17 * k;
     case "lower3": return 0.045 * k;
     case "chapter": return 0.09 * k;
+    case "quote": return 0.16 * k;
     default: return 0;
   }
 }
@@ -158,6 +178,7 @@ export function compileOverlay(plan: OverlayPlan, o: { words: OWord[]; frames: O
   const capY = vert ? { center: 0.5, lower: 0.72, bottom: 0.8 }[plan.captions.position] : { center: 0.55, lower: 0.8, bottom: 0.86 }[plan.captions.position];
   const items: CompiledItem[] = [];
   const zooms: OverlayZoom[] = [];
+  const cutaways: OverlayCutaway[] = [];
   const cues: OverlayCue[] = [];
   const placed: { start: number; end: number; top: number; bottom: number }[] = [];
   const faces = o.frames.filter(f => f.subjectBox).map(f => ({ t: f.t, top: f.subjectBox![1] / 100, bottom: (f.subjectBox![1] + f.subjectBox![3] * 0.3) / 100, free: f.free ?? [] }));
@@ -187,6 +208,15 @@ export function compileOverlay(plan: OverlayPlan, o: { words: OWord[]; frames: O
       return;
     }
     if (it.type === "flash") { items.push({ ...it, start, end: Math.min(duration, start + 0.3), y: 0.5 }); sfx({ t: start, name: "glitch", gain: 0.4 }); return; }
+    if (it.type === "cutaway") {
+      if (end - start > 6) { problems.push(`${what}: a cutaway longer than 6 s loses the speaker — keep it 1–4 s`); end = start + 6; }
+      if (cutaways.some(c => start < c.end + 0.3 && end > c.start - 0.3)) { problems.push(`${what}: overlaps another cutaway`); return; }
+      cutaways.push({ start, end, query: it.query, transition: it.transition });
+      sfx({ t: start, name: "whoosh-soft", gain: 0.3 });
+      return;
+    }
+    if (it.type === "crack") { items.push({ ...it, start, end, y: it.y / 100, x: it.x / 100 }); sfx({ t: start, name: "impact", gain: 0.55 }); sfx({ t: start, name: "glitch", gain: 0.3 }); return; }
+    if (it.type === "glow" || it.type === "particles") { items.push({ ...it, start, end, y: 0.5 }); if (it.type === "glow") sfx({ t: start, name: "swell", gain: 0.3 }); else if (it.kind === "sparks" || it.kind === "hearts") sfx({ t: start, name: "sparkle", gain: 0.3 }); return; }
     if (it.type === "lower3") {
       const y = vert ? 0.62 : 0.7;
       items.push({ ...it, start, end, y });
@@ -195,19 +225,20 @@ export function compileOverlay(plan: OverlayPlan, o: { words: OWord[]; frames: O
       return;
     }
     // Pick a band: the one asked for if it is clear of faces, captions and other elements, else the nearest clear one.
-    const want: OverlayBand = it.type === "chapter" ? "center" : (it as { position?: OverlayBand }).position ?? "upper";
+    const want: OverlayBand = it.type === "chapter" ? "center" : it.type === "quote" ? "lower" : (it as { position?: OverlayBand }).position ?? "upper";
     const hh = itemHalfHeight(it, vert);
     const order = [...OVERLAY_BANDS].sort((a, b) => Math.abs(OVERLAY_BANDS.indexOf(a) - OVERLAY_BANDS.indexOf(want)) - Math.abs(OVERLAY_BANDS.indexOf(b) - OVERLAY_BANDS.indexOf(want)));
     const clashes = (b: OverlayBand) => {
       const y = bandY(b, vert), top = y - hh, bottom = y + hh;
       if (top < 0.06 || bottom > 0.94) return 3;
-      if (capOn && it.type !== "chapter" && top < capY + 0.05 && bottom > capY - 0.05) return 2;
+      if (capOn && it.type !== "chapter" && it.type !== "quote" && top < capY + 0.05 && bottom > capY - 0.05) return 2;
       if (placed.some(p => start < p.end && end > p.start && top < p.bottom && bottom > p.top)) return 2;
-      if (it.type !== "chapter" && facesFor(start, end).some(f => top < f.bottom && bottom > f.top)) return 1;
+      if (it.type !== "chapter" && it.type !== "quote" && facesFor(start, end).some(f => top < f.bottom && bottom > f.top)) return 1;
       return 0;
     };
     let pick = order.find(b => clashes(b) === 0) ?? order.find(b => clashes(b) <= 1) ?? want;
     if (it.type === "chapter") pick = "center";
+    if (it.type === "quote" && pick !== "center" && pick !== "lower" && pick !== "upper") pick = "lower";
     const y = bandY(pick, vert);
     placed.push({ start, end, top: y - hh, bottom: y + hh });
     const base = { ...it, start, end, y } as CompiledItem;
@@ -221,6 +252,7 @@ export function compileOverlay(plan: OverlayPlan, o: { words: OWord[]; frames: O
     if (it.type === "counter") sfx({ t: start, name: "count", gain: 0.35, dur: Math.min(1.4, end - start - 0.3) });
     if (it.type === "icon") sfx({ t: start, name: "pop", gain: 0.45 });
     if (it.type === "chapter") sfx({ t: start, name: "whoosh", gain: 0.45 });
+    if (it.type === "quote") { sfx({ t: start, name: "chime", gain: 0.35 }); base.rtl = isRtlText(it.text); }
     if (it.type === "photo") sfx({ t: start, name: "whoosh", gain: 0.4 });
     if (it.type === "list") {
       const times = it.items.map((x, k) => {
@@ -232,13 +264,16 @@ export function compileOverlay(plan: OverlayPlan, o: { words: OWord[]; frames: O
     }
     items.push(base);
   });
-  if (items.filter(i => i.type !== "flash").length && duration > 0) {
-    const perMin = (items.length / duration) * 60;
-    if (perMin > 34) problems.push(`too busy: ${items.length} elements in ${duration.toFixed(0)} s — keep only the strongest moments (about one every 4–8 s)`);
+  const main = items.filter(i => !["flash", "crack", "glow", "particles"].includes(i.type));
+  if (main.length && duration > 0) {
+    const perMin = (main.length / duration) * 60;
+    if (perMin > 34) problems.push(`too busy: ${main.length} elements in ${duration.toFixed(0)} s — keep only the strongest moments (about one every 4–8 s)`);
   }
   // Never more than two elements at once (captions not counted).
+  const DECOR = new Set(["flash", "crack", "glow", "particles"]);
   for (const a of items) {
-    const over = items.filter(b => b !== a && b.type !== "flash" && a.type !== "flash" && b.start < a.end && b.end > a.start);
+    if (DECOR.has(a.type)) continue;
+    const over = items.filter(b => b !== a && !DECOR.has(b.type) && b.start < a.end && b.end > a.start);
     if (over.length >= 2) { problems.push(`at ${a.start.toFixed(1)} s ${over.length + 1} elements are on screen together — max 2`); break; }
   }
   const allText = words.map(w => w.word).join(" ") + plan.items.map(i => ("text" in i ? i.text : "") ?? "").join(" ");
@@ -252,6 +287,9 @@ export function compileOverlay(plan: OverlayPlan, o: { words: OWord[]; frames: O
     captions: capOn ? { style: plan.captions.style, y: capY, chunks: captionChunks(words, plan.captions.words, duration) } : null,
     items: items.sort((a, b) => a.start - b.start),
     zooms: zooms.sort((a, b) => a.start - b.start),
+    cutaways: cutaways.sort((a, b) => a.start - b.start),
+    grade: plan.grade,
+    music: plan.music,
     cues: cues.sort((a, b) => a.t - b.t),
     problems,
   };

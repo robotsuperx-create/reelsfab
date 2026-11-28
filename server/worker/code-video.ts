@@ -374,7 +374,37 @@ async function hasAudioStream(path: string) {
   });
 }
 
-export async function renderOverlay(opts: { html: string; videoPath: string; width: number; height: number; durationSec: number; fps: number; onProgress?: (p: number) => void; zooms?: OverlayZoomSpec[]; sfx?: Buffer | null }): Promise<CodeVideoRender> {
+export type OverlayGrade = { look: "natural" | "warm" | "cinematic" | "cold" | "vivid" | "bw" | "none"; enhance: boolean };
+export type OverlayCutawayFile = { start: number; end: number; file: string; transition: "cut" | "dissolve" };
+
+/** Average brightness of a clip (0–1), from a few sampled frames. */
+export async function meanLuma(path: string): Promise<number | null> {
+  return new Promise(resolve => {
+    execFileCb("ffmpeg", ["-v", "info", "-i", path, "-vf", "select='not(mod(n\\,12))',scale=160:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-an", "-f", "null", "-"], { maxBuffer: 16 * 1024 * 1024 }, (_e, _o, err) => {
+      const v = [...String(err).matchAll(/YAVG=([\d.]+)/g)].map(m => Number(m[1]));
+      resolve(v.length ? v.reduce((x, y) => x + y, 0) / v.length / 255 : null);
+    });
+  });
+}
+
+/** ffmpeg colour chain for a look; a dark clip is lifted, a small one cleaned and sharpened. */
+export function gradeChain(g: OverlayGrade | undefined, luma: number | null) {
+  const look = g?.look ?? "natural";
+  if (look === "none") return { pre: "", post: "" };
+  const eq: Record<string, number> = { contrast: 1.06, saturation: 1.08 };
+  let bal = "";
+  if (look === "warm") { bal = "colorbalance=rs=0.05:bs=-0.05:rm=0.06:bm=-0.05:rh=0.04:bh=-0.03"; eq.contrast = 1.08; eq.saturation = 1.12; }
+  if (look === "cinematic") { bal = "colorbalance=rs=-0.06:bs=0.08:rh=0.08:bh=-0.07"; eq.contrast = 1.12; eq.saturation = 0.95; }
+  if (look === "cold") { bal = "colorbalance=rs=-0.05:bs=0.08:bm=0.05"; eq.saturation = 0.9; }
+  if (look === "vivid") { eq.contrast = 1.1; eq.saturation = 1.3; }
+  if (look === "bw") { eq.contrast = 1.2; eq.saturation = 0; }
+  if (luma != null && luma < 0.3) eq.gamma = Math.min(1.45, 1 + (0.3 - luma) * 1.6);
+  const eqs = `eq=${Object.entries(eq).map(([k, v]) => `${k}=${v.toFixed(3)}`).join(":")}`;
+  const post = [bal, eqs, "vignette=PI/5"].filter(Boolean).join(",");
+  return { pre: g?.enhance === false ? "" : "hqdn3d=2:1.5:3:3,", post, sharpen: g?.enhance === false ? "" : ",unsharp=5:5:0.6:5:5:0" };
+}
+
+export async function renderOverlay(opts: { html: string; videoPath: string; width: number; height: number; durationSec: number; fps: number; onProgress?: (p: number) => void; zooms?: OverlayZoomSpec[]; sfx?: Buffer | null; music?: Buffer | null; grade?: OverlayGrade; cutaways?: OverlayCutawayFile[] }): Promise<CodeVideoRender> {
   const { width, height, fps } = opts;
   const frames = Math.max(1, Math.round(opts.durationSec * fps));
   const browser = await launchBrowser();
@@ -384,14 +414,43 @@ export async function renderOverlay(opts: { html: string; videoPath: string; wid
     const { page, blocked, consoleErrors, advance } = await openIsolatedPage(browser, opts.html, width, height);
     const zooms = (opts.zooms ?? []).filter(z => z.end > z.start && z.scale > 1.001);
     const zp = zooms.length ? zoomExpr(zooms) : null;
-    const base = `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${fps},setsar=1${zp ? `[b0];[b0]zoompan=z='${zp.z}':x='${zp.x}':y='${zp.y}':d=1:s=${width}x${height}:fps=${fps}` : ""}[base]`;
-    const audioIn = await hasAudioStream(opts.videoPath);
+    const g = opts.grade ? gradeChain(opts.grade, await meanLuma(opts.videoPath)) : null;
+    const ev = (n: number) => Math.round(n / 2) * 2;
+    const chain = [`[0:v]${g?.pre ?? ""}scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height}${g?.sharpen ?? ""}${g?.post ? `,${g.post}` : ""},fps=${fps},setsar=1${zp ? `[b0];[b0]zoompan=z='${zp.z}':x='${zp.x}':y='${zp.y}':d=1:s=${width}x${height}:fps=${fps}` : ""}[c0]`];
+    const extra: string[] = [];
+    let idx = 2;
     const sfxFile = opts.sfx ? join(dir, "sfx.wav") : null;
+    const musicFile = opts.music ? join(dir, "music.wav") : null;
     if (sfxFile) await writeFile(sfxFile, opts.sfx!);
-    // The owner's sound stays on top; the effects sit under it.
-    const audio = sfxFile ? (audioIn ? ";[0:a]aresample=48000[a0];[2:a]aresample=48000,volume=0.8[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[a]" : ";[2:a]aresample=48000,volume=0.8[a]") : "";
-    const filter = `${base};[1:v]format=rgba[ov];[base][ov]overlay=0:0:format=auto,format=yuv420p[v]${audio}`;
-    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", opts.videoPath, "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-", ...(sfxFile ? ["-i", sfxFile] : []), "-filter_complex", filter, "-map", "[v]", ...(sfxFile ? ["-map", "[a]"] : ["-map", "0:a?"]), "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-c:a", "aac", "-b:a", "160k", "-r", String(fps), "-t", opts.durationSec.toFixed(3), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
+    if (musicFile) await writeFile(musicFile, opts.music!);
+    const sfxIdx = sfxFile ? idx++ : -1;
+    const musicIdx = musicFile ? idx++ : -1;
+    if (sfxFile) extra.push("-i", sfxFile);
+    if (musicFile) extra.push("-i", musicFile);
+    // B-roll cutaways laid over the speaker, each with a slow drift (and her voice running under it).
+    let cur = "c0";
+    for (const [k, c] of (opts.cutaways ?? []).filter(c => c.end > c.start).entries()) {
+      const D = c.end - c.start, bw = ev(width * 1.12), bh = ev(height * 1.12), n = idx++;
+      extra.push("-stream_loop", "-1", "-t", (D + 0.5).toFixed(2), "-i", c.file);
+      const fades = c.transition === "dissolve" ? `,fade=t=in:st=0:d=0.3:alpha=1,fade=t=out:st=${Math.max(0, D - 0.3).toFixed(2)}:d=0.3:alpha=1` : "";
+      chain.push(`[${n}:v]scale=${bw}:${bh}:force_original_aspect_ratio=increase,crop=${bw}:${bh}${g?.post ? `,${g.post}` : ""},fps=${fps},setsar=1,crop=${width}:${height}:x='(iw-ow)*min(1,t/${D.toFixed(2)})':y='(ih-oh)/2',format=yuva420p${fades},setpts=PTS-STARTPTS+${c.start.toFixed(3)}/TB[k${k}]`);
+      chain.push(`[${cur}][k${k}]overlay=eof_action=pass:enable='between(t,${c.start.toFixed(3)},${c.end.toFixed(3)})'[m${k}]`);
+      cur = `m${k}`;
+    }
+    const audioIn = await hasAudioStream(opts.videoPath);
+    const parts: string[] = [];
+    const mixIn: string[] = [];
+    if (audioIn && (sfxFile || musicFile)) { parts.push(`[0:a]aresample=48000${musicFile ? ",asplit=2[vo][vk]" : "[vo]"}`); mixIn.push("[vo]"); }
+    if (musicFile) {
+      parts.push(`[${musicIdx}:a]aresample=48000[mu]`);
+      // The music bows under her voice and comes back up in the pauses.
+      if (audioIn) parts.push("[mu][vk]sidechaincompress=threshold=0.03:ratio=8:attack=15:release=450[md]"); else parts.push("[mu]anull[md]");
+      mixIn.push("[md]");
+    }
+    if (sfxFile) { parts.push(`[${sfxIdx}:a]aresample=48000,volume=0.8[sx]`); mixIn.push("[sx]"); }
+    const audio = mixIn.length ? `;${parts.join(";")};${mixIn.join("")}amix=inputs=${mixIn.length}:duration=longest:normalize=0,alimiter=limit=0.95[a]` : "";
+    const filter = `${chain.join(";")};[1:v]format=rgba[ov];[${cur}][ov]overlay=0:0:format=auto,format=yuv420p[v]${audio}`;
+    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", opts.videoPath, "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-", ...extra, "-filter_complex", filter, "-map", "[v]", ...(mixIn.length ? ["-map", "[a]"] : ["-map", "0:a?"]), "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-c:a", "aac", "-b:a", "160k", "-r", String(fps), "-t", opts.durationSec.toFixed(3), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
     let err = "";
     ff.stderr.on("data", d => { err += d; });
     const done = new Promise<void>((resolve, reject) => {

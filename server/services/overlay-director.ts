@@ -13,12 +13,14 @@ import { extractJsonObject } from "../../shared/code-craft/storyboard";
 import { compileOverlay, OVERLAY_ICONS, parseOverlayPlan, type CompiledOverlay, type OverlayPlan } from "../../shared/overlay";
 import { storageDownload, storageKeyFromUrl } from "../storage";
 import { importWikiImage } from "./code-media";
-import { importStockPhoto, searchStockPhotos } from "./stock";
+import { importStockPhoto, importStockVideo, searchStockPhotos, searchStockVideos } from "./stock";
 import type { VideoMap } from "./video-understanding";
 
 const run = promisify(execFile);
 
 export const OVERLAY_BRIEF = `You are the editor and motion designer of a top talking-head channel. You get the full map of a real video (what is said word by word with exact timings, the scenes, where the person's face is) and you decide the motion graphics laid over it. A tested engine renders them at broadcast quality — you NEVER write code, only a JSON plan.
+
+YOU ARE THE EDITOR, NOT A SUBTITLER. Unless the owner explicitly limits you, deliver a full professional edit: grade the footage, choose music, cut to b-roll on the images the words evoke, punch in on the face, mark the turning word with an effect (a crack on "destroy/break", a warm glow and particles on "love/memory"), add the key line as a punch or icon, and close on a quote card when the speech ends before the video does. "Do your best", "free hand", "اعمل ما في جهدك" = the full treatment. Captions alone are NEVER an edit.
 
 THE OWNER'S INSTRUCTION COMES FIRST. Everything below is a default: when the owner asks for a colour, a caption style, captions off, "a symbol for every sentence", a name, a density — do exactly that (white captions → "accent":"white" or caption style "clean"; "an animated icon for each word/sentence" → one icon or punch per phrase, every 1.5–3 s, each fitting what is said at that moment).
 
@@ -43,11 +45,21 @@ ELEMENTS (each needs "type" and "at"; "until" optional)
 - photo: {"type":"photo","at":i,"until":j,"wiki":"exact English Wikipedia title","caption":"…","position":...,"side":"left|right"} — a named person, place, company or product that has a Wikipedia article; or "query":"2–4 English words" for a generic picture. Hold 2–4 s.
 - zoom: {"type":"zoom","at":i,"until":j,"scale":1.15,"x":50,"y":35,"ease":"cut|smooth"}
 - flash: {"type":"flash","at":i} — a white flash on a big reveal; rare (0–2 per video).
+- cutaway: {"type":"cutaway","at":i,"until":j,"query":"2–5 English words for a free stock clip","transition":"dissolve|cut"} — full-frame b-roll of what the words evoke ("couple arguing silhouette", "holding hands sunset", "old couple walking", "city night traffic"); her voice continues under it. 1–4 s each, never over the first 1.5 s (the viewer must meet the speaker first), at most ~35% of the video, and always come back to the speaker for the key line.
+- crack: {"type":"crack","at":i,"until":j,"x":50,"y":45} — the screen cracks from a point on a word of breaking/destroying/betrayal (with an impact sound); pair it with a cut zoom.
+- glow: {"type":"glow","at":i,"until":j,"color":"warm|gold|red|cold|pink"} — a light leak washing over the frame: love, warmth, memory, hope (2–5 s).
+- particles: {"type":"particles","at":i,"until":j,"kind":"hearts|bokeh|sparks|dust|snow"} — atmosphere under the text: bokeh/hearts for love, sparks for success, dust for nostalgia. Subtle, 2–6 s.
+- quote: {"type":"quote","at":i or "t":seconds,"end":seconds,"text":"the message in one line","emphasis":"the key word","author":"optional"} — the closing card in elegant type; use it when the speech ends and the video still runs (a smile, a look), or for the final takeaway. Captions hide while it is up.
+
+PLAN-LEVEL CHOICES
+- "grade": {"look":"natural|warm|cinematic|cold|vivid|bw","enhance":true} — always grade: warm for intimate/emotional talk, cinematic for drama/storytelling, cold for tech/business, vivid for energetic/lifestyle. "enhance" cleans and sharpens phone footage and lifts it when it is dark (keep true).
+- "music": {"mood":"calm|epic|tense|upbeat|tech|playful|none","volume":0.35–0.6} — a bed under the voice (it ducks automatically while she speaks): calm for emotional/advice, upbeat for energetic, tense for drama. "none" only if the owner asks.
+- Caption style "reveal" = each word fades in as it is spoken, white, elegant — the right style for emotional or poetic speech; "pop" for energetic talk.
 
 ICONS: ${OVERLAY_ICONS.join(", ")}
 
 OUTPUT (JSON only):
-{"accent":"yellow","captions":{"on":true,"style":"pop|box|karaoke|clean","position":"lower|bottom|center","words":3},"sfx":true,"progress":false,"items":[ … in time order … ]}`;
+{"accent":"yellow","grade":{"look":"warm","enhance":true},"music":{"mood":"calm","volume":0.45},"captions":{"on":true,"style":"pop|box|karaoke|clean|reveal","position":"lower|bottom|center","words":3},"sfx":true,"progress":false,"items":[ … in time order … ]}`;
 
 export function overlayPrompt(map: VideoMap, idea: string, w: number, h: number) {
   const lines: string[] = [];
@@ -146,6 +158,28 @@ export async function resolveOverlayPhotos(compiled: CompiledOverlay, userId: nu
   }
 }
 
+/** B-roll for the cutaways: free stock clips (Pexels/Pixabay), saved to the library so a re-render reuses them. */
+export async function resolveCutaways(compiled: CompiledOverlay, userId: number | null, log?: (s: string) => Promise<void>) {
+  const orientation = compiled.h > compiled.w ? "portrait" : "landscape";
+  const used = new Set<string>();
+  for (const c of compiled.cutaways) {
+    try {
+      const found = await searchStockVideos(c.query, 1, orientation);
+      const need = c.end - c.start;
+      const pick = found.items.find(v => !used.has(v.id) && v.durationSec >= need) ?? found.items.find(v => !used.has(v.id));
+      if (!pick) { c.key = null; await log?.(`› لا لقطة مجانية لـ «${c.query}»`); continue; }
+      used.add(pick.id);
+      const { asset } = await importStockVideo(pick, { characterId: null, query: c.query, userId });
+      c.key = asset.storageKey ?? storageKeyFromUrl(asset.url);
+    } catch (e) {
+      c.key = null;
+      await log?.(`› لقطة «${c.query}»: ${e instanceof Error ? e.message.slice(0, 80) : e}`);
+    }
+  }
+  const ok = compiled.cutaways.filter(c => c.key).length;
+  if (compiled.cutaways.length) await log?.(`✓ ${ok}/${compiled.cutaways.length} لقطة قطع (B-roll)`);
+}
+
 const RUNTIME = resolve(process.cwd(), "tools", "overlay", "runtime.js");
 /** The self-contained page the overlay renderer plays: fonts, the plan (editable JSON), icons, the runtime. */
 export function buildOverlayHtml(compiled: CompiledOverlay) {
@@ -160,7 +194,7 @@ export function buildOverlayHtml(compiled: CompiledOverlay) {
   return `<!doctype html>
 <html><head><meta charset="utf-8">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Reem+Kufi:wght@700&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Reem+Kufi:wght@700&family=Amiri:wght@700&display=block" rel="stylesheet">
 <style>html,body{margin:0;background:transparent!important}</style>
 </head><body><div id="ov"></div>
 <script type="application/json" id="plan">${json(page)}</script>

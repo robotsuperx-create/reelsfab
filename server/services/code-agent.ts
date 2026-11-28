@@ -23,7 +23,7 @@ import { KIT_API_DOC } from "../../shared/code-craft/kit";
 import { guessKind, type VideoKind } from "../../shared/code-craft/knowledge";
 import { composeVideo, type Review } from "./code-director";
 import { storageDownload, storageKeyFromUrl } from "../storage";
-import { buildOverlayHtml, resolveOverlayPhotos, writeOverlayPlan } from "./overlay-director";
+import { buildOverlayHtml, resolveCutaways, resolveOverlayPhotos, writeOverlayPlan } from "./overlay-director";
 import type { CompiledOverlay } from "../../shared/overlay";
 import { alignToVoice, detectScenes, frameTimes, grabFrames, mapForPrompt, probeVideo, sceneIndex, sentencesFrom, transcribeLocal, transcribeOpenAI, voicedIntervals, type FrameNote, type VideoMap, type Word } from "./video-understanding";
 import { getDb, getSettings, requireDb } from "../db";
@@ -496,9 +496,12 @@ export async function sourceToFile(key: string) {
 function describePlan(c: CompiledOverlay) {
   const n: Record<string, number> = {};
   for (const it of c.items) n[it.type] = (n[it.type] ?? 0) + 1;
-  const names: Record<string, string> = { punch: "جملة", counter: "عداد", icon: "أيقونة", list: "قائمة", lower3: "اسم", chapter: "فصل", photo: "صورة", flash: "وميض" };
+  const names: Record<string, string> = { punch: "جملة", counter: "عداد", icon: "أيقونة", list: "قائمة", lower3: "اسم", chapter: "فصل", photo: "صورة", flash: "وميض", crack: "تشقق", glow: "ضوء", particles: "جزيئات", quote: "خاتمة" };
   const parts = Object.entries(n).map(([k, v]) => `${v} ${names[k] ?? k}`);
   if (c.zooms.length) parts.push(`${c.zooms.length} تقريب كاميرا`);
+  if (c.cutaways.length) parts.push(`${c.cutaways.length} لقطة قطع`);
+  if (c.grade.look !== "none") parts.push(`تلوين ${c.grade.look}`);
+  if (c.music.mood !== "none") parts.push(`موسيقى ${c.music.mood}`);
   if (c.captions) parts.push("ترجمة بتوقيت الكلمات");
   return parts.join(" · ") || "—";
 }
@@ -576,7 +579,7 @@ async function writeOverlay(id: number, autoConvert: boolean) {
     const logLine = (s: string) => log(id, s);
     let { plan, compiled } = await writeOverlayPlan({ map, idea: job.idea, w, h, ask: director, log: logLine });
     await log(id, `✓ الخطة: ${describePlan(compiled)}`);
-    const build = async () => { await resolveOverlayPhotos(compiled, job.createdBy ?? null, logLine); return buildOverlayHtml(compiled); };
+    const build = async () => { await resolveOverlayPhotos(compiled, job.createdBy ?? null, logLine); await resolveCutaways(compiled, job.createdBy ?? null, logLine); return buildOverlayHtml(compiled); };
     let html = await build();
     // Looks at the overlay on the real frames and fixes what it sees.
     const at = reviewTimes(compiled, map.duration);
@@ -593,7 +596,7 @@ async function writeOverlay(id: number, autoConvert: boolean) {
     } else {
       await log(id, "› المراجعة على الفيديو الحقيقي ✓");
     }
-    const overlay = { plan, zooms: compiled.zooms, cues: compiled.cues };
+    const overlay = { plan, zooms: compiled.zooms, cues: compiled.cues, grade: compiled.grade, music: compiled.music, cutaways: compiled.cutaways };
     await db.update(codeVideos).set({ html, analysis: { ...opts, map, overlay }, status: autoConvert ? "queued" : "draft", updatedAt: new Date() }).where(eq(codeVideos.id, id));
     await log(id, autoConvert ? "✓ مكتوب ومراجَع — دخل طابور التركيب" : "✓ مكتوب ومراجَع — اضغط تحويل");
     if (autoConvert) void kickCodeVideoQueue();

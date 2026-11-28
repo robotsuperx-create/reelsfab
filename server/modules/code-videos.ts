@@ -173,8 +173,9 @@ export const codeVideosRouter = router({
   }),
 
   /** Renders again; `rewrite` asks the agent to write it again first (an overlay keeps its video map). */
-  retry: memberProcedure.input(z.object({ id: z.number().int(), rewrite: z.boolean().optional() })).mutation(async ({ input }) => {
+  retry: memberProcedure.input(z.object({ id: z.number().int(), rewrite: z.boolean().optional(), instruction: z.string().trim().min(4).max(4000).optional() })).mutation(async ({ input }) => {
     const db = await requireDb();
+    if (input.instruction) await db.update(codeVideos).set({ idea: input.instruction }).where(eq(codeVideos.id, input.id));
     const [row] = await db.select({ html: codeVideos.html, plan: codeVideos.plan, idea: codeVideos.idea, sourceKey: codeVideos.sourceKey, analysis: codeVideos.analysis }).from(codeVideos).where(eq(codeVideos.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "غير موجود" });
     const segs = row.plan?.segments ?? [];

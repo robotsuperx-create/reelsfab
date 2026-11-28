@@ -17,8 +17,8 @@ import { storageKeyFromUrl } from "../storage";
 import type { RenderSound } from "../worker/code-video";
 import { getDb, requireDb } from "../db";
 import { mediaPut } from "../storage";
-import { addSoundtrack, renderCodeVideo, renderOverlay, type CodeVideoRender, type OverlayZoomSpec } from "../worker/code-video";
-import { cleanCues, designSoundtrack } from "../worker/sound/soundtrack";
+import { addSoundtrack, renderCodeVideo, renderOverlay, type CodeVideoRender, type OverlayCutawayFile, type OverlayGrade, type OverlayZoomSpec } from "../worker/code-video";
+import { cleanCues, designSoundtrack, moodOf } from "../worker/sound/soundtrack";
 import { storageDownload } from "../storage";
 
 async function sourceFile(key: string) {
@@ -87,11 +87,41 @@ async function drain() {
 
 /** Camera punch-ins and sound effects the overlay director planned (kept beside the page in the job). */
 async function overlayExtras(analysis: unknown, duration: number) {
-  const ov = (analysis as { overlay?: { zooms?: OverlayZoomSpec[]; cues?: unknown[] } } | null)?.overlay;
-  if (!ov) return {};
+  type Ov = { zooms?: OverlayZoomSpec[]; cues?: unknown[]; grade?: OverlayGrade; music?: { mood?: string; volume?: number }; cutaways?: { start: number; end: number; key?: string | null; transition?: "cut" | "dissolve" }[] };
+  const ov = (analysis as { overlay?: Ov } | null)?.overlay;
+  if (!ov) return { cleanup: async () => undefined };
   const cues = cleanCues(ov.cues ?? [], duration);
   const sfx = cues.length ? (await designSoundtrack({ durationSec: duration, cues, mood: null, seed: 7 })).wav : null;
-  return { zooms: ov.zooms ?? [], sfx };
+  const mood = ov.music?.mood && ov.music.mood !== "none" ? moodOf(ov.music.mood) : null;
+  let music: Buffer | null = null;
+  if (mood) {
+    const { wav } = await designSoundtrack({ durationSec: duration, cues: [], mood, seed: 11 });
+    music = await scaleWav(wav, Math.max(0, Math.min(1, ov.music?.volume ?? 0.5)));
+  }
+  const dir = await mkdtemp(join(tmpdir(), "overlay-cut-"));
+  const cutaways: OverlayCutawayFile[] = [];
+  for (const [i, c] of (ov.cutaways ?? []).entries()) {
+    if (!c.key) continue;
+    try {
+      const file = join(dir, `c${i}.mp4`);
+      await writeFile(file, await storageDownload(c.key));
+      cutaways.push({ start: c.start, end: c.end, file, transition: c.transition ?? "dissolve" });
+    } catch { /* that cutaway is skipped */ }
+  }
+  return { zooms: ov.zooms ?? [], sfx, music, grade: ov.grade, cutaways, cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => undefined) };
+}
+
+/** Multiplies a 16-bit PCM WAV by a gain (the music bed level under the owner's voice). */
+async function scaleWav(wav: Buffer, gain: number) {
+  const dir = await mkdtemp(join(tmpdir(), "wav-gain-"));
+  try {
+    const a = join(dir, "a.wav"), b = join(dir, "b.wav");
+    await writeFile(a, wav);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", a, "-af", `volume=${gain.toFixed(3)}`, b]);
+    return await readFile(b);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export async function processCodeVideo(id: number) {
@@ -114,7 +144,7 @@ export async function processCodeVideo(id: number) {
     const musicOwn = overlayOn ? null : await musicFileFor(job.analysis as SoundSettings | null);
     const sound = soundFor(job.analysis as SoundSettings | null, segments.map(s => s.html!), id, musicOwn?.path ?? null);
     const r = await (overlayOn
-      ? overlayExtras(job.analysis, duration).then(x => renderOverlay({ html: job.html, videoPath: overlayOn.path, width: job.width, height: job.height, durationSec: duration, fps: job.fps, onProgress: report, ...x })).finally(() => overlayOn.cleanup())
+      ? overlayExtras(job.analysis, duration).then(({ cleanup, ...x }) => renderOverlay({ html: job.html, videoPath: overlayOn.path, width: job.width, height: job.height, durationSec: duration, fps: job.fps, onProgress: report, ...x }).finally(cleanup)).finally(() => overlayOn.cleanup())
       : segments.length > 1
       ? renderSegments(segments.map(s => ({ html: s.html!, seconds: s.seconds })), job.width, job.height, job.fps, report, quality, sound)
       : renderCodeVideo({ html: job.html, width: job.width, height: job.height, durationSec: job.durationSec, fps: job.fps, quality, sound, onProgress: report })
