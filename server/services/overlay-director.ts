@@ -158,26 +158,46 @@ export async function resolveOverlayPhotos(compiled: CompiledOverlay, userId: nu
   }
 }
 
-/** B-roll for the cutaways: free stock clips (Pexels/Pixabay), saved to the library so a re-render reuses them. */
-export async function resolveCutaways(compiled: CompiledOverlay, userId: number | null, log?: (s: string) => Promise<void>) {
+/** Chooses the clip that really shows the query among numbered thumbnails (0 = none fits). */
+export type ClipPicker = (query: string, thumbs: Buffer[]) => Promise<number>;
+
+/**
+ * B-roll for the cutaways: free stock clips (Pexels/Pixabay), checked by eye — a wrong clip is worse than none —
+ * and saved to the library so a re-render reuses them.
+ */
+export async function resolveCutaways(compiled: CompiledOverlay, userId: number | null, log?: (s: string) => Promise<void>, pick?: ClipPicker) {
   const orientation = compiled.h > compiled.w ? "portrait" : "landscape";
   const used = new Set<string>();
   for (const c of compiled.cutaways) {
+    if (c.key) continue;
     try {
       const found = await searchStockVideos(c.query, 1, orientation);
       const need = c.end - c.start;
-      const pick = found.items.find(v => !used.has(v.id) && v.durationSec >= need) ?? found.items.find(v => !used.has(v.id));
-      if (!pick) { c.key = null; await log?.(`› لا لقطة مجانية لـ «${c.query}»`); continue; }
-      used.add(pick.id);
-      const { asset } = await importStockVideo(pick, { characterId: null, query: c.query, userId });
+      const pool = found.items.filter(v => !used.has(v.id) && v.durationSec >= need * 0.8).slice(0, 8);
+      let chosen = pool[0];
+      if (pick && pool.length) {
+        const thumbs: Buffer[] = [];
+        const withThumb: typeof pool = [];
+        for (const v of pool) {
+          if (!v.thumb) continue;
+          try { const r = await fetch(v.thumb); if (r.ok) { thumbs.push(Buffer.from(await r.arrayBuffer())); withThumb.push(v); } } catch { /* skip that one */ }
+        }
+        if (thumbs.length) {
+          const n = await pick(c.query, thumbs).catch(() => 1);
+          chosen = n >= 1 && n <= withThumb.length ? withThumb[n - 1] : (undefined as never);
+        }
+      }
+      if (!chosen) { c.key = null; await log?.(`› لا لقطة مجانية تطابق «${c.query}» — تبقى على المتحدثة`); continue; }
+      used.add(chosen.id);
+      const { asset } = await importStockVideo(chosen, { characterId: null, query: c.query, userId });
       c.key = asset.storageKey ?? storageKeyFromUrl(asset.url);
     } catch (e) {
       c.key = null;
       await log?.(`› لقطة «${c.query}»: ${e instanceof Error ? e.message.slice(0, 80) : e}`);
     }
   }
-  const ok = compiled.cutaways.filter(c => c.key).length;
-  if (compiled.cutaways.length) await log?.(`✓ ${ok}/${compiled.cutaways.length} لقطة قطع (B-roll)`);
+  compiled.cutaways = compiled.cutaways.filter(c => c.key);
+  await log?.(`✓ ${compiled.cutaways.length} لقطة قطع (B-roll) مطابقة`);
 }
 
 const RUNTIME = resolve(process.cwd(), "tools", "overlay", "runtime.js");

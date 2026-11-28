@@ -122,7 +122,7 @@ svg.dec path{fill:none;stroke-linecap:round}
       if (it.style === "kicker") cls = "pn kk sh";
       if (it.style === "stamp") cls = "pn st";
       const box = mk("div", cls, row);
-      box.style.fontSize = (it.style === "kicker" ? fs * 0.62 : fs) + "px";
+      box.style.fontSize = (it.style === "kicker" ? Math.max(fs * 0.72, 66 * U) : fs) + "px";
       box.style.color = it.style === "highlight" ? "#111" : c;
       box.dir = isRtl(it.text) ? "rtl" : "ltr";
       if (it.style === "highlight") { it.bar = mk("div", "bar", box); it.bar.style.background = c === "#FFFFFF" ? "#fff" : c; }

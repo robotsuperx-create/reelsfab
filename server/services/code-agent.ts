@@ -579,7 +579,12 @@ async function writeOverlay(id: number, autoConvert: boolean) {
     const logLine = (s: string) => log(id, s);
     let { plan, compiled } = await writeOverlayPlan({ map, idea: job.idea, w, h, ask: director, log: logLine });
     await log(id, `✓ الخطة: ${describePlan(compiled)}`);
-    const build = async () => { await resolveOverlayPhotos(compiled, job.createdBy ?? null, logLine); await resolveCutaways(compiled, job.createdBy ?? null, logLine); return buildOverlayHtml(compiled); };
+    // The agent looks at the candidate clips and keeps only one that really shows the moment.
+    const pickClip = async (query: string, thumbs: Buffer[]) => {
+      const raw = await ask(engine, VISION_SYSTEM, `These ${thumbs.length} images are thumbnails of stock video clips, numbered 1–${thumbs.length} in order. The edit needs b-roll showing: "${query}" — for a video about: """${(map!.sentences.map(x => x.text).join(" ") || job.idea || "").slice(0, 400)}""". Pick the ONE clip that clearly shows this and fits an emotional, cinematic edit (real people/scene matching the meaning, no text overlays, no off-topic landmarks). If none clearly fits, answer 0. JSON: {"pick": n}`, { ...ref, what: "اختيار لقطة القطع" }, thumbs);
+      try { return Number(extractJson<{ pick?: number }>(raw).pick ?? 0); } catch { return 0; }
+    };
+    const build = async () => { await resolveOverlayPhotos(compiled, job.createdBy ?? null, logLine); await resolveCutaways(compiled, job.createdBy ?? null, logLine, pickClip); return buildOverlayHtml(compiled); };
     let html = await build();
     // Looks at the overlay on the real frames and fixes what it sees.
     const at = reviewTimes(compiled, map.duration);
