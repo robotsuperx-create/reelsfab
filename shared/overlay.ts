@@ -70,7 +70,7 @@ export const overlayPlanSchema = z.object({
     position: z.enum(["center", "lower", "bottom"]).catch("lower").default("lower"),
     words: z.number().int().min(1).max(7).catch(3).default(3),
   }).default({ on: true, style: "pop", position: "lower", words: 3 }),
-  sfx: z.boolean().default(true),
+  sfx: z.boolean().default(false),
   grade: z.object({ look: z.enum(OVERLAY_LOOKS).catch("natural").default("natural"), enhance: z.boolean().catch(true).default(true) }).default({ look: "natural", enhance: true }),
   music: z.object({ mood: z.enum(OVERLAY_MUSIC).catch("none").default("none"), volume: z.number().min(0).max(1).catch(0.5).default(0.5) }).default({ mood: "none", volume: 0.5 }),
   progress: z.boolean().default(false),

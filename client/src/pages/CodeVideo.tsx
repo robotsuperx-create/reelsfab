@@ -610,6 +610,9 @@ function OverlayPanel(props: { engine: CodeAgentEngine; setEngine: (e: CodeAgent
   const utils = trpc.useUtils();
   const videos = trpc.codeVideos.sourceVideos.useQuery();
   const [assetId, setAssetId] = useState<number | null>(null);
+  // A batch: several clips (a client's series) under one instruction, queued one after the other.
+  const [batch, setBatch] = useState<number[]>([]);
+  const [queued, setQueued] = useState(0);
   const [instruction, setInstruction] = useState("");
   const [transcriber, setTranscriber] = useState<TranscriberId>("local");
   const [language, setLanguage] = useState<(typeof LANGS)[number]["id"]>("ar");
@@ -617,6 +620,43 @@ function OverlayPanel(props: { engine: CodeAgentEngine; setEngine: (e: CodeAgent
   const start = trpc.codeVideos.overlayStart.useMutation({ onSuccess: r => { props.onStarted(r.id); toast.success("الوكيل يشاهد الفيديو ويفهمه…"); }, onError: e => toast.error(e.message) });
   const list = videos.data ?? [];
   const chosen = list.find(v => v.id === assetId) ?? null;
+
+  const uploadOne = async (file: File) => {
+    const meta = await new Promise<{ d: number; w: number; h: number }>(resolve => {
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.onloadedmetadata = () => resolve({ d: v.duration * 1000, w: v.videoWidth, h: v.videoHeight });
+      v.onerror = () => resolve({ d: 0, w: 0, h: 0 });
+      v.src = URL.createObjectURL(file);
+    });
+    const type = file.type || "video/mp4";
+    const r = await uploadBlob(file.type ? file : new Blob([file], { type }), { kind: "broll", filename: file.name, title: file.name.replace(/\.[^.]+$/, ""), durationMs: meta.d || undefined, width: meta.w || undefined, height: meta.h || undefined });
+    return r.id;
+  };
+  const uploadMany = async (files: File[]) => {
+    if (files.length === 1) return upload(files[0]);
+    setUploading(true);
+    const ids: number[] = [];
+    try {
+      for (const f of files) {
+        try { ids.push(await uploadOne(f)); } catch { toast.error(`تعذر رفع ${f.name}`); }
+      }
+      await utils.codeVideos.sourceVideos.invalidate();
+      setBatch(b => [...new Set([...b, ...ids])]);
+      setAssetId(null);
+      toast.success(`رُفع ${ids.length} فيديو — كلها في الدفعة`);
+    } finally {
+      setUploading(false);
+    }
+  };
+  const runBatch = async () => {
+    setQueued(0);
+    let n = 0;
+    for (const id of batch) {
+      try { await start.mutateAsync({ assetId: id, instruction, engine: props.engine, transcriber, language, fps: props.fps, autoConvert: props.auto }); n++; setQueued(n); } catch { /* the toast already says why */ }
+    }
+    if (n) { toast.success(`${n} فيديو في الطابور — تُصنع واحدًا بعد الآخر`); setBatch([]); }
+  };
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -659,11 +699,24 @@ function OverlayPanel(props: { engine: CodeAgentEngine; setEngine: (e: CodeAgent
             <Button asChild variant="outline" size="sm" disabled={uploading}>
               <label className="cursor-pointer">
                 <Upload /> {uploading ? "يرفع…" : "ارفع فيديوك"}
-                <input type="file" accept="video/mp4,video/quicktime,video/webm" className="sr-only" onChange={ev => { const f = ev.target.files?.[0]; if (f) void upload(f); ev.target.value = ""; }} />
+                <input type="file" multiple accept="video/mp4,video/quicktime,video/webm" className="sr-only" onChange={ev => { const fs = [...(ev.target.files ?? [])]; if (fs.length) void uploadMany(fs); ev.target.value = ""; }} />
               </label>
             </Button>
           </div>
-          {chosen && <video src={chosen.url} controls playsInline className="mt-2 max-h-56 self-start rounded-lg bg-black" />}
+          {chosen && !batch.length && <video src={chosen.url} controls playsInline className="mt-2 max-h-56 self-start rounded-lg bg-black" />}
+          {list.length > 1 && (
+            <details className="mt-1 rounded-md border border-border bg-black/30 p-2 text-xs" open={batch.length > 0}>
+              <summary className="cursor-pointer text-muted-foreground">دفعة: اختر عدة فيديوهات بنفس الطلب{batch.length ? ` — ${batch.length} مختار` : ""}</summary>
+              <div className="mt-2 grid max-h-48 gap-1 overflow-y-auto">
+                {list.map(v => (
+                  <label key={v.id} className="flex items-center gap-2">
+                    <input type="checkbox" checked={batch.includes(v.id)} onChange={ev => setBatch(b => (ev.target.checked ? [...b, v.id] : b.filter(x => x !== v.id)))} />
+                    <span className="truncate">{(v.title ?? `فيديو #${v.id}`).slice(0, 60)}{v.durationMs ? ` · ${formatDuration(Math.round(v.durationMs / 1000))}` : ""}</span>
+                  </label>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -698,9 +751,15 @@ function OverlayPanel(props: { engine: CodeAgentEngine; setEngine: (e: CodeAgent
         </div>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
-          <Button disabled={!assetId || start.isPending} onClick={() => assetId && start.mutate({ assetId, instruction, engine: props.engine, transcriber, language, fps: props.fps, autoConvert: props.auto })}>
-            <Bot /> حلّل واكتب فوقه
-          </Button>
+          {batch.length > 0 ? (
+            <Button disabled={start.isPending || instruction.trim().length < 4} onClick={() => void runBatch()}>
+              <Bot /> {start.isPending ? `يضيف للطابور ${queued}/${batch.length}…` : `اصنع الدفعة (${batch.length} فيديو)`}
+            </Button>
+          ) : (
+            <Button disabled={!assetId || start.isPending} onClick={() => assetId && start.mutate({ assetId, instruction, engine: props.engine, transcriber, language, fps: props.fps, autoConvert: props.auto })}>
+              <Bot /> حلّل واكتب فوقه
+            </Button>
+          )}
           <div className="flex gap-1.5" role="radiogroup" aria-label="الفريمات">
             {CODE_VIDEO_FPS.map(f => <Chip key={f} on={props.fps === f} onClick={() => props.setFps(f)}>{f}fps</Chip>)}
           </div>

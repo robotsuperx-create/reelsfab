@@ -53,13 +53,13 @@ ELEMENTS (each needs "type" and "at"; "until" optional)
 
 PLAN-LEVEL CHOICES
 - "grade": {"look":"natural|warm|cinematic|cold|vivid|bw","enhance":true} — always grade: warm for intimate/emotional talk, cinematic for drama/storytelling, cold for tech/business, vivid for energetic/lifestyle. "enhance" cleans and sharpens phone footage and lifts it when it is dark (keep true).
-- "music": {"mood":"calm|epic|tense|upbeat|tech|playful|none","volume":0.35–0.6} — a bed under the voice (it ducks automatically while she speaks): calm for emotional/advice, upbeat for energetic, tense for drama. "none" only if the owner asks.
+- SOUND: the speaker's own voice is the ONLY sound of these videos. "music" is {"mood":"none"} and "sfx" is false — unless the owner explicitly asks for music or sound effects.
 - Caption style "reveal" = each word fades in as it is spoken, white, elegant — the right style for emotional or poetic speech; "pop" for energetic talk.
 
 ICONS: ${OVERLAY_ICONS.join(", ")}
 
 OUTPUT (JSON only):
-{"accent":"yellow","grade":{"look":"warm","enhance":true},"music":{"mood":"calm","volume":0.45},"captions":{"on":true,"style":"pop|box|karaoke|clean|reveal","position":"lower|bottom|center","words":3},"sfx":true,"progress":false,"items":[ … in time order … ]}`;
+{"accent":"yellow","grade":{"look":"warm","enhance":true},"music":{"mood":"none"},"sfx":false,"captions":{"on":true,"style":"pop|box|karaoke|clean|reveal","position":"lower|bottom|center","words":3},"progress":false,"items":[ … in time order … ]}`;
 
 export function overlayPrompt(map: VideoMap, idea: string, w: number, h: number) {
   const lines: string[] = [];
@@ -80,6 +80,13 @@ export function overlayPrompt(map: VideoMap, idea: string, w: number, h: number)
 
 export type Ask = (system: string, prompt: string, what: string) => Promise<string>;
 
+/** The owner's video keeps only its own voice: music and effects only when the owner asked for them. */
+export function keepVoiceOnly(plan: OverlayPlan, idea: string): OverlayPlan {
+  const music = /موسيق|music|بيانو|piano/i.test(idea);
+  const fx = /مؤثرات صوت|مؤثر صوت|sound ?effects?|sfx|whoosh/i.test(idea);
+  return { ...plan, music: music ? plan.music : { ...plan.music, mood: "none" }, sfx: fx ? plan.sfx : false };
+}
+
 /** Writes the plan, compiles it against the real timings, and sends it back once with what is wrong. */
 export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: number; h: number; ask: Ask; log?: (s: string) => Promise<void>; feedback?: string[]; previous?: OverlayPlan }) {
   const system = `${OVERLAY_BRIEF}\nAnswer with the JSON object only.`;
@@ -95,7 +102,7 @@ export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: numb
   } catch {
     first = parse(await o.ask(system, `${ask1}\n\nYour last answer was not valid JSON. Return ONLY the JSON object.`, "خطة الأنيميشن (إعادة)"));
   }
-  let plan = first.plan;
+  let plan = keepVoiceOnly(first.plan, o.idea);
   let compiled = compile(plan);
   const issues = [...first.dropped, ...compiled.problems];
   if (!plan.items.length) issues.push("the plan has no elements — add the strongest moments");
@@ -104,6 +111,7 @@ export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: numb
     try {
       const again = parse(await o.ask(system, `${prompt}\n\nYOUR PLAN:\n${JSON.stringify(plan)}\n\nFIX THESE:\n${issues.slice(0, 14).map(p => `- ${p}`).join("\n")}\n\nReturn the whole corrected JSON.`, "مراجعة الخطة"));
       const c2 = compile(again.plan);
+      again.plan = keepVoiceOnly(again.plan, o.idea);
       if (again.plan.items.length && again.dropped.length + c2.problems.length <= issues.length) { plan = again.plan; compiled = c2; }
     } catch { /* keep the first */ }
   }
