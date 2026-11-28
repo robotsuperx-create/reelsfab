@@ -94,13 +94,19 @@ export async function recordCinema(o: RecordOptions): Promise<{ frames: number; 
     const out = o.out ?? join(o.dir, "silent.mp4");
     const ff = spawn("ffmpeg", ["-y", "-v", "error", "-f", "image2pipe", "-framerate", String(fps), "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p", "-r", String(fps), "-movflags", "+faststart", out], { stdio: ["pipe", "ignore", "pipe"] });
     let ffErr = "";
+    let exited: number | null = null;
     ff.stderr.on("data", d => { ffErr += d; });
-    const closed = new Promise<void>((res, rej) => ff.on("close", c => (c === 0 ? res() : rej(new Error(`ffmpeg ${c}: ${ffErr.slice(0, 300)}`)))));
+    const closed = new Promise<void>((res, rej) => ff.on("close", c => { exited = c ?? -1; return c === 0 ? res() : rej(new Error(`ffmpeg ${c}: ${ffErr.slice(0, 300)}`)); }));
+    closed.catch(() => undefined);
     ff.stdin.on("error", () => undefined);
     for (let i = 0; i < frames; i++) {
+      if (exited !== null) throw new Error(`ffmpeg توقف عند الإطار ${i}: ${ffErr.slice(0, 300) || exited}`);
       await seek(i / fps);
       const buf = await shot();
-      if (!ff.stdin.write(buf)) await new Promise(r => ff.stdin.once("drain", r));
+      if (!ff.stdin.write(buf)) {
+        // Wait for ffmpeg to take more, but never forever: a dead encoder must surface as an error.
+        await new Promise<void>(r => { const done = () => { clearInterval(timer); r(); }; const timer = setInterval(() => { if (exited !== null) done(); }, 500); ff.stdin.once("drain", done); });
+      }
       if (i % 15 === 0) o.onProgress?.(i, frames);
     }
     ff.stdin.end();
