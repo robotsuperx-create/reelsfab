@@ -11,7 +11,7 @@ export const CINEMA_BRIEF = `You are the director, writer and motion designer of
 NARRATION (it is read aloud by a documentary voice)
 - Write from the owner's angle exactly as their idea states it: it is their channel and their opinion. No hedging, no "some say", no disclaimers.
 - One idea per line, 5–14 words, spoken rhythm, strong verbs. Line 1 is the hook (a date, a paradox, a shock). The last line is the payoff that lands the thesis.
-- Total words ≈ seconds × 2.3 for Arabic (Modern Standard, clear and dramatic), × 2.7 for English. Use "..." inside a line for a dramatic pause.
+- Total words ≈ seconds × 1.9 for Arabic (Modern Standard, clear and dramatic), × 2.4 for English — the voice is slow and weighty, and every "..." adds a pause. Respect the length: a 30 s reel is about 55–60 Arabic words.
 - Put short vowels (tashkeel) on words a voice could misread (عرشٌ، صنعتْه، مُحاصَرة).
 
 SHOTS — pick the one that makes each sentence VISIBLE (the engine has these, all premium):
@@ -20,8 +20,8 @@ SHOTS — pick the one that makes each sentence VISIBLE (the engine has these, a
 - assemble: fragments fly together into the country's shape, then it ignites in gold on "fillAt". Use for resilience, unity, rebirth, "it did not break".
 - launch: a missile/rocket lifts off from the ground into space with smoke and fire. Use for missiles, rockets, space programmes, military power built at home.
 - flag: the country's flag waving in 3D with embers — for national pride and the closing line.
-- dark: textured dark background ("tint":"red" for threat) — only for a pure statement where any picture would distract.
-Rules: change shot every 2.5–6 s (a line can hold up to 3 shots, each starting on its "at" word); never the same shot type twice in a row (globe variants count as one); use at least 4 different types in 30 s; open on a globe dive or a strong photo; close on flag or assemble when the story is about a nation.
+- dark: textured dark background ("tint":"red" for threat) — ONLY for a pure abstract statement. Never for an event, crisis, war, revolution, treaty or place: those have a Wikipedia article → photo with "wiki" (e.g. "Iran hostage crisis", "Iran–Iraq War", "Iranian revolution").
+Rules: change shot every 2.5–6 s (a line longer than ~6 s gets a second shot on a later word) (a line can hold up to 3 shots, each starting on its "at" word); never the same shot type twice in a row (globe variants count as one); use at least 4 different types in 30 s; open on a globe dive or a strong photo; close on flag or assemble when the story is about a nation.
 
 WORDS ON SCREEN — the engine animates them; you choose what and when:
 - At most 5 words per text item, 1–3 items per line. Never repeat the whole narration — only the key words the ear must SEE.
@@ -49,7 +49,7 @@ export function cinemaPrompt(idea: string, seconds: number, format: string, lang
   return `${CINEMA_BRIEF}
 
 NOW THE REAL ONE:
-- Length: ${seconds} seconds of narration (about ${Math.round(seconds * (lang === "ar" ? 2.3 : 2.7))} words in total).
+- Length: ${seconds} seconds of narration (about ${Math.round(seconds * (lang === "ar" ? 1.9 : 2.4))} words in total — not more).
 - Format: ${format} (${format === "9:16" ? "vertical reel" : "horizontal YouTube"}).
 - Language: ${lang === "ar" ? "Arabic (Modern Standard)" : "English"}.
 - The owner's idea and angle:
@@ -62,7 +62,7 @@ Return ONLY the JSON script.`;
 export function scriptProblems(s: CinemaScript, seconds: number) {
   const out: string[] = [];
   const total = s.lines.reduce((a, l) => a + l.say.split(/\s+/).filter(Boolean).length, 0);
-  const target = seconds * (s.lang === "ar" ? 2.3 : 2.7);
+  const target = seconds * (s.lang === "ar" ? 1.9 : 2.4);
   if (total < target * 0.7) out.push(`the narration has ${total} words but ${seconds} s needs about ${Math.round(target)} — add lines`);
   if (total > target * 1.35) out.push(`the narration has ${total} words but ${seconds} s needs about ${Math.round(target)} — cut`);
   s.lines.forEach((l, i) => {
@@ -76,6 +76,8 @@ export function scriptProblems(s: CinemaScript, seconds: number) {
       if (t.text.split(/\s+/).filter(Boolean).length > 5) out.push(`line ${i + 1}: text "${t.text}" has more than 5 words`);
     }
     if (i === 0 && !l.shots.length) out.push("line 1 has no shot — open on a globe dive or a strong photo");
+    if (words.length >= 13 && l.shots.length < 2) out.push(`line ${i + 1} is long (${words.length} words): give it a second shot on a later word`);
+    if (l.shots.some(sh => sh.type === "dark") && /أزمة|حرب|ثورة|معركة|اتفاق|crisis|war|revolution|battle|treaty/i.test(l.say)) out.push(`line ${i + 1}: an event is a picture, not a dark screen — use a photo with its Wikipedia title`);
   });
   const types = s.lines.flatMap(l => l.shots.map(sh => sh.type));
   for (let i = 1; i < types.length; i++) if (types[i] === types[i - 1] && types[i] !== "globe" && types[i] !== "photo") out.push(`two "${types[i]}" shots in a row — vary`);

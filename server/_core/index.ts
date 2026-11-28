@@ -11,6 +11,10 @@ import { registerMediaRoutes } from "../routes/media";
 import { registerMetaRoutes } from "../routes/meta";
 import { rateLimit, securityHeaders } from "./security";
 import { startAutopilot } from "../worker/autopilot";
+
+// One background job failing (a render, a file write) must never take the whole studio down.
+process.on("unhandledRejection", reason => console.error("[unhandledRejection]", reason));
+process.on("uncaughtException", err => console.error("[uncaughtException]", err));
 import { registerSetupRoutes, setupComplete } from "./setup";
 import { sql } from "drizzle-orm";
 import { describeDbError, ensureSeed, getDb, looksLikePausedProject } from "../db";

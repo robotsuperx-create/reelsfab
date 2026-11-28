@@ -7,7 +7,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { CINEMA_SIZE, cinemaScriptSchema, compileCinema, estimateTiming, type CinemaScript, type LineTiming } from "../../../shared/cinema";
@@ -43,10 +43,21 @@ export const cinemaRoot = () => join(outputDir(), "cinema");
 const jobDir = (id: string) => join(cinemaRoot(), id);
 const running = new Set<string>();
 
-async function save(job: CinemaJob) {
+/** One write at a time per job (Windows refuses overlapping writes to the same file), never throws. */
+const saving = new Map<string, Promise<void>>();
+function save(job: CinemaJob): Promise<void> {
   job.updatedAt = new Date().toISOString();
-  await mkdir(jobDir(job.id), { recursive: true });
-  await writeFile(join(jobDir(job.id), "job.json"), JSON.stringify(job, null, 1));
+  const body = JSON.stringify(job, null, 1);
+  const next = (saving.get(job.id) ?? Promise.resolve())
+    .then(async () => {
+      await mkdir(jobDir(job.id), { recursive: true });
+      const file = join(jobDir(job.id), "job.json");
+      await writeFile(`${file}.tmp`, body);
+      await rename(`${file}.tmp`, file).catch(() => writeFile(file, body));
+    })
+    .catch(e => console.warn("[cinema] save", e instanceof Error ? e.message : e));
+  saving.set(job.id, next);
+  return next;
 }
 async function say(job: CinemaJob, line: string) {
   job.log.push(`${new Date().toISOString().slice(11, 19)} ${line}`);
