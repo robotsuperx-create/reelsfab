@@ -97,6 +97,29 @@ export function keepVoiceOnly(plan: OverlayPlan, idea: string): OverlayPlan {
 }
 
 /** Writes the plan, compiles it against the real timings, and sends it back once with what is wrong. */
+/**
+ * A reviewer's fix as edits, not a rewrite: only the items a point concerns change, so a fix never silently drops
+ * the effects that were fine (a rewrite used to lose the crack, the emoji…).
+ */
+export function applyPlanEdits(plan: OverlayPlan, raw: unknown): { plan: OverlayPlan; removed: number; changed: number } {
+  const e = (raw ?? {}) as { edits?: { i?: number; set?: Record<string, unknown>; remove?: boolean }[]; add?: unknown[]; set?: Record<string, unknown> };
+  const items: (Record<string, unknown> | null)[] = plan.items.map(x => ({ ...x }));
+  let removed = 0, changed = 0;
+  for (const ed of Array.isArray(e.edits) ? e.edits : []) {
+    const i = Number(ed?.i);
+    if (!Number.isInteger(i) || !items[i]) continue;
+    if (ed.remove) { items[i] = null; removed++; continue; }
+    if (ed.set && typeof ed.set === "object") { items[i] = { ...items[i]!, ...ed.set, type: items[i]!.type }; changed++; }
+  }
+  const top = (e.set && typeof e.set === "object" ? e.set : {}) as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...plan, items: [...items.filter(Boolean), ...(Array.isArray(e.add) ? e.add : [])] };
+  if (typeof top.accent === "string") next.accent = top.accent;
+  if (top.captions && typeof top.captions === "object") next.captions = { ...plan.captions, ...(top.captions as object) };
+  if (top.grade && typeof top.grade === "object") next.grade = { ...plan.grade, ...(top.grade as object) };
+  const added = Array.isArray(e.add) ? e.add.length : 0;
+  return { plan: parseOverlayPlan(next).plan, removed, changed: changed + added };
+}
+
 export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: number; h: number; ask: Ask; log?: (s: string) => Promise<void>; feedback?: string[]; previous?: OverlayPlan }) {
   const gi = await loadGiIndex();
   // Animated icons when the library is installed (they move: a bell rings, a heart beats), drawn ones otherwise.
@@ -106,31 +129,46 @@ export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: numb
   const prompt = overlayPrompt(o.map, o.idea, o.w, o.h) + (noto ? `\nEMOJI (all animated — use one of these names): ${noto.names.join(" ")}` : "\n(Animated emoji are unavailable right now — use icons.)");
   const compile = (plan: OverlayPlan) => compileOverlay(plan, { words: o.map.words, frames: o.map.frames, duration: o.map.duration, w: o.w, h: o.h });
   const parse = (raw: string) => parseOverlayPlan(extractJsonObject(raw));
-  let first: ReturnType<typeof parse>;
-  const ask1 = o.previous && o.feedback?.length
-    ? `${prompt}\n\nYOUR PLAN:\n${JSON.stringify(o.previous)}\n\nA reviewer watched it on the real frames and found:\n${o.feedback.map(f => `- ${f}`).join("\n")}\nFix every point. Return the whole corrected JSON.`
-    : prompt;
-  try {
-    first = parse(await o.ask(system, ask1, o.previous ? "تحسين الخطة" : "خطة الأنيميشن"));
-  } catch {
-    first = parse(await o.ask(system, `${ask1}\n\nYour last answer was not valid JSON. Return ONLY the JSON object.`, "خطة الأنيميشن (إعادة)"));
-  }
-  let plan = keepVoiceOnly(first.plan, o.idea);
-  let compiled = compile(plan);
-  const badEmoji = (p: OverlayPlan) => [
+  const badNames = (p: OverlayPlan) => [
     ...p.items.filter(i => i.type === "emoji" && (!noto || !notoCodepoint(noto, i.emoji))).map(i => `emoji "${(i as { emoji: string }).emoji}" is not in the EMOJI list — pick a listed name`),
     ...p.items.filter(i => i.type === "icon" && !gi?.has(i.icon.toLowerCase()) && !iconSvg(i.icon)).map(i => `icon "${(i as { icon: string }).icon}" is not in the ICONS list — pick a listed name`),
   ];
-  const issues = [...first.dropped, ...compiled.problems, ...badEmoji(plan)];
+  const problemsOf = (p: OverlayPlan, c: CompiledOverlay) => [...c.problems, ...badNames(p)];
+  // Fixes go out as numbered edits of the current plan.
+  const patch = async (plan: OverlayPlan, points: string[], who: string, what: string) => {
+    const listing = plan.items.map((it, i) => `${i}: ${JSON.stringify(it)}`).join("\n");
+    const { items: _items, ...level } = plan;
+    const raw = await o.ask(system, `${prompt}\n\nYOUR PLAN — items numbered:\n${listing}\nplan-level: ${JSON.stringify(level)}\n\n${who}:\n${points.map(p => `- ${p}`).join("\n")}\n\nChange ONLY what these points concern; every other item stays exactly as it is. Prefer moving (position / side / x,y), resizing, retiming (at / until) or rewording over removing; remove an item only when it cannot work anywhere, and if you remove an effect, add a better-placed one for the same moment. Return JSON: {"edits":[{"i":2,"set":{"position":"top"}},{"i":5,"remove":true}],"add":[new items, only when a point needs one],"set":{plan-level changes, only when a point asks: "captions":{...},"accent":"…","grade":{...}}}`, what);
+    return applyPlanEdits(plan, extractJsonObject(raw));
+  };
+
+  let plan: OverlayPlan;
+  if (o.previous && o.feedback?.length) {
+    const r = await patch(o.previous, o.feedback, "A reviewer watched it on the real frames and found", "تحسين الخطة");
+    await o.log?.(`› التصحيح: ${r.changed} تعديل${r.removed ? ` · ${r.removed} حذف` : ""} — الباقي كما هو`);
+    plan = r.plan;
+  } else {
+    let first: ReturnType<typeof parse>;
+    try {
+      first = parse(await o.ask(system, prompt, "خطة الأنيميشن"));
+    } catch {
+      first = parse(await o.ask(system, `${prompt}\n\nYour last answer was not valid JSON. Return ONLY the JSON object.`, "خطة الأنيميشن (إعادة)"));
+    }
+    plan = first.plan;
+    if (first.dropped.length) await o.log?.(`› ${first.dropped.length} عنصر غير صالح أُسقط`);
+  }
+  plan = keepVoiceOnly(plan, o.idea);
+  let compiled = compile(plan);
+  const issues = problemsOf(plan, compiled);
   if (!plan.items.length) issues.push("the plan has no elements — add the strongest moments");
   if (issues.length) {
     await o.log?.(`› ${issues.length} ملاحظة على الخطة — يصلحها`);
     try {
-      const again = parse(await o.ask(system, `${prompt}\n\nYOUR PLAN:\n${JSON.stringify(plan)}\n\nFIX THESE:\n${issues.slice(0, 14).map(p => `- ${p}`).join("\n")}\n\nReturn the whole corrected JSON.`, "مراجعة الخطة"));
-      const c2 = compile(again.plan);
-      again.plan = keepVoiceOnly(again.plan, o.idea);
-      if (again.plan.items.length && again.dropped.length + c2.problems.length + badEmoji(again.plan).length <= issues.length) { plan = again.plan; compiled = c2; }
-    } catch { /* keep the first */ }
+      const again = await patch(plan, issues.slice(0, 14), "FIX THESE", "مراجعة الخطة");
+      const p2 = keepVoiceOnly(again.plan, o.idea);
+      const c2 = compile(p2);
+      if (p2.items.length && problemsOf(p2, c2).length <= issues.length) { plan = p2; compiled = c2; }
+    } catch { /* keep it as it is */ }
   }
   return { plan, compiled };
 }

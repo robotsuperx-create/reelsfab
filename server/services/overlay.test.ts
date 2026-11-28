@@ -92,5 +92,20 @@ describe("overlay plans", () => {
     expect(c.items[0].type).toBe("emoji");
     expect(c.items[0].start).toBeCloseTo(words[5].start + 0.02, 3);
   });
+
+  it("a reviewer's fix edits only the items it names and keeps the rest", async () => {
+    const { applyPlanEdits } = await import("./overlay-director");
+    const { plan } = parseOverlayPlan({ items: [
+      { type: "crack", at: 4 }, { type: "punch", at: 2, until: 3, text: "خلاف عابر", position: "upper" }, { type: "emoji", at: 7, emoji: "beating-heart" },
+    ] });
+    const r = applyPlanEdits(plan, { edits: [{ i: 1, set: { position: "top", type: "flash" } }, { i: 9, remove: true }], set: { captions: { style: "pop" } } });
+    expect(r.plan.items.map(i => i.type)).toEqual(["crack", "punch", "emoji"]);
+    expect((r.plan.items[1] as { position: string }).position).toBe("top");
+    expect(r.plan.captions.style).toBe("pop");
+    expect(r.plan.captions.on).toBe(true);
+    const r2 = applyPlanEdits(plan, { edits: [{ i: 0, remove: true }], add: [{ type: "crack", at: 5, y: 40 }] });
+    expect(r2.removed).toBe(1);
+    expect(r2.plan.items.filter(i => i.type === "crack")).toHaveLength(1);
+  });
 });
 
