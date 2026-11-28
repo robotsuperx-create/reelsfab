@@ -667,8 +667,8 @@ function OverlayPanel(props: { engine: CodeAgentEngine; setEngine: (e: CodeAgent
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="overlay-instruction" className="text-xs text-muted-foreground">ماذا تريد فوقه — ترجمة الكلام، عناوين، تأكيد الكلمات المهمة، أسهم، أرقام…</Label>
-          <Textarea id="overlay-instruction" value={instruction} onChange={ev => setInstruction(ev.target.value)} placeholder="مثال: ترجمة كلامي كلمة بكلمة أسفل الشاشة بالأصفر، عنوان كبير في أول ثانيتين، وعند كل رقم أقوله يظهر الرقم كبيرًا بجانبي" className="min-h-[96px] resize-y bg-black/40 p-3 text-sm leading-6" />
+          <Label htmlFor="overlay-instruction" className="text-xs text-muted-foreground">ماذا تريد فوقه؟ يكفي سطر: المونتير يختار وحده جملًا مختصرة تظهر لحظة نطق الكلمة، وعدّادات للأرقام، وأيقونات تُرسم، وقوائم، وتقريب الكاميرا على الوجه، وترجمة بتوقيت كل كلمة، ومؤثرات صوتية خفيفة، دون أن يغطي الوجه</Label>
+          <Textarea id="overlay-instruction" value={instruction} onChange={ev => setInstruction(ev.target.value)} placeholder="مثال: مونتاج قوي لريل إنستغرام، اسمها سارة — مدربة تسويق، لون ذهبي، بدون ترجمة كاملة لأن الفيديو فيه ترجمة" className="min-h-[96px] resize-y bg-black/40 p-3 text-sm leading-6" />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">

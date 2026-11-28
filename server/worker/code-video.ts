@@ -352,7 +352,29 @@ async function openIsolatedPage(browser: import("playwright-core").Browser, html
  * Animation on top of the owner's video: the HTML is rendered with a transparent background (PNG per frame) and
  * laid over the video, cropped/scaled to width×height, with the video's own sound kept.
  */
-export async function renderOverlay(opts: { html: string; videoPath: string; width: number; height: number; durationSec: number; fps: number; onProgress?: (p: number) => void }): Promise<CodeVideoRender> {
+/** ffmpeg zoompan expressions for camera punch-ins on the video under the overlay (input time in seconds). */
+export function zoomExpr(zooms: OverlayZoomSpec[]) {
+  const f = (n: number) => n.toFixed(3);
+  let z = "1", x = "0.5", y = "0.5";
+  for (const q of [...zooms].reverse()) {
+    const span = `between(in_time,${f(q.start)},${f(q.end)})`;
+    const k = `min(1,min((in_time-${f(q.start)})/0.5,(${f(q.end)}-in_time)/0.5))`;
+    const val = q.ease === "cut" ? f(q.scale) : `1+${f(q.scale - 1)}*(${k})*(${k})*(3-2*(${k}))`;
+    z = `if(${span},${val},${z})`;
+    x = `if(${span},${f(q.x)},${x})`;
+    y = `if(${span},${f(q.y)},${y})`;
+  }
+  return { z, x: `(iw-iw/zoom)*(${x})`, y: `(ih-ih/zoom)*(${y})` };
+}
+export type OverlayZoomSpec = { start: number; end: number; scale: number; x: number; y: number; ease: "cut" | "smooth" };
+
+async function hasAudioStream(path: string) {
+  return new Promise<boolean>(resolve => {
+    execFileCb("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", path], (e, out) => resolve(!e && String(out).trim().length > 0));
+  });
+}
+
+export async function renderOverlay(opts: { html: string; videoPath: string; width: number; height: number; durationSec: number; fps: number; onProgress?: (p: number) => void; zooms?: OverlayZoomSpec[]; sfx?: Buffer | null }): Promise<CodeVideoRender> {
   const { width, height, fps } = opts;
   const frames = Math.max(1, Math.round(opts.durationSec * fps));
   const browser = await launchBrowser();
@@ -360,8 +382,16 @@ export async function renderOverlay(opts: { html: string; videoPath: string; wid
   const outFile = join(dir, "out.mp4");
   try {
     const { page, blocked, consoleErrors, advance } = await openIsolatedPage(browser, opts.html, width, height);
-    const filter = `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${fps},setsar=1[base];[1:v]format=rgba[ov];[base][ov]overlay=0:0:format=auto,format=yuv420p[v]`;
-    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", opts.videoPath, "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-", "-filter_complex", filter, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-c:a", "aac", "-b:a", "160k", "-r", String(fps), "-t", opts.durationSec.toFixed(3), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
+    const zooms = (opts.zooms ?? []).filter(z => z.end > z.start && z.scale > 1.001);
+    const zp = zooms.length ? zoomExpr(zooms) : null;
+    const base = `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},fps=${fps},setsar=1${zp ? `[b0];[b0]zoompan=z='${zp.z}':x='${zp.x}':y='${zp.y}':d=1:s=${width}x${height}:fps=${fps}` : ""}[base]`;
+    const audioIn = await hasAudioStream(opts.videoPath);
+    const sfxFile = opts.sfx ? join(dir, "sfx.wav") : null;
+    if (sfxFile) await writeFile(sfxFile, opts.sfx!);
+    // The owner's sound stays on top; the effects sit under it.
+    const audio = sfxFile ? (audioIn ? ";[0:a]aresample=48000[a0];[2:a]aresample=48000,volume=0.8[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[a]" : ";[2:a]aresample=48000,volume=0.8[a]") : "";
+    const filter = `${base};[1:v]format=rgba[ov];[base][ov]overlay=0:0:format=auto,format=yuv420p[v]${audio}`;
+    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", opts.videoPath, "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-", ...(sfxFile ? ["-i", sfxFile] : []), "-filter_complex", filter, "-map", "[v]", ...(sfxFile ? ["-map", "[a]"] : ["-map", "0:a?"]), "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-c:a", "aac", "-b:a", "160k", "-r", String(fps), "-t", opts.durationSec.toFixed(3), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
     let err = "";
     ff.stderr.on("data", d => { err += d; });
     const done = new Promise<void>((resolve, reject) => {

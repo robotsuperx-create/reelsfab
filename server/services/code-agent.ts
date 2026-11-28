@@ -23,6 +23,8 @@ import { KIT_API_DOC } from "../../shared/code-craft/kit";
 import { guessKind, type VideoKind } from "../../shared/code-craft/knowledge";
 import { composeVideo, type Review } from "./code-director";
 import { storageDownload, storageKeyFromUrl } from "../storage";
+import { buildOverlayHtml, resolveOverlayPhotos, writeOverlayPlan } from "./overlay-director";
+import type { CompiledOverlay } from "../../shared/overlay";
 import { alignToVoice, detectScenes, frameTimes, grabFrames, mapForPrompt, probeVideo, sceneIndex, sentencesFrom, transcribeLocal, transcribeOpenAI, voicedIntervals, type FrameNote, type VideoMap, type Word } from "./video-understanding";
 import { getDb, getSettings, requireDb } from "../db";
 import { captureStills, overlayStills, renderCodeVideo } from "../worker/code-video";
@@ -453,17 +455,6 @@ JSON: {"frames": [{"i": 1, "what": "...", "subject": "...", "box": [x, y, w, h],
   return notes;
 }
 
-function overlayRules(width: number, height: number) {
-  return `${rules(width, height)}
-THIS FILE IS AN OVERLAY on top of a real video. Extra hard rules:
-- The page background MUST be fully transparent: html, body { background: transparent !important }. No full-frame opaque layers, no vignette that hides the video. Small panels behind text are allowed if semi-transparent.
-- Never cover the main subject's box or faces given in the video map; put text in the listed free areas for that moment.
-- Text must stay legible over moving footage: strong weight, text-shadow or stroke, or a soft translucent pill behind it.
-- Captions of speech must use the WORD timings given in the map exactly: a phrase appears AT its first word's start (never before — the viewer must hear it first or at the same moment) and stays until at least 0.4 s after its last word ends (or until the next phrase). Never invent words that were not said.
-- Any graphic, icon or rewritten line about something said appears when that word is said (its start time), not earlier.
-- Total duration = the video's duration. Sync titles, emphasis and graphics to the scene cuts and to what is said.`;
-}
-
 export async function startOverlayVideo(input: OverlayInput, userId?: number | null) {
   const db = await requireDb();
   const [asset] = await db.select().from(assets).where(eq(assets.id, input.assetId));
@@ -500,6 +491,24 @@ export async function sourceToFile(key: string) {
   const path = join(dir, "source.mp4");
   await writeFile(path, await storageDownload(key));
   return { path, cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => undefined) };
+}
+
+function describePlan(c: CompiledOverlay) {
+  const n: Record<string, number> = {};
+  for (const it of c.items) n[it.type] = (n[it.type] ?? 0) + 1;
+  const names: Record<string, string> = { punch: "جملة", counter: "عداد", icon: "أيقونة", list: "قائمة", lower3: "اسم", chapter: "فصل", photo: "صورة", flash: "وميض" };
+  const parts = Object.entries(n).map(([k, v]) => `${v} ${names[k] ?? k}`);
+  if (c.zooms.length) parts.push(`${c.zooms.length} تقريب كاميرا`);
+  if (c.captions) parts.push("ترجمة بتوقيت الكلمات");
+  return parts.join(" · ") || "—";
+}
+/** Moments worth checking: the middle of the first elements, spread over the video. */
+function reviewTimes(c: CompiledOverlay, duration: number) {
+  const mids = c.items.filter(i => i.type !== "flash").map(i => +((i.start + Math.min(i.end, i.start + 1.6)) / 2).toFixed(2));
+  const pick: number[] = [];
+  for (const k of [0, 0.25, 0.5, 0.75, 1]) { const t = mids[Math.min(mids.length - 1, Math.round(k * (mids.length - 1)))]; if (t != null && !pick.some(p => Math.abs(p - t) < 1)) pick.push(t); }
+  if (!pick.length) pick.push(...[0.2, 0.5, 0.8].map(f => +(duration * f).toFixed(2)));
+  return pick.slice(0, 5);
 }
 
 async function writeOverlay(id: number, autoConvert: boolean) {
@@ -562,31 +571,30 @@ async function writeOverlay(id: number, autoConvert: boolean) {
     }
     const [fresh] = await db.select().from(codeVideos).where(eq(codeVideos.id, id));
     const w = fresh.width, h = fresh.height;
-    const system = overlayRules(w, h);
-    const prompt = `Write the overlay animation for this video (it is ${w}x${h} after cropping to fill the frame; boxes are in percent of that frame).
-What the owner wants on top: """${job.idea}"""
-
-${mapForPrompt(map)}`;
-    let html = extractHtml(await ask(engine, system, prompt, { ...ref, what: "الأنيميشن فوق الفيديو" }));
-    const errors = await testRender(html, w, h);
-    if (errors.length) {
-      await log(id, `› ${errors.length} خطأ في التجربة — يصلحه`);
-      html = extractHtml(await ask(engine, system, `${prompt}\n\nYour previous file had these problems:\n- ${errors.slice(0, 8).join("\n- ")}\nReturn the corrected complete file.\n\n${html}`, { ...ref, what: "إصلاح" }));
-    }
+    // The director writes a plan (never animation code); the tested overlay engine draws it.
+    const director = (system: string, prompt: string, what: string) => ask(engine, system, prompt, { ...ref, what });
+    const logLine = (s: string) => log(id, s);
+    let { plan, compiled } = await writeOverlayPlan({ map, idea: job.idea, w, h, ask: director, log: logLine });
+    await log(id, `✓ الخطة: ${describePlan(compiled)}`);
+    const build = async () => { await resolveOverlayPhotos(compiled, job.createdBy ?? null, logLine); return buildOverlayHtml(compiled); };
+    let html = await build();
     // Looks at the overlay on the real frames and fixes what it sees.
-    const at = [0.1, 0.35, 0.6, 0.88].map(f => Math.max(0.3, +(map!.duration * f).toFixed(2)));
+    const at = reviewTimes(compiled, map.duration);
     const { stills } = await overlayStills({ html, videoPath: src.path, width: w, height: h, at });
-    const raw = await ask(engine, REVIEW_SYSTEM, `These are ${stills.length} frames (at ${at.map(t => `${t}s`).join(", ")}) of a video with animated text laid over it. Check: text covering faces or the main subject, text cut off, unreadable over the footage, overlaps, captions not matching the speech, anything broken. Return {"ok": true, "issues": []} or ok=false with up to 6 concrete issues.`, { ...ref, what: "مراجعة بصرية" }, stills);
+    const raw = await ask(engine, REVIEW_SYSTEM, `These are ${stills.length} frames (at ${at.map(t => `${t}s`).join(", ")}) of a video with motion graphics laid over it. Check: text or graphics covering the face or the main subject, text cut off, unreadable over the footage, overlaps, captions not matching the speech, anything broken or ugly. Return {"ok": true, "issues": []} or ok=false with up to 6 concrete issues, each naming the second it happens.`, { ...ref, what: "مراجعة بصرية" }, stills);
     let issues: string[] = [];
     try { const r = extractJson<{ ok?: boolean; issues?: string[] }>(raw); issues = r.ok === false ? (r.issues ?? []).map(String).slice(0, 6) : []; } catch { /* no review */ }
     if (issues.length) {
       await log(id, `› المراجعة على الفيديو الحقيقي وجدت ${issues.length} عيبًا — يصلحها`);
-      const fixed = extractHtml(await ask(engine, system, `${prompt}\n\nA reviewer looked at your overlay on the real frames and found:\n- ${issues.join("\n- ")}\nFix every point, keep the timing. Return the complete corrected file.\n\n${html}`, { ...ref, what: "تحسين" }));
-      if (!(await testRender(fixed, w, h)).length) html = fixed;
+      try {
+        const again = await writeOverlayPlan({ map, idea: job.idea, w, h, ask: director, log: logLine, feedback: issues, previous: plan });
+        if (again.compiled.items.length) { plan = again.plan; compiled = again.compiled; html = await build(); }
+      } catch (e) { await log(id, `› التحسين لم يكتمل: ${e instanceof Error ? e.message.slice(0, 100) : e}`); }
     } else {
       await log(id, "› المراجعة على الفيديو الحقيقي ✓");
     }
-    await db.update(codeVideos).set({ html, status: autoConvert ? "queued" : "draft", updatedAt: new Date() }).where(eq(codeVideos.id, id));
+    const overlay = { plan, zooms: compiled.zooms, cues: compiled.cues };
+    await db.update(codeVideos).set({ html, analysis: { ...opts, map, overlay }, status: autoConvert ? "queued" : "draft", updatedAt: new Date() }).where(eq(codeVideos.id, id));
     await log(id, autoConvert ? "✓ مكتوب ومراجَع — دخل طابور التركيب" : "✓ مكتوب ومراجَع — اضغط تحويل");
     if (autoConvert) void kickCodeVideoQueue();
   } catch (e) {

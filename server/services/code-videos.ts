@@ -17,7 +17,8 @@ import { storageKeyFromUrl } from "../storage";
 import type { RenderSound } from "../worker/code-video";
 import { getDb, requireDb } from "../db";
 import { mediaPut } from "../storage";
-import { addSoundtrack, renderCodeVideo, renderOverlay, type CodeVideoRender } from "../worker/code-video";
+import { addSoundtrack, renderCodeVideo, renderOverlay, type CodeVideoRender, type OverlayZoomSpec } from "../worker/code-video";
+import { cleanCues, designSoundtrack } from "../worker/sound/soundtrack";
 import { storageDownload } from "../storage";
 
 async function sourceFile(key: string) {
@@ -84,6 +85,15 @@ async function drain() {
   }
 }
 
+/** Camera punch-ins and sound effects the overlay director planned (kept beside the page in the job). */
+async function overlayExtras(analysis: unknown, duration: number) {
+  const ov = (analysis as { overlay?: { zooms?: OverlayZoomSpec[]; cues?: unknown[] } } | null)?.overlay;
+  if (!ov) return {};
+  const cues = cleanCues(ov.cues ?? [], duration);
+  const sfx = cues.length ? (await designSoundtrack({ durationSec: duration, cues, mood: null, seed: 7 })).wav : null;
+  return { zooms: ov.zooms ?? [], sfx };
+}
+
 export async function processCodeVideo(id: number) {
   const db = await requireDb();
   const [job] = await db.select().from(codeVideos).where(eq(codeVideos.id, id));
@@ -104,7 +114,7 @@ export async function processCodeVideo(id: number) {
     const musicOwn = overlayOn ? null : await musicFileFor(job.analysis as SoundSettings | null);
     const sound = soundFor(job.analysis as SoundSettings | null, segments.map(s => s.html!), id, musicOwn?.path ?? null);
     const r = await (overlayOn
-      ? renderOverlay({ html: job.html, videoPath: overlayOn.path, width: job.width, height: job.height, durationSec: duration, fps: job.fps, onProgress: report }).finally(() => overlayOn.cleanup())
+      ? overlayExtras(job.analysis, duration).then(x => renderOverlay({ html: job.html, videoPath: overlayOn.path, width: job.width, height: job.height, durationSec: duration, fps: job.fps, onProgress: report, ...x })).finally(() => overlayOn.cleanup())
       : segments.length > 1
       ? renderSegments(segments.map(s => ({ html: s.html!, seconds: s.seconds })), job.width, job.height, job.fps, report, quality, sound)
       : renderCodeVideo({ html: job.html, width: job.width, height: job.height, durationSec: job.durationSec, fps: job.fps, quality, sound, onProgress: report })
