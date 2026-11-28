@@ -16,6 +16,36 @@ export const VISUAL_STYLE_LABELS: Record<(typeof VISUAL_STYLES)[number], string>
   illustration: "رسوم توضيحية",
 };
 
+/**
+ * How an episode's scenes are shown: real footage only (stock / library / AI pictures), the motion kit for every
+ * scene, or a mix where the director animates the scenes that gain from it (a map for a place, a moving number for
+ * a figure, rivals face to face…) and keeps footage for the rest. The voice, subtitles and chapters stay the same.
+ */
+export const VISUAL_MODES = ["footage", "animation", "mixed"] as const;
+export type VisualMode = (typeof VISUAL_MODES)[number];
+export const VISUAL_MODE_LABELS: Record<VisualMode, string> = {
+  footage: "لقطات حقيقية فقط",
+  animation: "أنيميشن لكل المشاهد",
+  mixed: "مزيج — المخرج يختار لكل مشهد",
+};
+export const VISUAL_MODE_HINTS: Record<VisualMode, string> = {
+  footage: "فيديوهات وصور مجانية أو من مكتبتك لكل مشهد",
+  animation: "كل مشهد يتحرك: خرائط، أرقام، أعلام، صور الأشخاص، عناوين — فوق صور مجانية",
+  mixed: "خريطة عند ذكر بلد، رقم متحرك عند ذكر رقم، وجه لوجه عند المقارنة، ولقطة حقيقية في الباقي",
+};
+/** Looks of the motion kit (same ids as the code room). */
+export const MOTION_THEMES = ["documentary", "kinetic", "neon", "infographic", "storybook"] as const;
+export type MotionTheme = (typeof MOTION_THEMES)[number];
+export const MOTION_THEME_LABELS: Record<MotionTheme, string> = {
+  documentary: "وثائقي داكن",
+  kinetic: "حركي جريء",
+  neon: "تقني نيون",
+  infographic: "إنفوغرافيك فاتح",
+  storybook: "قصصي دافئ",
+};
+/** Room kept clear at the bottom of an animated scene for the burned-in subtitles (px at 1080p). */
+export const MOTION_SUBTITLE_RESERVE = 150;
+
 export const TTS_PROVIDERS = ["kokoro", "gemini", "speech", "none"] as const;
 export type TtsProvider = (typeof TTS_PROVIDERS)[number];
 export const TTS_PROVIDER_LABELS: Record<TtsProvider, string> = {
@@ -90,6 +120,19 @@ const sceneVisual = z.object({
   motion: z.enum(["slow_push", "slow_pull", "pan_left", "step_zoom"]).optional(),
   /** Picked by the auto planner (true) or chosen by the editor (false). */
   auto: z.boolean().optional(),
+  /** A clip drawn by the motion kit from the scene's `anim` beats. */
+  anim: z.boolean().optional(),
+});
+
+/**
+ * The director's animation for one scene: 1–3 beats (motion-kit storyboard scenes, timed relative to the scene and
+ * scaled to its narration), the hash of the clip currently drawn from them, and the footage it replaced.
+ */
+const sceneAnim = z.object({
+  beats: z.array(z.record(z.string(), z.unknown())).min(1).max(4),
+  hash: z.string().max(16).optional(),
+  prev: sceneVisual.optional(),
+  error: z.string().max(300).optional(),
 });
 
 export const sceneSchema = z.object({
@@ -106,6 +149,9 @@ export const sceneSchema = z.object({
   /** Storage key of the cached narration clip and the text/voice hash it was made from. */
   narrationKey: z.string().max(512).optional(),
   narrationHash: z.string().max(16).optional(),
+  anim: sceneAnim.optional(),
+  /** The director (mixed mode) or the owner kept this scene on real footage: not planned again unless asked. */
+  footage: z.boolean().optional(),
 });
 
 export const episodeScriptSchema = z.object({
@@ -115,10 +161,14 @@ export const episodeScriptSchema = z.object({
   outro: z.string().max(400),
   description: z.string().max(4000),
   tags: z.array(z.string().max(40)).max(20),
+  /** This episode's look (else the channel's default) and the motion kit's theme for animated scenes. */
+  visualMode: z.enum(VISUAL_MODES).optional(),
+  motionTheme: z.enum(MOTION_THEMES).optional(),
 });
 
 export type Scene = z.infer<typeof sceneSchema>;
 export type SceneVisual = z.infer<typeof sceneVisual>;
+export type SceneAnim = z.infer<typeof sceneAnim>;
 export type EpisodeScript = z.infer<typeof episodeScriptSchema>;
 
 export const episodeTemplateSchema = z.object({
@@ -127,6 +177,9 @@ export const episodeTemplateSchema = z.object({
   structure: z.array(z.string().max(60)).min(2).max(8),
   hookSeconds: z.number().min(5).max(40),
   cta: z.string().max(200),
+  /** Channel defaults for new episodes: footage / animation / mixed, and the motion look. */
+  visualMode: z.enum(VISUAL_MODES).optional(),
+  motionTheme: z.enum(MOTION_THEMES).optional(),
 });
 export type EpisodeTemplate = z.infer<typeof episodeTemplateSchema>;
 
@@ -201,10 +254,16 @@ export function episodeProblems(script: EpisodeScript | null, language: EpisodeL
   const out: string[] = [];
   if (!script) return ["لا يوجد سكربت بعد — ولّد السكربت أولًا"];
   if (!script.scenes.length) out.push("السكربت بلا مشاهد");
-  const missing = script.scenes.filter(s => !s.visual).length;
+  // An animated scene is drawn at export time if its clip is not there yet.
+  const missing = script.scenes.filter(s => !s.visual && !s.anim).length;
   if (missing) out.push(`${missing} مشهد بلا لقطة — اختر اللقطات أو شغّل الاختيار التلقائي`);
   const tl = episodeTimeline(script.scenes);
   if (tl.total > MAX_EPISODE_MINUTES * 60) out.push(`المدة ${Math.round(tl.total / 60)} دقيقة تتجاوز الحد ${MAX_EPISODE_MINUTES}`);
   if (language === "ar" && script.scenes.some(s => !/[؀-ۿ]/.test(s.narration))) out.push("بعض المشاهد ليست بالعربية رغم أن القناة عربية");
   return out;
+}
+
+/** The look that applies to an episode: its own choice, else the channel's default, else footage. */
+export function visualModeOf(script: Pick<EpisodeScript, "visualMode"> | null | undefined, template: Pick<EpisodeTemplate, "visualMode"> | null | undefined): VisualMode {
+  return script?.visualMode ?? template?.visualMode ?? "footage";
 }

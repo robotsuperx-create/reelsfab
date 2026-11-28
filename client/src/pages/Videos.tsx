@@ -16,6 +16,11 @@ import {
   OPENAI_VOICES,
   TTS_PROVIDERS,
   TTS_PROVIDER_LABELS,
+  MOTION_THEMES,
+  MOTION_THEME_LABELS,
+  VISUAL_MODES,
+  VISUAL_MODE_HINTS,
+  VISUAL_MODE_LABELS,
   VISUAL_STYLES,
   VISUAL_STYLE_LABELS,
   episodeTimeline,
@@ -23,9 +28,11 @@ import {
   timestamp,
   type EpisodeScript,
   type EpisodeStatus,
+  type MotionTheme,
   type Scene,
+  type VisualMode,
 } from "@shared/episodes";
-import { ArrowDown, ArrowUp, Check, Copy, Download, ExternalLink, Film, Image as ImageIcon, Mic, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Trash2, Tv, Wand2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Clapperboard, Copy, Download, ExternalLink, Film, Image as ImageIcon, Mic, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Trash2, Tv, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation, useRoute } from "wouter";
@@ -204,6 +211,8 @@ function ChannelSettings({ c, media, onSaved }: { c: RouterOutputs["videos"]["ch
     structure: c.episodeTemplate.structure.join("، "),
     hookSeconds: c.episodeTemplate.hookSeconds,
     cta: c.episodeTemplate.cta,
+    visualMode: (c.episodeTemplate.visualMode ?? "footage") as VisualMode,
+    motionTheme: (c.episodeTemplate.motionTheme ?? "documentary") as MotionTheme,
     guidelines: c.guidelines,
     topics: c.topicsBank.join("\n"),
     musicAssetId: c.musicAssetId,
@@ -230,7 +239,7 @@ function ChannelSettings({ c, media, onSaved }: { c: RouterOutputs["videos"]["ch
           patch: {
             name: f.name, niche: f.niche, description: f.description, language: f.language, ttsProvider: f.ttsProvider, voice: f.voice, ttsSpeed: Number(f.ttsSpeed),
             visualStyle: f.visualStyle,
-            episodeTemplate: { minutes: Number(f.minutes), structure: f.structure.split(/[،,\n]/).map(x => x.trim()).filter(Boolean), hookSeconds: Number(f.hookSeconds), cta: f.cta },
+            episodeTemplate: { minutes: Number(f.minutes), structure: f.structure.split(/[،,\n]/).map(x => x.trim()).filter(Boolean), hookSeconds: Number(f.hookSeconds), cta: f.cta, visualMode: f.visualMode, motionTheme: f.motionTheme },
             guidelines: f.guidelines, topicsBank: f.topics.split("\n").map(x => x.trim()).filter(Boolean), musicAssetId: f.musicAssetId ?? null, madeForKids: f.madeForKids, isActive: f.isActive,
             colors: c.colors,
           },
@@ -274,6 +283,21 @@ function ChannelSettings({ c, media, onSaved }: { c: RouterOutputs["videos"]["ch
         </Select>
       </div>
       <div className="flex flex-col gap-1.5">
+        <Label>شكل الحلقات (افتراضي)</Label>
+        <Select value={f.visualMode} onValueChange={v => setF({ ...f, visualMode: v as VisualMode })}>
+          <SelectTrigger aria-label="شكل الحلقات"><SelectValue /></SelectTrigger>
+          <SelectContent>{VISUAL_MODES.map(k => <SelectItem key={k} value={k}>{VISUAL_MODE_LABELS[k]}</SelectItem>)}</SelectContent>
+        </Select>
+        <p className="text-[11px] text-muted-foreground">{VISUAL_MODE_HINTS[f.visualMode]}</p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>ستايل الأنيميشن</Label>
+        <Select value={f.motionTheme} onValueChange={v => setF({ ...f, motionTheme: v as MotionTheme })} disabled={f.visualMode === "footage"}>
+          <SelectTrigger aria-label="ستايل الأنيميشن"><SelectValue /></SelectTrigger>
+          <SelectContent>{MOTION_THEMES.map(k => <SelectItem key={k} value={k}>{MOTION_THEME_LABELS[k]}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1.5">
         <Label>موسيقى الخلفية</Label>
         <Select value={f.musicAssetId ? String(f.musicAssetId) : "none"} onValueChange={v => setF({ ...f, musicAssetId: v === "none" ? null : Number(v) })}>
           <SelectTrigger aria-label="موسيقى الخلفية"><SelectValue /></SelectTrigger>
@@ -299,7 +323,7 @@ export function EpisodePage() {
   const [, params] = useRoute("/videos/episode/:id");
   const id = Number(params?.id);
   const utils = trpc.useUtils();
-  const q = trpc.videos.episode.useQuery({ id }, { enabled: Number.isFinite(id), refetchInterval: d => (d.state.data?.status === "rendering" ? 4000 : false) });
+  const q = trpc.videos.episode.useQuery({ id }, { enabled: Number.isFinite(id), refetchInterval: d => (d.state.data?.motion?.running ? 2500 : d.state.data?.status === "rendering" ? 4000 : false) });
   const media = trpc.videos.media.useQuery();
   const [script, setScript] = useState<EpisodeScript | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -318,7 +342,9 @@ export function EpisodePage() {
   const invalidate = () => { utils.videos.episode.invalidate({ id }); utils.videos.episodes.invalidate(); };
   const onErr = (e: { message: string }) => toast.error(e.message);
   const generate = trpc.videos.generateScript.useMutation({ onSuccess: r => { toast.success(`السكربت جاهز: ${r.scenes} مشهد`); setDirty(false); loadedFor.current = ""; invalidate(); }, onError: onErr });
-  const prepare = trpc.videos.prepare.useMutation({ onSuccess: r => { toast.success(`جُهّز الصوت (${r.synthesized} مشهد جديد) واللقطات (${r.picked} مختارة${r.missing ? `، ${r.missing} بلا لقطة` : ""})`); setDirty(false); loadedFor.current = ""; invalidate(); }, onError: onErr });
+  const prepare = trpc.videos.prepare.useMutation({ onSuccess: r => { toast.success(`جُهّز الصوت (${r.synthesized} مشهد جديد) واللقطات (${r.picked} مختارة${r.missing ? `، ${r.missing} بلا لقطة` : ""})${r.motion ? " — والمخرج بدأ تحريك المشاهد" : ""}`); setDirty(false); loadedFor.current = ""; invalidate(); }, onError: onErr });
+  const animate = trpc.videos.animate.useMutation({ onSuccess: () => { toast.success("بدأ المخرج — المشاهد تتحرك واحدًا تلو الآخر، الصفحة تتحدث تلقائيًا"); invalidate(); }, onError: onErr });
+  const sceneFootage = trpc.videos.sceneFootage.useMutation({ onSuccess: r => { toast.success(r.hasVisual ? "رجع المشهد إلى لقطته الحقيقية" : "رجع المشهد إلى اللقطات — اختر له لقطة"); loadedFor.current = ""; invalidate(); }, onError: onErr });
   const replan = trpc.videos.planVisuals.useMutation({
     onSuccess: r => {
       const ai = "ai" in r && r.ai;
@@ -348,8 +374,9 @@ export function EpisodePage() {
 
   if (q.isLoading || !q.data) return <div className="text-sm text-muted-foreground">{q.error ? q.error.message : "جارٍ التحميل…"}</div>;
   const e = q.data;
-  const busy = e.status === "rendering" && e.job?.status !== "queued";
-  const working = generate.isPending || prepare.isPending || replan.isPending;
+  const motionOn = Boolean(e.motion?.running);
+  const busy = (e.status === "rendering" && e.job?.status !== "queued") || motionOn;
+  const working = generate.isPending || prepare.isPending || replan.isPending || animate.isPending;
   const tl = script ? episodeTimeline(script.scenes) : null;
   const problems = script ? e.problems : ["لا يوجد سكربت بعد — ولّد السكربت أولًا"];
   const canRender = !!script && problems.length === 0 && !busy && !working;
@@ -416,6 +443,13 @@ export function EpisodePage() {
                   <Button size="sm" variant="outline" onClick={() => edit(s => ({ ...s, scenes: [...s.scenes, { id: newSceneId(), narration: "", keywords: [] }] }))} disabled={busy}><Plus /> مشهد</Button>
                 </div>
               </div>
+              <MotionPanel
+                episode={e}
+                script={script}
+                disabled={busy || working}
+                pending={animate.isPending}
+                onStart={async (mode, theme, replan) => { if (dirty && !(await save())) return; animate.mutate({ id, mode, theme, replan }); }}
+              />
               {script.scenes.map((sc, i) => (
                 <SceneCard
                   key={sc.id}
@@ -430,6 +464,8 @@ export function EpisodePage() {
                   onRemove={() => edit(s => ({ ...s, scenes: s.scenes.filter(x => x.id !== sc.id) }))}
                   onPick={() => setPicker(sc.id)}
                   onClearVisual={() => setVisual.mutate({ id, sceneId: sc.id, visual: null })}
+                  onAnimate={async () => { if (dirty && !(await save())) return; animate.mutate({ id, sceneIds: [sc.id] }); }}
+                  onFootage={() => sceneFootage.mutate({ id, sceneId: sc.id })}
                 />
               ))}
               <div className="panel p-4 text-sm">
@@ -505,13 +541,15 @@ function PublishForm({ current, onSave }: { current: string | null; onSave: (url
   );
 }
 
-function SceneCard({ scene, index, start, count, language, disabled, onChange, onMove, onRemove, onPick, onClearVisual }: {
+function SceneCard({ scene, index, start, count, language, disabled, onChange, onMove, onRemove, onPick, onClearVisual, onAnimate, onFootage }: {
   scene: Scene; index: number; start: number; count: number; language: "ar" | "en"; disabled: boolean;
-  onChange: (s: Scene) => void; onMove: (d: -1 | 1) => void; onRemove: () => void; onPick: () => void; onClearVisual: () => void;
+  onChange: (s: Scene) => void; onMove: (d: -1 | 1) => void; onRemove: () => void; onPick: () => void; onClearVisual: () => void; onAnimate: () => void; onFootage: () => void;
 }) {
   const v = scene.visual;
+  const anim = scene.anim;
+  const drawn = Boolean(anim && v?.anim);
   return (
-    <div className={cn("panel grid gap-3 p-3 md:grid-cols-[200px_minmax(0,1fr)]", !v && "border-hold/40")}>
+    <div className={cn("panel grid gap-3 p-3 md:grid-cols-[200px_minmax(0,1fr)]", !v && !anim && "border-hold/40", anim && "border-tally/40")}>
       <div>
         <button type="button" onClick={onPick} disabled={disabled} className="relative block aspect-video w-full overflow-hidden rounded-lg border border-border bg-black text-left hover:border-tally" aria-label={`لقطة المشهد ${index + 1}`}>
           {v ? (
@@ -519,12 +557,19 @@ function SceneCard({ scene, index, start, count, language, disabled, onChange, o
           ) : (
             <div className="grid h-full place-items-center text-xs text-hold">بلا لقطة — اضغط للاختيار</div>
           )}
-          {v && <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">{v.kind === "video" ? "فيديو" : "صورة"}{v.auto ? " · تلقائي" : ""}</span>}
+          {v && !anim && <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">{v.kind === "video" ? "فيديو" : "صورة"}{v.auto ? " · تلقائي" : ""}</span>}
+          {anim && <span className={cn("absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-semibold", drawn ? "bg-tally text-black" : "bg-black/75 text-tally")}>{drawn ? "أنيميشن" : anim.error ? "أنيميشن · تعذّر الرسم" : "أنيميشن · يُرسم عند التصدير"}</span>}
+          {anim && <span className="absolute bottom-1 left-1 right-1 truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">{animSummary(anim.beats)}</span>}
         </button>
         {v?.credit && <div dir="ltr" className="mt-1 truncate text-left text-[10px] text-muted-foreground" title={v.credit}>{v.credit}</div>}
         <div className="mt-1.5 flex gap-1">
-          <Button size="sm" variant="outline" onClick={onPick} disabled={disabled}><Search /> تغيير</Button>
-          {v && <Button size="sm" variant="ghost" onClick={onClearVisual} disabled={disabled} aria-label="إزالة اللقطة"><Trash2 /></Button>}
+          <Button size="sm" variant="outline" onClick={onPick} disabled={disabled} title="اختيار لقطة حقيقية"><Search /> تغيير</Button>
+          {anim ? (
+            <Button size="sm" variant="ghost" onClick={onFootage} disabled={disabled} title="إرجاع المشهد إلى اللقطة الحقيقية"><Film /> لقطة</Button>
+          ) : (
+            <Button size="sm" variant="ghost" onClick={onAnimate} disabled={disabled || !scene.narration.trim()} title="المخرج يحرّك هذا المشهد"><Clapperboard /> حرّك</Button>
+          )}
+          {v && !anim && <Button size="sm" variant="ghost" onClick={onClearVisual} disabled={disabled} aria-label="إزالة اللقطة"><Trash2 /></Button>}
         </div>
       </div>
       <div className="min-w-0 space-y-2">
@@ -546,6 +591,86 @@ function SceneCard({ scene, index, start, count, language, disabled, onChange, o
           <Input dir="ltr" value={scene.keywords.join(", ")} onChange={ev => onChange({ ...scene, keywords: ev.target.value.split(",").map(x => x.trim()).filter(Boolean).slice(0, 8) })} placeholder="stock keywords" disabled={disabled} aria-label="كلمات البحث" />
         </div>
       </div>
+    </div>
+  );
+}
+
+const BEAT_LABEL: Record<string, string> = {
+  map: "خريطة", stat: "رقم", bars: "أعمدة", flags: "أعلام", person: "شخصية", timeline: "خط زمني", quote: "اقتباس", list: "قائمة", compare: "مقارنة",
+  kinetic: "نص متحرك", title: "عنوان", icon: "أيقونة", photo: "صورة", clip: "لقطة", text: "نص", progress: "نسبة", lowerThird: "تعريف",
+};
+/** What an animated scene shows, in words: "خريطة ← رقم". */
+function animSummary(beats: Record<string, unknown>[]) {
+  return beats
+    .map(b => {
+      const media = b.media as { type?: string } | undefined;
+      const items = (b.items as { type?: string }[] | undefined) ?? [];
+      const lead = items.find(i => i.type && !["kicker", "source", "lowerThird", "sfx"].includes(i.type))?.type;
+      const kind = media?.type === "map" ? "map" : lead ?? media?.type ?? "";
+      return BEAT_LABEL[kind] ?? kind;
+    })
+    .filter(Boolean)
+    .join(" ← ");
+}
+
+/** The episode's look: footage / animation / mixed, the motion style, and the director's progress. */
+function MotionPanel({ episode, script, disabled, pending, onStart }: { episode: EpisodeFull; script: EpisodeScript; disabled: boolean; pending: boolean; onStart: (mode: VisualMode, theme: MotionTheme, replan: boolean) => void }) {
+  const [mode, setMode] = useState<VisualMode>(episode.visualMode);
+  const [theme, setTheme] = useState<MotionTheme>((script.motionTheme ?? episode.channel.motionTheme ?? "documentary") as MotionTheme);
+  useEffect(() => setMode(episode.visualMode), [episode.visualMode]);
+  const engines = trpc.videos.motionStatus.useQuery({ id: episode.id }, { staleTime: 60_000 });
+  const job = episode.motion;
+  const animated = script.scenes.filter(s => s.anim).length;
+  const drawn = script.scenes.filter(s => s.anim && s.visual?.anim).length;
+  const noBrain = engines.data && !engines.data.engines.claudeCode && !engines.data.engines.api;
+  const pct = job?.running && job.total ? Math.round((job.done / job.total) * 100) : 0;
+  return (
+    <div className="panel space-y-3 p-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex min-w-[220px] flex-1 flex-col gap-1.5">
+          <Label>شكل الحلقة</Label>
+          <Select value={mode} onValueChange={v => setMode(v as VisualMode)} disabled={disabled}>
+            <SelectTrigger aria-label="شكل الحلقة"><SelectValue /></SelectTrigger>
+            <SelectContent>{VISUAL_MODES.map(k => <SelectItem key={k} value={k}>{VISUAL_MODE_LABELS[k]}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        {mode !== "footage" && (
+          <div className="flex min-w-[180px] flex-col gap-1.5">
+            <Label>ستايل الأنيميشن</Label>
+            <Select value={theme} onValueChange={v => setTheme(v as MotionTheme)} disabled={disabled}>
+              <SelectTrigger aria-label="ستايل الأنيميشن"><SelectValue /></SelectTrigger>
+              <SelectContent>{MOTION_THEMES.map(k => <SelectItem key={k} value={k}>{MOTION_THEME_LABELS[k]}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {mode === "footage" ? (
+            animated > 0 && <Button variant="outline" onClick={() => onStart("footage", theme, false)} disabled={disabled}><Film /> أرجع كل المشاهد إلى اللقطات</Button>
+          ) : (
+            <>
+              <Button onClick={() => onStart(mode, theme, false)} disabled={disabled || noBrain || (mode === episode.visualMode && theme === (script.motionTheme ?? theme) && script.scenes.every(s => s.anim || s.footage) && drawn === animated)} className="bg-tally font-bold text-black hover:bg-tally/90">
+                {pending || job?.running ? <RefreshCw className="animate-spin" /> : <Clapperboard />} {animated ? "حرّك المشاهد الباقية" : "حرّك المشاهد"}
+              </Button>
+              {animated > 0 && <Button variant="outline" onClick={() => { if (confirm("يعيد المخرج تخطيط كل المشاهد ورسمها من جديد؟")) onStart(mode, theme, true); }} disabled={disabled || noBrain}><RefreshCw /> أعد التخطيط للكل</Button>}
+            </>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {VISUAL_MODE_HINTS[mode]}. الصوت والترجمة والفصول تبقى كما هي، وكل مشهد متحرك يُرسم على طول تعليقه بالضبط.
+        {animated > 0 && <span className="num"> الآن: {animated} مشهد متحرك ({drawn} مرسوم) · {script.scenes.length - animated} لقطة حقيقية.</span>}
+      </p>
+      {noBrain && <p className="text-xs text-hold">المخرج يحتاج عقلًا: سجّل الدخول في Claude Code على هذا الجهاز (باشتراكك)، أو أضف مفتاح Claude من مركز التكاملات.</p>}
+      {job && (job.running || job.stage === "failed" || Date.now() - job.at < 5 * 60_000) && (
+        <div className={cn("rounded-lg border p-3 text-xs", job.stage === "failed" ? "border-stop/40 bg-stop/10 text-stop" : "border-tally/30 bg-tally/5")}>
+          <div className="flex items-center justify-between gap-2 font-semibold">
+            <span>{job.running ? (job.stage === "drawing" ? "يرسم المشاهد المتحركة…" : "المخرج يخطط المشاهد…") : job.stage === "failed" ? "توقف المخرج" : "انتهى المخرج"}</span>
+            {job.running && job.total > 0 && <span className="num">{job.done}/{job.total}</span>}
+          </div>
+          {job.running && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full bg-tally transition-all" style={{ width: `${pct}%` }} /></div>}
+          <div className="mt-2 space-y-0.5 font-mono text-[11px] text-muted-foreground">{job.log.slice(-4).map((l, i) => <div key={i} className="truncate">{l}</div>)}</div>
+        </div>
+      )}
     </div>
   );
 }

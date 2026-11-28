@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { assets, channels, episodes, renderJobs } from "../../drizzle/schema";
-import { channelUpdateSchema, episodeProblems, episodeScriptSchema, sceneSchema } from "../../shared/episodes";
+import { MOTION_THEMES, VISUAL_MODES, channelUpdateSchema, episodeProblems, episodeScriptSchema, sceneSchema, visualModeOf } from "../../shared/episodes";
 import { requireDb } from "../db";
 import { memberProcedure, teamAdminProcedure } from "../procedures";
 import { router } from "../_core/trpc";
@@ -12,6 +12,12 @@ import { storageKeyFromUrl } from "../storage";
 import { generateImageAsset, imageProviderReady, resolveImageModel } from "../services/ai-images";
 import { IMAGE_TIERS, IMAGE_TIER_DEFAULTS, imagePromptFor } from "../../shared/images";
 import { enqueueEpisode, runJobNow } from "../worker/jobs";
+import { motionJob, motionRunning, startEpisodeMotion, toFootage } from "../services/episode-motion";
+import { agentEngines } from "../services/code-agent";
+
+const motionBusy = (id: number) => {
+  if (motionRunning(id)) throw new TRPCError({ code: "CONFLICT", message: "المخرج يحرّك مشاهد هذه الحلقة الآن — انتظر انتهاءه" });
+};
 
 const bad = (e: unknown) => new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
 function assertStockHost(url: string) {
@@ -77,7 +83,9 @@ export const videosRouter = router({
       script,
       problems: episodeProblems(script, channel.language),
       job: job ?? null,
-      channel: { id: channel.id, name: channel.name, language: channel.language, visualStyle: channel.visualStyle, madeForKids: channel.madeForKids, colors: channel.colors, voice: channel.voice, ttsProvider: channel.ttsProvider },
+      channel: { id: channel.id, name: channel.name, language: channel.language, visualStyle: channel.visualStyle, madeForKids: channel.madeForKids, colors: channel.colors, voice: channel.voice, ttsProvider: channel.ttsProvider, visualMode: channel.episodeTemplate.visualMode ?? "footage", motionTheme: channel.episodeTemplate.motionTheme ?? null },
+      visualMode: visualModeOf(script, channel.episodeTemplate),
+      motion: motionJob(input.id),
     };
   }),
 
@@ -109,9 +117,56 @@ export const videosRouter = router({
   /** Step 2 — narration per scene (cached) + free stock for every scene without a visual. */
   prepare: memberProcedure.input(z.object({ id: z.number().int() })).mutation(({ input, ctx }) =>
     exclusive(`ep:${input.id}`, async () => {
-      return prepareEpisode(input.id, ctx.user.id).catch(e => { throw bad(e); });
+      motionBusy(input.id);
+      const r = await prepareEpisode(input.id, ctx.user.id).catch(e => { throw bad(e); });
+      // Animation or mixed: the director takes over in the background once the voice has set the timing.
+      const { episode, channel } = await loadEpisode(input.id);
+      const script = episode.script ? episodeScriptSchema.parse(episode.script) : null;
+      let motion = false;
+      if (script && visualModeOf(script, channel.episodeTemplate) !== "footage" && script.scenes.some(s => !s.anim && !s.footage)) {
+        try {
+          startEpisodeMotion(input.id, { userId: ctx.user.id });
+          motion = true;
+        } catch (e) {
+          console.warn(`[episodes] motion for #${input.id} not started:`, e instanceof Error ? e.message : e);
+        }
+      }
+      return { ...r, motion };
     }),
   ),
+
+  /** The director animates the scenes (all, the ones without a plan, or the chosen ones) in the background. */
+  animate: memberProcedure
+    .input(z.object({ id: z.number().int(), mode: z.enum(VISUAL_MODES).optional(), theme: z.enum(MOTION_THEMES).optional(), sceneIds: z.array(z.string().max(40)).max(60).optional(), replan: z.boolean().default(false), engine: z.enum(["claude-code", "api"]).optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const { episode } = await loadEpisode(input.id).catch(e => { throw bad(e); });
+      if (episode.status === "rendering") throw new TRPCError({ code: "BAD_REQUEST", message: "الرندر جارٍ — انتظر انتهاءه" });
+      if (!episode.script) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد سكربت بعد — ولّد السكربت أولًا" });
+      if (busy.has(`ep:${input.id}`)) throw new TRPCError({ code: "CONFLICT", message: "عملية أخرى قيد التنفيذ على هذه الحلقة — انتظر انتهاءها" });
+      try {
+        startEpisodeMotion(input.id, { mode: input.mode, theme: input.theme, sceneIds: input.sceneIds, replan: input.replan, engine: input.engine, userId: ctx.user.id });
+      } catch (e) {
+        throw new TRPCError({ code: "CONFLICT", message: e instanceof Error ? e.message : String(e) });
+      }
+      return { started: true };
+    }),
+
+  /** Progress of the director's background work on an episode, and which brains are available. */
+  motionStatus: memberProcedure.input(z.object({ id: z.number().int() })).query(async ({ input }) => ({ job: motionJob(input.id), engines: await agentEngines() })),
+
+  /** One animated scene back to real footage (the picture it had before, if any). */
+  sceneFootage: memberProcedure.input(z.object({ id: z.number().int(), sceneId: z.string() })).mutation(async ({ input }) => {
+    motionBusy(input.id);
+    const db = await requireDb();
+    const { episode } = await loadEpisode(input.id).catch(e => { throw bad(e); });
+    if (!episode.script) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد سكربت" });
+    const script = episodeScriptSchema.parse(episode.script);
+    const scene = script.scenes.find(s => s.id === input.sceneId);
+    if (!scene) throw new TRPCError({ code: "NOT_FOUND", message: "المشهد غير موجود" });
+    toFootage(scene);
+    await db.update(episodes).set({ script, updatedAt: new Date() }).where(eq(episodes.id, input.id));
+    return { ok: true, hasVisual: Boolean(scene.visual) };
+  }),
 
   /** Re-pick visuals: all scenes (replace the automatic picks) or only the empty ones. */
   planVisuals: memberProcedure
@@ -124,6 +179,7 @@ export const videosRouter = router({
   updateScript: memberProcedure
     .input(z.object({ id: z.number().int(), script: episodeScriptSchema }))
     .mutation(async ({ input }) => {
+      motionBusy(input.id);
       const db = await requireDb();
       const { episode, channel } = await loadEpisode(input.id).catch(e => { throw bad(e); });
       if (episode.status === "rendering") throw new TRPCError({ code: "BAD_REQUEST", message: "الرندر جارٍ — انتظر انتهاءه" });
@@ -157,13 +213,20 @@ export const videosRouter = router({
       const script = episodeScriptSchema.parse(episode.script);
       const scene = script.scenes.find(s => s.id === input.sceneId);
       if (!scene) throw new TRPCError({ code: "NOT_FOUND", message: "المشهد غير موجود" });
-      scene.visual = input.visual ? { ...input.visual, auto: false } : undefined;
+      motionBusy(input.id);
+      // Choosing a picture by hand puts the scene on footage.
+      if (input.visual) {
+        delete scene.anim;
+        scene.footage = true;
+      }
+      scene.visual = input.visual ? { ...input.visual, auto: false, anim: undefined } : undefined;
       await db.update(episodes).set({ script, updatedAt: new Date() }).where(eq(episodes.id, input.id));
       return { ok: true };
     }),
 
   /** Step 3 — final render through the queue, started right away. */
   render: memberProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+    motionBusy(input.id);
     const { episode, channel } = await loadEpisode(input.id).catch(e => { throw bad(e); });
     const script = episode.script ? episodeScriptSchema.parse(episode.script) : null;
     const problems = episodeProblems(script, channel.language);

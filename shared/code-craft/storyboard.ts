@@ -419,7 +419,7 @@ export function mediaSlots(sb: Storyboard): MediaSlot[] {
  * `geo`: map geometry per scene (computed by the studio), carried inside the page. `media`: pictures inlined for the
  * in-browser preview (the recorder fetches them itself).
  */
-export function compileStoryboard(sb: Storyboard, opts: { width: number; height: number; durationSec: number; geo?: Record<string, unknown>; media?: Record<string, string> }) {
+export function compileStoryboard(sb: Storyboard, opts: { width: number; height: number; durationSec: number; geo?: Record<string, unknown>; media?: Record<string, string>; reserve?: number }) {
   const lang = sb.lang ?? (/[؀-ۿ]/.test(JSON.stringify(sb.scenes)) ? "ar" : "en");
   const dir = /^(ar|fa|ur|he)$/.test(lang) ? "rtl" : "ltr";
   const safe = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
@@ -435,7 +435,7 @@ ${table}${KIT_PLACEHOLDER}
 </head>
 <body>
 <script type="application/json" id="cv-storyboard">${json}</script>
-<script>CV.play(JSON.parse(document.getElementById("cv-storyboard").textContent), { width: ${opts.width}, height: ${opts.height}, duration: ${opts.durationSec} });</script>
+<script>CV.play(JSON.parse(document.getElementById("cv-storyboard").textContent), { width: ${opts.width}, height: ${opts.height}, duration: ${opts.durationSec}${opts.reserve ? `, reserve: ${Math.round(opts.reserve)}` : ""} });</script>
 </body>
 </html>`;
 }

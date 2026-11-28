@@ -132,7 +132,7 @@ export function parseReview(raw: string): { scores: Partial<CriticScores>; issue
   return { scores, issues, overall };
 }
 
-const SERIOUS = /too long|crowded|need about|empty scene|no scenes|shorter than|unknown item|too late/;
+export const SERIOUS = /too long|crowded|need about|empty scene|no scenes|shorter than|unknown item|too late/;
 
 async function defaultMeasure(html: string, width: number, height: number, durationSec: number) {
   const raw = await inspectCode({ html, width, height, durationSec });

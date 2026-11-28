@@ -148,9 +148,10 @@
 
   /* ------------------------------------------------------------------ CSS */
 
-  function css(t, W, H, u) {
+  function css(t, W, H, u, reserve) {
     var vertical = H > W;
-    var safeT = vertical ? 200 * u : 90 * u, safeB = vertical ? 330 * u : 110 * u, safeX = vertical ? 76 * u : 150 * u;
+    // reserve: extra room kept clear at the bottom (burned-in subtitles of a narrated episode).
+    var safeT = vertical ? 200 * u : 90 * u, safeB = (vertical ? 330 * u : 110 * u) + (reserve || 0) * u, safeX = vertical ? 76 * u : 150 * u;
     var px = function (n) { return Math.round(n * u) + "px"; };
     var sz = vertical
       ? { xl: 156, l: 122, m: 98, s: 80, text: 58, kicker: 42, small: 34, stat: 270 }
@@ -393,7 +394,8 @@
     document.documentElement.dir = rtl ? "rtl" : "ltr";
     var u = Math.min(W, H) / 1080;
     var style = el("style", "", document.head);
-    style.textContent = css(t, W, H, u) + (overlay ? "\nhtml,body{background:transparent!important}#cv-stage.cv-over{background:transparent}" : "");
+    var reserve = Math.max(0, Math.min(400, num(o.reserve, 0)));
+    style.textContent = css(t, W, H, u, reserve) + (overlay ? "\nhtml,body{background:transparent!important}#cv-stage.cv-over{background:transparent}" : "");
     var st = el("div", "", null);
     st.id = "cv-stage";
     var vars = { "--bg": t.bg, "--ink": t.ink, "--ink2": t.ink2 || t.ink, "--mute": t.mute, "--accent": t.accent, "--accent2": t.accent2 || t.accent, "--panel": t.panel, "--line": t.line,
@@ -417,7 +419,7 @@
     var vertical = H > W;
     var cv = { W: W, H: H, duration: D, theme: t, u: u, tl: tl, stage: st, rtl: rtl, pace: num(o.pace, t.pace || 1), scenes: [], fieldIndex: 0, overlay: overlay,
       themeName: THEMES[o.theme] ? o.theme : "documentary", grade: o.grade, geo: o.geo || {}, mediaCount: 0,
-      safe: { t: vertical ? 200 * u : 90 * u, b: vertical ? 330 * u : 110 * u, x: vertical ? 76 * u : 150 * u } };
+      safe: { t: vertical ? 200 * u : 90 * u, b: (vertical ? 330 * u : 110 * u) + reserve * u, x: vertical ? 76 * u : 150 * u } };
     // Sound design: every movement logs a cue (time, effect, gain); the recorder turns them into the soundtrack,
     // over a music bed of the chosen mood. Nothing plays in the page itself.
     var snd = o.sound || {};
@@ -1363,7 +1365,7 @@
   function play(sb, o) {
     o = o || {};
     sb = sb || {};
-    var cv = create({ width: o.width || sb.width, height: o.height || sb.height, duration: o.duration || sb.duration, theme: sb.theme, accent: sb.accent, accent2: sb.accent2, lang: sb.lang, fonts: sb.fonts, pace: sb.pace, sound: sb.sound, overlay: o.overlay || sb.overlay, grade: sb.grade, geo: sb.__geo });
+    var cv = create({ width: o.width || sb.width, height: o.height || sb.height, duration: o.duration || sb.duration, theme: sb.theme, accent: sb.accent, accent2: sb.accent2, lang: sb.lang, fonts: sb.fonts, pace: sb.pace, sound: sb.sound, overlay: o.overlay || sb.overlay, grade: sb.grade, geo: sb.__geo, reserve: o.reserve });
     if (sb.progress) cv.progress();
     if (sb.brand && sb.brand.logo) {
       cv.brand = sb.brand;
@@ -1386,5 +1388,5 @@
     return cv;
   }
 
-  window.CV = { create: create, play: play, themes: THEMES, icons: Object.keys(ICONS), components: API.slice(), version: "1.4.0" };
+  window.CV = { create: create, play: play, themes: THEMES, icons: Object.keys(ICONS), components: API.slice(), version: "1.5.0" };
 })();

@@ -339,7 +339,18 @@ export async function finishEpisodeRender(episodeId: number, opts?: { preview?: 
   if (problems.length) throw new Error(problems[0]);
   const speedNow = (Number(channel.ttsSpeed) || 100) / 100;
   if (script.scenes.some(s => !s.durationSec || !s.narrationKey || s.narrationHash !== narrationHash(s.narration, channel.voice, channel.ttsProvider, speedNow))) await prepareNarration(episodeId);
-  const fresh = episodeScriptSchema.parse((await loadEpisode(episodeId)).episode.script);
+  // Animated scenes are drawn (or redrawn after a narration change) to the exact length of their voice.
+  if (script.scenes.some(s => s.anim)) {
+    const { drawMotionClips } = await import("./episode-motion");
+    await drawMotionClips(episodeId);
+  }
+  let fresh = episodeScriptSchema.parse((await loadEpisode(episodeId)).episode.script);
+  if (fresh.scenes.some(s => !s.visual)) {
+    await planVisuals(episodeId, { onlyMissing: true });
+    fresh = episodeScriptSchema.parse((await loadEpisode(episodeId)).episode.script);
+    const empty = fresh.scenes.findIndex(s => !s.visual);
+    if (empty >= 0) throw new Error(`المشهد ${empty + 1} بلا صورة${fresh.scenes[empty].anim?.error ? ` (تعذّر رسم الأنيميشن: ${fresh.scenes[empty].anim!.error!.slice(0, 120)})` : ""} — اختر له لقطة`);
+  }
   const dir = await mkdtemp(join(tmpdir(), "episode-src-"));
   try {
     const scenes = [];
@@ -356,7 +367,8 @@ export async function finishEpisodeRender(episodeId: number, opts?: { preview?: 
       const wav = join(dir, `${s.id}${s.narrationKey!.endsWith(".m4a") ? ".m4a" : ".wav"}`);
       await writeFile(wav, await storageDownload(s.narrationKey!));
       const source: SceneSource = v.kind === "video" ? { kind: "video", file, in: v.in ?? 0 } : { kind: "image", file, motion: v.motion ?? "slow_push" };
-      scenes.push({ ...s, source, wav, durationSec: s.durationSec! });
+      // An animated scene carries its own on-screen words: no lower-third title on top of it.
+      scenes.push({ ...s, ...(v.anim ? { title: undefined } : {}), source, wav, durationSec: s.durationSec! });
       sceneWords.push(wordTimings(s.narration, 0.05, s.durationSec!));
     }
     let musicFile: string | null = null;

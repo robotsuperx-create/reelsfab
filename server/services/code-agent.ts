@@ -125,11 +125,12 @@ async function askClaudeCode(system: string, prompt: string, images: Buffer[] = 
   }
 }
 
-export async function ask(engine: CodeAgentEngine, system: string, prompt: string, ref: { id: number; userId?: number | null; what: string }, images: Buffer[] = []) {
+export async function ask(engine: CodeAgentEngine, system: string, prompt: string, ref: { id: number; userId?: number | null; what: string; refType?: "code_video" | "episode" }, images: Buffer[] = []) {
   if (engine === "claude-code") return askClaudeCode(system, prompt, images);
   const settings = await getSettings().catch(() => null);
   const model = (settings as { episodeModel?: string } | null)?.episodeModel || CLAUDE_DEFAULT_MODEL;
-  return callText({ model, system, prompt, images: images.length ? images.map(b => `data:image/jpeg;base64,${b.toString("base64")}`) : undefined, maxTokens: 20000, description: `كود ← فيديو #${ref.id}: ${ref.what}`, refType: "code_video", refId: ref.id, userId: ref.userId ?? undefined });
+  const episode = ref.refType === "episode";
+  return callText({ model, system, prompt, images: images.length ? images.map(b => `data:image/jpeg;base64,${b.toString("base64")}`) : undefined, maxTokens: episode ? 32000 : 20000, description: episode ? `أنيميشن الحلقة #${ref.id}: ${ref.what}` : `كود ← فيديو #${ref.id}: ${ref.what}`, refType: ref.refType ?? "code_video", refId: ref.id, userId: ref.userId ?? undefined });
 }
 
 /* ------------------------------------------------------------ prompts */
