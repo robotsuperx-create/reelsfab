@@ -86,7 +86,7 @@ export type AgentMode = (typeof AGENT_MODES)[number];
 export const AGENT_MODE_LABELS: Record<AgentMode, string> = { compose: "مخرج + مكتبة القطع (مستحسن)", code: "كود حر بالكامل" };
 
 export const codeAgentInputSchema = z.object({
-  idea: z.string().trim().min(8, "اكتب الفكرة بجملة على الأقل").max(4000),
+  idea: z.string().trim().min(8, "اكتب الفكرة بجملة على الأقل").max(12000, "الفكرة أطول من 12000 حرف — اختصرها"),
   size: codeVideoInputSchema.shape.size,
   durationSec: codeVideoInputSchema.shape.durationSec,
   fps: codeVideoInputSchema.shape.fps,
