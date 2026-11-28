@@ -12,8 +12,9 @@ const { chromium } = await import(pathToFileURL("C:/Users/HP/Projects/reelsfab/n
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".mjs": "text/javascript" };
 const server = createServer(async (req, res) => {
   try {
-    const p = decodeURIComponent(new URL(req.url, "http://x").pathname);
-    const body = await readFile(join(dir, p === "/" ? "index.html" : p));
+    let p = decodeURIComponent(new URL(req.url, "http://x").pathname);
+    if (p === "/") p = "/index.html";
+    const body = await readFile(join(dir, p));
     res.writeHead(200, { "content-type": types[extname(p)] ?? "application/octet-stream" });
     res.end(body);
   } catch { res.writeHead(404); res.end(); }
