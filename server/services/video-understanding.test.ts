@@ -66,3 +66,40 @@ describe("video understanding", () => {
     expect(r2).toBeLessThan(60);
   }, 120_000);
 });
+
+import { alignToVoice, voicedFromSilences } from "./video-understanding";
+
+describe("putting Whisper words back on the voice", () => {
+  // A real 12 s clip: the speaker starts at 0.6 s; local Whisper put the first word at 0.
+  const log = [
+    "Duration: 00:00:12.00, start: 0.000000",
+    "silence_start: 0", "silence_end: 0.414104", "silence_start: 0.46075", "silence_end: 0.603833",
+    "silence_start: 2.469187", "silence_end: 2.727104", "silence_start: 3.056854", "silence_end: 3.195208",
+    "silence_start: 3.510312", "silence_end: 4.008729", "silence_start: 5.248417", "silence_end: 5.421375",
+    "silence_start: 5.482354", "silence_end: 5.90275", "silence_start: 7.215312", "silence_end: 7.339583",
+    "silence_start: 7.440854", "silence_end: 7.822458", "silence_start: 8.370979", "silence_end: 11.583812",
+  ].join("\n");
+  const words = ["لا", "تجعل", "خلافا", "عابرا", "يهدم", "علاقة", "جميلة", "بنتها", "سنوات", "من", "المحبة"].map((word, i) => ({ word, start: [0, 0.68, 1.1, 1.74, 2.46, 3.48, 4.5, 5.54, 6.44, 7.34, 7.94][i], end: [0.68, 1.1, 1.74, 2.46, 3.48, 4.5, 5.54, 6.44, 7.34, 7.94, 8.6][i] }));
+
+  it("finds the voiced stretches between silences", () => {
+    const v = voicedFromSilences(log, 12);
+    expect(v[0].start).toBeCloseTo(0.604, 2);
+    expect(v.some(x => Math.abs(x.end - 8.371) < 0.01)).toBe(true);
+    expect(v.some(x => x.start > 8.4 && x.end < 11.5)).toBe(false);
+  });
+
+  it("moves the words onto the voice, in order, and never before it starts", () => {
+    const a = alignToVoice(words, voicedFromSilences(log, 12));
+    expect(a[0].start).toBeCloseTo(0.604, 2);
+    expect(a.at(-1)!.end).toBeLessThanOrEqual(8.38);
+    for (let i = 1; i < a.length; i++) expect(a[i].start).toBeGreaterThanOrEqual(a[i - 1].end - 1e-6);
+    // No word starts inside a silence.
+    const v = voicedFromSilences(log, 12);
+    for (const w of a) expect(v.some(x => w.start >= x.start - 1e-3 && w.start <= x.end + 1e-3)).toBe(true);
+  });
+
+  it("keeps Whisper's timings when the voice cannot be told from the background", () => {
+    expect(alignToVoice(words, [{ start: 0, end: 60 }])).toBe(words);
+    expect(alignToVoice(words, [])).toBe(words);
+  });
+});

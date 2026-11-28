@@ -23,7 +23,7 @@ import { KIT_API_DOC } from "../../shared/code-craft/kit";
 import { guessKind, type VideoKind } from "../../shared/code-craft/knowledge";
 import { composeVideo, type Review } from "./code-director";
 import { storageDownload, storageKeyFromUrl } from "../storage";
-import { detectScenes, frameTimes, grabFrames, mapForPrompt, probeVideo, sceneIndex, sentencesFrom, transcribeLocal, transcribeOpenAI, type FrameNote, type VideoMap, type Word } from "./video-understanding";
+import { alignToVoice, detectScenes, frameTimes, grabFrames, mapForPrompt, probeVideo, sceneIndex, sentencesFrom, transcribeLocal, transcribeOpenAI, voicedIntervals, type FrameNote, type VideoMap, type Word } from "./video-understanding";
 import { getDb, getSettings, requireDb } from "../db";
 import { captureStills, overlayStills, renderCodeVideo } from "../worker/code-video";
 import { callText } from "./ai";
@@ -459,7 +459,8 @@ THIS FILE IS AN OVERLAY on top of a real video. Extra hard rules:
 - The page background MUST be fully transparent: html, body { background: transparent !important }. No full-frame opaque layers, no vignette that hides the video. Small panels behind text are allowed if semi-transparent.
 - Never cover the main subject's box or faces given in the video map; put text in the listed free areas for that moment.
 - Text must stay legible over moving footage: strong weight, text-shadow or stroke, or a soft translucent pill behind it.
-- Captions of speech must use the WORD timings given in the map exactly (show each phrase from its first word's start to its last word's end); never invent words that were not said.
+- Captions of speech must use the WORD timings given in the map exactly: a phrase appears AT its first word's start (never before — the viewer must hear it first or at the same moment) and stays until at least 0.4 s after its last word ends (or until the next phrase). Never invent words that were not said.
+- Any graphic, icon or rewritten line about something said appears when that word is said (its start time), not earlier.
 - Total duration = the video's duration. Sync titles, emphasis and graphics to the scene cuts and to what is said.`;
 }
 
@@ -522,6 +523,16 @@ async function writeOverlay(id: number, autoConvert: boolean) {
       if (info.hasAudio) {
         await log(id, opts.transcriber === "openai" ? "› يفرّغ الكلام (OpenAI Whisper)…" : "› يفرّغ الكلام على هذا الجهاز (Whisper — أول مرة ينزّل النموذج ~250MB)…");
         words = opts.transcriber === "openai" ? await transcribeOpenAI(src.path, lang) : await transcribeLocal(src.path, lang);
+        if (opts.transcriber !== "openai" && words.length) {
+          // Local Whisper places words ahead of the voice: put them back on what is actually heard.
+          const voiced = await voicedIntervals(src.path).catch(() => []);
+          const aligned = alignToVoice(words, voiced);
+          if (aligned !== words) {
+            const shift = aligned[0].start - words[0].start;
+            words = aligned;
+            await log(id, `› ضبط توقيت الكلمات على الصوت الفعلي (أول كلمة ${shift >= 0 ? "+" : ""}${shift.toFixed(2)} ث)`);
+          }
+        }
         await log(id, `✓ ${words.length} كلمة بتوقيتها`);
       }
       const cuts = await detectScenes(src.path);
@@ -535,11 +546,18 @@ async function writeOverlay(id: number, autoConvert: boolean) {
         const inScene = notes.filter(n => n.scene === i);
         return { index: i, start, end: bounds[i + 1], summary: inScene.map(n => n.what).filter(Boolean).slice(0, 2).join(" ثم ") || "—" };
       });
-      map = { ...info, language: lang, words, sentences: sentencesFrom(words), scenes, frames: notes, transcriber: info.hasAudio ? (opts.transcriber ?? "local") : "none" };
+      map = { ...info, aligned: true, language: lang, words, sentences: sentencesFrom(words), scenes, frames: notes, transcriber: info.hasAudio ? (opts.transcriber ?? "local") : "none" };
       const size = sizeForSource(info.width, info.height);
       await db.update(codeVideos).set({ analysis: { ...opts, map }, width: size.width, height: size.height, durationSec: Math.max(1, Math.round(info.duration)), status: "writing", updatedAt: new Date() }).where(eq(codeVideos.id, id));
       await log(id, "✓ فهم الفيديو ثانية بثانية — يكتب الأنيميشن فوقه…");
     } else {
+      if (!map.aligned && map.transcriber === "local" && map.words?.length) {
+        // A map made before the alignment existed: re-time its words on the voice once.
+        const words = alignToVoice(map.words, await voicedIntervals(src.path).catch(() => []));
+        map = { ...map, aligned: true, words, sentences: sentencesFrom(words) };
+        await db.update(codeVideos).set({ analysis: { ...opts, map } }).where(eq(codeVideos.id, id));
+        await log(id, "› ضبط توقيت الكلمات على الصوت الفعلي");
+      }
       await db.update(codeVideos).set({ status: "writing", updatedAt: new Date() }).where(eq(codeVideos.id, id));
     }
     const [fresh] = await db.select().from(codeVideos).where(eq(codeVideos.id, id));

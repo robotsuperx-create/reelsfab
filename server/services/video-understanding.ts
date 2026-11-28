@@ -19,6 +19,8 @@ const run = promisify(execFile);
 export type Word = { word: string; start: number; end: number };
 export type FrameNote = { t: number; scene: number; what: string; subject?: string; subjectBox?: [number, number, number, number]; free: string[]; textOnScreen?: string; colors?: string };
 export type VideoMap = {
+  /** Word timings were put back on the voiced audio (local Whisper runs ahead of the speech). */
+  aligned?: boolean;
   duration: number;
   width: number;
   height: number;
@@ -77,6 +79,73 @@ export async function transcribeLocal(path: string, language?: string): Promise<
   return (out.chunks ?? [])
     .map(c => ({ word: c.text.trim(), start: c.timestamp[0] ?? 0, end: c.timestamp[1] ?? (c.timestamp[0] ?? 0) + 0.3 }))
     .filter(w => w.word);
+}
+
+/**
+ * Where the voice actually is: the non-silent stretches of the soundtrack (ffmpeg silencedetect). Used to put the
+ * local Whisper words back on the voice — its word timestamps run ahead of the speech, sometimes by most of a second.
+ */
+export async function voicedIntervals(path: string, opts?: { noiseDb?: number; minSilence?: number }): Promise<{ start: number; end: number }[]> {
+  const r = await run("ffmpeg", ["-hide_banner", "-nostats", "-i", path, "-vn", "-af", `silencedetect=noise=${opts?.noiseDb ?? -32}dB:d=${opts?.minSilence ?? 0.12}`, "-f", "null", "-"], { maxBuffer: 16 * 1024 * 1024 }).catch(e => ({ stdout: "", stderr: String((e as { stderr?: string }).stderr ?? "") }));
+  const text = r.stderr ?? "";
+  const dur = /Duration: (\d+):(\d+):([\d.]+)/.exec(text);
+  const total = dur ? Number(dur[1]) * 3600 + Number(dur[2]) * 60 + Number(dur[3]) : 0;
+  return voicedFromSilences(text, total);
+}
+
+/** Voiced stretches between the silences ffmpeg reported (pure, tested). */
+export function voicedFromSilences(log: string, total: number) {
+  const silences: { start: number; end: number }[] = [];
+  let open: number | null = null;
+  for (const line of log.split(/\r?\n/)) {
+    const s = /silence_start: (-?[\d.]+)/.exec(line);
+    if (s) open = Math.max(0, Number(s[1]));
+    const e = /silence_end: ([\d.]+)/.exec(line);
+    if (e) { silences.push({ start: open ?? 0, end: Number(e[1]) }); open = null; }
+  }
+  if (open !== null) silences.push({ start: open, end: total });
+  const out: { start: number; end: number }[] = [];
+  let t = 0;
+  for (const sil of silences.sort((a, b) => a.start - b.start)) {
+    if (sil.start - t > 0.05) out.push({ start: +t.toFixed(3), end: +sil.start.toFixed(3) });
+    t = Math.max(t, sil.end);
+  }
+  if (total - t > 0.05) out.push({ start: +t.toFixed(3), end: +total.toFixed(3) });
+  return out;
+}
+
+/**
+ * Re-times recognised words onto the voiced stretches, in order, each word taking time in proportion to its letters.
+ * The words and their order come from Whisper; when they are said comes from the sound itself. Falls back to the
+ * original timings when the voice cannot be told apart from the background (music under the speech).
+ */
+export function alignToVoice(words: Word[], voiced: { start: number; end: number }[]): Word[] {
+  if (!words.length || !voiced.length) return words;
+  const span = words[words.length - 1].end - words[0].start;
+  // Only the stretches where Whisper heard something (± 1 s) — a long intro or outro without words stays empty.
+  const near = voiced.filter(v => v.end > words[0].start - 1 && v.start < words[words.length - 1].end + 1);
+  const total = near.reduce((a, v) => a + (v.end - v.start), 0);
+  if (!near.length || total < 0.3 * span || total > 2.2 * span) return words;
+  const weight = (w: string) => w.replace(/[\u064B-\u0652\u0670\u0640.,!?؟،:؛"«»()]/g, "").length + 1;
+  const ws = words.map(w => weight(w.word));
+  const rate = total / ws.reduce((a, b) => a + b, 0);
+  let k = 0;
+  let pos = near[0].start;
+  const advance = (d: number) => {
+    while (d > 1e-6 && k < near.length) {
+      const room = near[k].end - pos;
+      if (d <= room) { pos += d; return; }
+      d -= room;
+      k++;
+      if (k < near.length) pos = near[k].start;
+    }
+  };
+  return words.map((w, i) => {
+    if (k < near.length && pos >= near[k].end - 1e-6 && k + 1 < near.length) { k++; pos = near[k].start; }
+    const start = pos;
+    advance(ws[i] * rate);
+    return { word: w.word, start: +start.toFixed(3), end: +Math.max(start + 0.08, pos).toFixed(3) };
+  });
 }
 
 /** OpenAI Whisper with word timestamps (vault provider "openai"). Audio is sent as a small mono MP3. */
