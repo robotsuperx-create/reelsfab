@@ -149,8 +149,17 @@ svg.dec path{fill:none;stroke-linecap:round}
       const c = col(it.color);
       const badge = mk("div", "badge", box);
       badge.style.cssText = `width:${d}px;height:${d}px;background:radial-gradient(circle at 35% 30%,#ffffff40,transparent 60%),${c};box-shadow:0 ${12 * U}px ${36 * U}px rgba(0,0,0,.45),0 0 ${40 * U}px ${c}66`;
-      badge.innerHTML = svgIcon(it.icon, d * 0.52, darkOn(c) ? "#111" : "#fff", 2.3);
-      it.paths = prepDraw(badge);
+      if (it.lottie && window.lottie) {
+        // An animated icon: it moves (rings, beats, draws itself) instead of only appearing.
+        const holder = mk("div", "", badge); holder.style.cssText = `width:${d * 0.62}px;height:${d * 0.62}px`;
+        it.anim = window.lottie.loadAnimation({ container: holder, renderer: "svg", loop: false, autoplay: false, animationData: it.lottie, rendererSettings: { preserveAspectRatio: "xMidYMid meet" } });
+        it.frames = Math.max(1, (it.lottie.op || 60) - (it.lottie.ip || 0));
+        it.fr = it.lottie.fr || 60;
+        it.paths = [];
+      } else {
+        badge.innerHTML = svgIcon(it.icon, d * 0.52, darkOn(c) ? "#111" : "#fff", 2.3);
+        it.paths = prepDraw(badge);
+      }
       if (it.label) { it.pill = mk("div", "pill sh", box, it.label); it.pill.style.fontSize = (VERT ? 64 : 50) * U + "px"; it.pill.dir = isRtl(it.label) ? "rtl" : "ltr"; }
       it.row = row; it.box = box; it.badge = badge;
     }
@@ -321,6 +330,7 @@ svg.dec path{fill:none;stroke-linecap:round}
     const { a, b } = enterExit(it, t, 0.4, 0.22);
     const s = E.back(a) * lerp(0.6, 1, b);
     it.badge.style.transform = `scale(${s.toFixed(4)}) translateY(${(Math.sin((t - it.start) * 2.4) * 5 * U).toFixed(2)}px)`;
+    if (it.anim) { try { it.anim.goToAndStop(((Math.max(0, t - it.start - 0.12) * it.fr) % it.frames) + (it.lottie.ip || 0), true); } catch (e) { /* not ready */ } }
     const dk = clamp((t - it.start - 0.15) / 0.5);
     it.paths.forEach(p => { p.style.strokeDashoffset = (1 - E.out3(dk)).toFixed(4); });
     const ring = clamp((t - it.start - 0.1) / 0.6);

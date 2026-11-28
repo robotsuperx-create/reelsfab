@@ -57,7 +57,7 @@ PLAN-LEVEL CHOICES
 - SOUND: the speaker's own voice is the ONLY sound of these videos. "music" is {"mood":"none"} and "sfx" is false — unless the owner explicitly asks for music or sound effects.
 - Caption style "reveal" = each word fades in as it is spoken, white, elegant — the right style for emotional or poetic speech; "pop" for energetic talk.
 
-ICONS: ${OVERLAY_ICONS.join(", ")}
+ICONS: \${ICON_LIST}
 
 OUTPUT (JSON only):
 {"accent":"yellow","grade":{"look":"warm","enhance":true},"music":{"mood":"none"},"sfx":false,"captions":{"on":true,"style":"pop|box|karaoke|clean|reveal","position":"lower|bottom|center","words":3},"progress":false,"items":[ … in time order … ]}`;
@@ -90,7 +90,10 @@ export function keepVoiceOnly(plan: OverlayPlan, idea: string): OverlayPlan {
 
 /** Writes the plan, compiles it against the real timings, and sends it back once with what is wrong. */
 export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: number; h: number; ask: Ask; log?: (s: string) => Promise<void>; feedback?: string[]; previous?: OverlayPlan }) {
-  const system = `${OVERLAY_BRIEF}\nAnswer with the JSON object only.`;
+  const gi = await loadGiIndex();
+  // Animated icons when the library is installed (they move: a bell rings, a heart beats), drawn ones otherwise.
+  const iconNames = gi ? [...gi.keys()] : [...OVERLAY_ICONS];
+  const system = `${OVERLAY_BRIEF.replace("${ICON_LIST}", `${iconNames.join(", ")}${gi ? " (all animated)" : ""}`)}\nAnswer with the JSON object only.`;
   const noto = await loadNotoIndex();
   const prompt = overlayPrompt(o.map, o.idea, o.w, o.h) + (noto ? `\nEMOJI (all animated — use one of these names): ${noto.names.join(" ")}` : "\n(Animated emoji are unavailable right now — use icons.)");
   const compile = (plan: OverlayPlan) => compileOverlay(plan, { words: o.map.words, frames: o.map.frames, duration: o.map.duration, w: o.w, h: o.h });
@@ -106,7 +109,10 @@ export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: numb
   }
   let plan = keepVoiceOnly(first.plan, o.idea);
   let compiled = compile(plan);
-  const badEmoji = (p: OverlayPlan) => p.items.filter(i => i.type === "emoji" && (!noto || !notoCodepoint(noto, i.emoji))).map(i => `emoji "${(i as { emoji: string }).emoji}" is not in the EMOJI list — pick a listed name`);
+  const badEmoji = (p: OverlayPlan) => [
+    ...p.items.filter(i => i.type === "emoji" && (!noto || !notoCodepoint(noto, i.emoji))).map(i => `emoji "${(i as { emoji: string }).emoji}" is not in the EMOJI list — pick a listed name`),
+    ...p.items.filter(i => i.type === "icon" && !gi?.has(i.icon.toLowerCase()) && !iconSvg(i.icon)).map(i => `icon "${(i as { icon: string }).icon}" is not in the ICONS list — pick a listed name`),
+  ];
   const issues = [...first.dropped, ...compiled.problems, ...badEmoji(plan)];
   if (!plan.items.length) issues.push("the plan has no elements — add the strongest moments");
   if (issues.length) {
@@ -268,6 +274,67 @@ export async function resolveEmoji(compiled: CompiledOverlay, log?: (s: string) 
   compiled.items = compiled.items.filter(i => i.type !== "emoji" || i.lottie);
 }
 
+/* ------------------------------------------------------------------ animated icons (LottieFiles Generative Icons, MIT) */
+
+const GI_ROOT = join(homedir(), ".reellllocal", "libs", "generative-icons", "prototype", "icons");
+type GiIcon = { name: string; label: string; file: string };
+let giIndex: Promise<Map<string, GiIcon> | null> | null = null;
+/** The 1,161 animated icons cloned into ~/.reellllocal/libs (null when the library is not there). */
+export function loadGiIndex(): Promise<Map<string, GiIcon> | null> {
+  giIndex ??= (async () => {
+    const catalog = JSON.parse(await readFile(join(GI_ROOT, "catalog.json"), "utf8")) as { sets: string[] };
+    const map = new Map<string, GiIcon>();
+    for (const rel of catalog.sets) {
+      const dir = join(GI_ROOT, rel, "..");
+      let set: { icons?: { name: string; icon?: string; label?: string }[] };
+      try { set = JSON.parse(await readFile(join(GI_ROOT, rel), "utf8")); } catch { continue; }
+      for (const ic of set.icons ?? []) {
+        const id = (ic.icon ?? ic.name).toLowerCase();
+        if (map.has(id)) continue;
+        // The Strong motion reads better at video size; Light when there is no Strong file.
+        const strong = join(dir, `${id}-strong.json`), light = join(dir, `${ic.name}.json`);
+        const file = await readFile(strong, "utf8").then(() => strong, () => light);
+        map.set(id, { name: id, label: ic.label ?? id, file });
+      }
+    }
+    return map.size ? map : null;
+  })().catch(() => { giIndex = null; return null; });
+  return giIndex;
+}
+const hexRgb = (hex: string) => { const n = parseInt(hex.replace("#", ""), 16); return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
+/** Applies the icon's theme slots for good (colour, bold outline), so any Lottie player draws it the same. */
+export function bakeGiSlots(json: Record<string, unknown>, colorHex: string, style: "outline" | "solid" = "outline") {
+  const slots = (json.slots ?? {}) as Record<string, { p?: { k?: unknown } }>;
+  const want: Record<string, unknown> = Object.fromEntries(Object.entries(slots).map(([k, v]) => [k, v?.p?.k]));
+  Object.assign(want, { "color.primary": hexRgb(colorHex), "style.outline.light": 0, "style.outline.regular": 0, "style.outline.bold": style === "outline" ? 100 : 0, "style.solid": style === "solid" ? 100 : 0, "style.tint": 0 });
+  const walk = (v: unknown) => {
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (!v || typeof v !== "object") return;
+    const o = v as Record<string, unknown>;
+    if (typeof o.sid === "string" && o.sid in want && want[o.sid] !== undefined) { o.a = 0; o.k = want[o.sid]; delete o.sid; }
+    for (const k of Object.keys(o)) walk(o[k]);
+  };
+  walk(json.layers);
+  delete json.slots;
+  return json;
+}
+const darkOnHex = (hex: string) => { const [r, g, b] = hexRgb(hex); return 0.299 * r + 0.587 * g + 0.114 * b > 0.6; };
+const ICON_COLORS: Record<string, string> = { white: "#FFFFFF", red: "#FF3B30", yellow: "#FFD21F", green: "#22C55E", blue: "#3B82F6" };
+/** Icons in the plan → animated Lottie icons when the library has them (the drawn lucide icon otherwise). */
+export async function resolveAnimatedIcons(compiled: CompiledOverlay) {
+  const idx = await loadGiIndex();
+  if (!idx) return;
+  for (const it of compiled.items) {
+    if (it.type !== "icon") continue;
+    const gi = idx.get(String(it.icon).toLowerCase());
+    if (!gi) continue;
+    try {
+      const badge = it.color === "accent" || !it.color ? compiled.accent : ICON_COLORS[String(it.color)] ?? compiled.accent;
+      it.lottie = bakeGiSlots(JSON.parse(await readFile(gi.file, "utf8")), darkOnHex(badge) ? "#111111" : "#FFFFFF");
+    } catch { /* the drawn icon stays */ }
+  }
+}
+
 const LOTTIE = resolve(process.cwd(), "node_modules", "lottie-web", "build", "player", "lottie_light.min.js");
 const RUNTIME = resolve(process.cwd(), "tools", "overlay", "runtime.js");
 /** The self-contained page the overlay renderer plays: fonts, the plan (editable JSON), icons, the runtime. */
@@ -280,7 +347,7 @@ export function buildOverlayHtml(compiled: CompiledOverlay) {
   const { problems: _p, cues: _c, zooms: _z, ...page } = compiled;
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
   const runtime = readFileSync(RUNTIME, "utf8");
-  const lottie = compiled.items.some(i => i.type === "emoji") ? readFileSync(LOTTIE, "utf8") : "";
+  const lottie = compiled.items.some(i => i.type === "emoji" || (i.type === "icon" && i.lottie)) ? readFileSync(LOTTIE, "utf8") : "";
   return `<!doctype html>
 <html><head><meta charset="utf-8">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
