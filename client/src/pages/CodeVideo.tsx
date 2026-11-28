@@ -223,6 +223,7 @@ export default function CodeVideoPage() {
   const chooseTemplate = (t: VideoTemplate) => {
     setTemplateId(t.id);
     setGalleryOpen(false);
+    setMode("idea");
     setAgentMode("compose");
     setStyleId("");
     setKind(t.kind);
@@ -241,11 +242,13 @@ export default function CodeVideoPage() {
 
   return (
     <div>
+      <TemplateGallery open={galleryOpen} onOpenChange={setGalleryOpen} current={templateId} onPick={chooseTemplate} />
       <PageHeader
         title="كود ← فيديو"
         subtitle="اكتب الفكرة فيخرجها الوكيل بمكتبة قطع مجرَّبة، أو انسخ «قالب القصة» لأي ذكاء اصطناعي مجاني (DeepSeek، Gemini…) وألصق القصة JSON التي يكتبها، أو ألصق ملف HTML كاملًا. يتحول إلى MP4 فريمًا بفريم حتى 40 دقيقة، مجانًا على جهازك، والكود يشتغل معزولًا بلا وصول للاستوديو أو مفاتيحه. الفيديو يدخل مكتبة الأصول لتستعمله غرفة المونتاج."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setGalleryOpen(true)} className="bg-tally font-bold text-black hover:bg-tally/90"><LayoutTemplate /> القوالب الجاهزة ({VIDEO_TEMPLATES.length})</Button>
             <CopyButton text={storyboardPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || null, idea.trim() || undefined, kind || undefined, { stock }, templateId || null)} label="نسخ قالب القصة (JSON)" variant="default" />
             <CopyButton text={strongPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || "documentary", idea.trim() || undefined)} label="نسخ قالب الكود (HTML)" variant="secondary" />
           </div>
@@ -344,7 +347,6 @@ export default function CodeVideoPage() {
             </div>
             <div className="flex flex-col gap-3 p-4" dir="rtl">
               <TemplateBar template={template} onOpen={() => setGalleryOpen(true)} onClear={() => { setTemplateId(""); if (/^الموضوع:/.test(idea.trim())) setIdea(""); }} />
-              <TemplateGallery open={galleryOpen} onOpenChange={setGalleryOpen} current={templateId} onPick={chooseTemplate} />
               <Label htmlFor="code-video-idea" className="text-xs text-muted-foreground">{template ? "السيناريو — املأ ما بعد كل نقطتين (الأرقام والأسماء والمصادر منك)" : "الفكرة — ماذا يظهر في الفيديو، بأي أسلوب، بأي لغة"}</Label>
               <Textarea id="code-video-idea" value={idea} onChange={ev => setIdea(ev.target.value)} placeholder="مثال: فيديو يشرح كيف يأكل التضخم الرواتب، أسلوب وثائقي داكن بالأحمر، أرقام كبيرة متحركة، بالعربية" className={cn("resize-y bg-black/40 p-3 text-sm leading-6", template ? "min-h-[260px]" : "min-h-[96px]")} />
               <div className="flex flex-col gap-1.5">
