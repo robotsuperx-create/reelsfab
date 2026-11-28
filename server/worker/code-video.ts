@@ -83,13 +83,13 @@ export const VIRTUAL_TIME_SCRIPT = `(() => {
 })();`;
 
 /** Chromium for the renderer: CODE_VIDEO_CHROMIUM, Playwright's own download, then installed Chrome / Edge. */
-async function launchBrowser() {
+export async function launchBrowser(extraArgs: string[] = []) {
   const { chromium } = await import("playwright-core");
   // Clean environment: the page process must not inherit the studio's secrets.
   const keep = ["PATH", "SYSTEMROOT", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "PROGRAMFILES", "ProgramFiles", "PROGRAMFILES(X86)", "ProgramFiles(x86)", "LANG", "FONTCONFIG_PATH", "XDG_RUNTIME_DIR"];
   const env: Record<string, string> = {};
   for (const k of keep) if (process.env[k]) env[k] = process.env[k]!;
-  const base = { headless: true, env, args: ["--hide-scrollbars", "--mute-audio", "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--force-color-profile=srgb"] };
+  const base = { headless: true, env, args: ["--hide-scrollbars", "--mute-audio", "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--force-color-profile=srgb", ...extraArgs] };
   const attempts: (() => Promise<import("playwright-core").Browser>)[] = [];
   if (process.env.CODE_VIDEO_CHROMIUM) attempts.push(() => chromium.launch({ ...base, executablePath: process.env.CODE_VIDEO_CHROMIUM }));
   attempts.push(() => chromium.launch(base));

@@ -48,12 +48,13 @@ import { looksLikeStoryboard, type Storyboard } from "@shared/code-craft/storybo
 import { TEMPLATE_CATEGORIES, VIDEO_TEMPLATES, findTemplate, templateScenario, templateSeconds, templateStoryboard, type VideoTemplate } from "@shared/code-craft/templates";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { LayoutTemplate, X as XIcon, Bot, CircleAlert, CircleCheck, Code2, Download, Eye, Film, Image as ImageIcon, Lock, Map as MapIcon, RefreshCw, ScanSearch, Scissors, Search, ShieldCheck, Shuffle, Sparkles, Terminal, Trash2, TriangleAlert, Undo2, Upload, Wand2, WifiOff } from "lucide-react";
+import { Clapperboard, LayoutTemplate, X as XIcon, Bot, CircleAlert, CircleCheck, Code2, Download, Eye, Film, Image as ImageIcon, Lock, Map as MapIcon, RefreshCw, ScanSearch, Scissors, Search, ShieldCheck, Shuffle, Sparkles, Terminal, Trash2, TriangleAlert, Undo2, Upload, Wand2, WifiOff } from "lucide-react";
 import { uploadBlob } from "@/lib/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { CopyButton, EmptyBlock, PageHeader, Tally, type RouterOutputs } from "@/components/fab/common";
+import { CinemaDialog } from "@/components/fab/CinemaDialog";
 
 type Row = RouterOutputs["codeVideos"]["list"][number];
 const TONE: Record<string, "go" | "hold" | "stop" | "idle"> = { analyzing: "hold", writing: "hold", draft: "idle", queued: "idle", running: "hold", done: "go", failed: "stop" };
@@ -101,6 +102,7 @@ export default function CodeVideoPage() {
   const [slots, setSlots] = useState<MediaSlotView[]>([]);
   // A ready-made template: fixed structure and style; the idea box holds its scenario.
   const [templateId, setTemplateId] = useState<string>(draft?.templateId ?? "");
+  const [cinemaOpen, setCinemaOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const template = findTemplate(templateId);
   const [credits, setCredits] = useState<string[]>([]);
@@ -243,12 +245,14 @@ export default function CodeVideoPage() {
   return (
     <div>
       <TemplateGallery open={galleryOpen} onOpenChange={setGalleryOpen} current={templateId} onPick={chooseTemplate} />
+      <CinemaDialog open={cinemaOpen} onOpenChange={setCinemaOpen} />
       <PageHeader
         title="كود ← فيديو"
         subtitle="اكتب الفكرة فيخرجها الوكيل بمكتبة قطع مجرَّبة، أو انسخ «قالب القصة» لأي ذكاء اصطناعي مجاني (DeepSeek، Gemini…) وألصق القصة JSON التي يكتبها، أو ألصق ملف HTML كاملًا. يتحول إلى MP4 فريمًا بفريم حتى 40 دقيقة، مجانًا على جهازك، والكود يشتغل معزولًا بلا وصول للاستوديو أو مفاتيحه. الفيديو يدخل مكتبة الأصول لتستعمله غرفة المونتاج."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => setGalleryOpen(true)} className="bg-tally font-bold text-black hover:bg-tally/90"><LayoutTemplate /> القوالب الجاهزة ({VIDEO_TEMPLATES.length})</Button>
+            <Button onClick={() => setCinemaOpen(true)} className="bg-tally font-bold text-black hover:bg-tally/90"><Clapperboard /> ريل سينمائي بصوت</Button>
+            <Button onClick={() => setGalleryOpen(true)} variant="outline"><LayoutTemplate /> القوالب الجاهزة ({VIDEO_TEMPLATES.length})</Button>
             <CopyButton text={storyboardPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || null, idea.trim() || undefined, kind || undefined, { stock }, templateId || null)} label="نسخ قالب القصة (JSON)" variant="default" />
             <CopyButton text={strongPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || "documentary", idea.trim() || undefined)} label="نسخ قالب الكود (HTML)" variant="secondary" />
           </div>

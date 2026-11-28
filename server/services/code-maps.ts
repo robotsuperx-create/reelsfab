@@ -240,3 +240,13 @@ export function mapGeometry(spec: SbMap, opts: { width: number; height: number; 
     dark: opts.dark,
   };
 }
+
+/** One country for the cinema engine: world-atlas id, ISO-2 code (flags) and the centre of its main body. */
+export function countryInfo(v: string): { id: string; a2: string | null; lat: number; lon: number } | null {
+  const list = countriesOf("50m", "merged");
+  const id = countryId(v, list);
+  const f = id ? list.find(c => c.properties.id === id) : undefined;
+  if (!id || !f) return null;
+  const [lon, lat] = mainPoint(f);
+  return { id, a2: countries.numericToAlpha2(id)?.toLowerCase() ?? null, lat: +lat.toFixed(3), lon: +lon.toFixed(3) };
+}
