@@ -172,14 +172,15 @@ export const codeVideosRouter = router({
     return { ok: true };
   }),
 
-  retry: memberProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+  /** Renders again; `rewrite` asks the agent to write it again first (an overlay keeps its video map). */
+  retry: memberProcedure.input(z.object({ id: z.number().int(), rewrite: z.boolean().optional() })).mutation(async ({ input }) => {
     const db = await requireDb();
     const [row] = await db.select({ html: codeVideos.html, plan: codeVideos.plan, idea: codeVideos.idea, sourceKey: codeVideos.sourceKey, analysis: codeVideos.analysis }).from(codeVideos).where(eq(codeVideos.id, input.id));
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "غير موجود" });
     const segs = row.plan?.segments ?? [];
     // An overlay written before the overlay engine existed is rewritten with it (the video map is kept).
     const oldOverlay = Boolean(row.sourceKey) && !(row.analysis as { overlay?: unknown } | null)?.overlay;
-    const written = !oldOverlay && (segs.length > 1 ? segs.every(s => s.html) : Boolean(row.html));
+    const written = !input.rewrite && !oldOverlay && (segs.length > 1 ? segs.every(s => s.html) : Boolean(row.html));
     if (!written && row.idea) {
       await retryAgentVideo(input.id, true);
       return { ok: true };
