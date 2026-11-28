@@ -448,9 +448,10 @@ export async function renderOverlay(opts: { html: string; videoPath: string; wid
       mixIn.push("[md]");
     }
     if (sfxFile) { parts.push(`[${sfxIdx}:a]aresample=48000,volume=0.8[sx]`); mixIn.push("[sx]"); }
-    const audio = mixIn.length ? `;${parts.join(";")};${mixIn.join("")}amix=inputs=${mixIn.length}:duration=longest:normalize=0,alimiter=limit=0.95[a]` : "";
+    // Voice only: the speaker's own sound, levelled to the loudness of social video (nothing added).
+    const audio = mixIn.length ? `;${parts.join(";")};${mixIn.join("")}amix=inputs=${mixIn.length}:duration=longest:normalize=0,alimiter=limit=0.95[a]` : audioIn ? ";[0:a]aresample=48000,loudnorm=I=-14:TP=-1.5:LRA=11[a]" : "";
     const filter = `${chain.join(";")};[1:v]format=rgba[ov];[${cur}][ov]overlay=0:0:format=auto,format=yuv420p[v]${audio}`;
-    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", opts.videoPath, "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-", ...extra, "-filter_complex", filter, "-map", "[v]", ...(mixIn.length ? ["-map", "[a]"] : ["-map", "0:a?"]), "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-c:a", "aac", "-b:a", "160k", "-r", String(fps), "-t", opts.durationSec.toFixed(3), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
+    const ff = spawn("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", opts.videoPath, "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-", ...extra, "-filter_complex", filter, "-map", "[v]", ...(mixIn.length || audioIn ? ["-map", "[a]"] : []), "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-c:a", "aac", "-b:a", "160k", "-r", String(fps), "-t", opts.durationSec.toFixed(3), "-movflags", "+faststart", outFile], { stdio: ["pipe", "ignore", "pipe"] });
     let err = "";
     ff.stderr.on("data", d => { err += d; });
     const done = new Promise<void>((resolve, reject) => {
