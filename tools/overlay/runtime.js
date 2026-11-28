@@ -154,6 +154,19 @@ svg.dec path{fill:none;stroke-linecap:round}
       if (it.label) { it.pill = mk("div", "pill sh", box, it.label); it.pill.style.fontSize = (VERT ? 64 : 50) * U + "px"; it.pill.dir = isRtl(it.label) ? "rtl" : "ltr"; }
       it.row = row; it.box = box; it.badge = badge;
     }
+    if (it.type === "emoji" && it.lottie && window.lottie) {
+      const row = mk("div", "el row", ov); place(row, it.y);
+      row.style.justifyContent = it.side === "left" ? "flex-start" : it.side === "right" ? "flex-end" : "center";
+      const box = mk("div", "ic", row); box.dir = "ltr";
+      if (it.side === "right") box.style.flexDirection = "row-reverse";
+      const d = ({ m: 200, l: 270, xl: 380 }[it.size || "l"] || 270) * U * (VERT ? 1 : 0.8);
+      const holder = mk("div", "emo", box); holder.style.cssText = `width:${d}px;height:${d}px;filter:drop-shadow(0 ${14 * U}px ${26 * U}px rgba(0,0,0,.45))`;
+      it.anim = window.lottie.loadAnimation({ container: holder, renderer: "svg", loop: false, autoplay: false, animationData: it.lottie, rendererSettings: { preserveAspectRatio: "xMidYMid meet" } });
+      it.frames = Math.max(1, (it.lottie.op || 60) - (it.lottie.ip || 0));
+      it.fr = it.lottie.fr || 30;
+      if (it.label) { it.pill = mk("div", "pill sh", box, it.label); it.pill.style.fontSize = (VERT ? 64 : 50) * U + "px"; it.pill.dir = isRtl(it.label) ? "rtl" : "ltr"; }
+      it.row = row; it.box = box; it.badge = holder;
+    }
     if (it.type === "list") {
       const row = mk("div", "el row", ov); place(row, it.y);
       const box = mk("div", "lst", row); box.dir = isRtl((it.title || "") + it.items.map(x => x.text).join(" ")) ? "rtl" : "ltr";
@@ -317,6 +330,15 @@ svg.dec path{fill:none;stroke-linecap:round}
     it.row.style.opacity = Math.min(1, a * 4 * b).toFixed(3);
     it.row.style.transform = "translateY(-50%)";
   }
+  function drawEmoji(it, t) {
+    const { a, b } = enterExit(it, t, 0.45, 0.25);
+    it.badge.style.transform = `scale(${(E.back(a) * lerp(0.5, 1, b)).toFixed(4)}) rotate(${((1 - E.out3(a)) * -12).toFixed(2)}deg)`;
+    const f = ((t - it.start) * it.fr) % it.frames;
+    try { it.anim.goToAndStop(f + (it.lottie.ip || 0), true); } catch (e) { /* not ready yet */ }
+    if (it.pill) { const k = E.out3((t - it.start - 0.2) / 0.35); it.pill.style.opacity = (k * b).toFixed(3); it.pill.style.transform = `translateX(${((1 - k) * (it.side === "right" ? 40 : -40) * U).toFixed(1)}px)`; }
+    it.row.style.opacity = Math.min(1, a * 4 * b).toFixed(3);
+    it.row.style.transform = "translateY(-50%)";
+  }
   function drawList(it, t) {
     const { a, b } = enterExit(it, t, 0.35, 0.25);
     it.box.style.transform = `translateY(${((1 - E.out3(a)) * 40 * U).toFixed(1)}px) scale(${lerp(0.96, 1, E.out3(a)).toFixed(4)})`;
@@ -451,6 +473,7 @@ svg.dec path{fill:none;stroke-linecap:round}
       if (it.type === "punch") drawPunch(it, t);
       else if (it.type === "counter") drawCounter(it, t);
       else if (it.type === "icon") drawIcon(it, t);
+      else if (it.type === "emoji" && it.anim) drawEmoji(it, t);
       else if (it.type === "list") drawList(it, t);
       else if (it.type === "lower3") drawLower3(it, t);
       else if (it.type === "chapter") drawChapter(it, t);

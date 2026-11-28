@@ -79,4 +79,18 @@ describe("overlay plans", () => {
     expect(gradeChain(c.grade, 0.15).post).toMatch(/gamma=1\.2/);
     expect(gradeChain({ look: "none", enhance: true }, 0.1).post).toBe("");
   });
+
+  it("animated emoji land on their word and the owner's video keeps only her voice", async () => {
+    const { keepVoiceOnly } = await import("./overlay-director");
+    const { plan } = parseOverlayPlan({ music: { mood: "calm" }, sfx: true, items: [{ type: "emoji", at: 5, until: 7, emoji: "broken-heart", size: "xl" }] });
+    const quiet = keepVoiceOnly(plan, "اصنع أفضل مونتاج ممكن");
+    expect(quiet.music.mood).toBe("none");
+    expect(quiet.sfx).toBe(false);
+    expect(keepVoiceOnly(plan, "أضف موسيقى هادئة").music.mood).toBe("calm");
+    const c = compileOverlay(quiet, opts);
+    expect(c.cues).toEqual([]);
+    expect(c.items[0].type).toBe("emoji");
+    expect(c.items[0].start).toBeCloseTo(words[5].start + 0.02, 3);
+  });
 });
+

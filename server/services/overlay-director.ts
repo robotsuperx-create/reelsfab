@@ -5,8 +5,8 @@
  */
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { extractJsonObject } from "../../shared/code-craft/storyboard";
@@ -38,6 +38,7 @@ ELEMENTS (each needs "type" and "at"; "until" optional)
 - punch: {"type":"punch","at":12,"until":19,"text":"2–5 words","style":"slam|show|highlight|kicker|stamp|typewriter","color":"accent|white|red|yellow|green|blue","emphasis":"one word of the text in accent","position":"top|upper|center|lower|bottom","size":"xl|l|m|s","strikeAt":<word index, optional: a red line strikes the text — for myths, wrong beliefs, 'not X'>}
   slam = the key claim (big, lands hard) · show = a calm line, words rise one by one · highlight = dark text on an accent marker bar (very readable — definitions, takeaways) · kicker = small label/heading ("الخطوة الأولى", "TIP") · stamp = verdict word ("خطأ", "مجاني", "100%") · typewriter = a quote or a search/question.
 - counter: {"type":"counter","at":i,"until":j,"from":0,"to":250000,"prefix":"$","suffix":"+","decimals":0,"label":"short label","position":...} — whenever a number is said (money, %, years, people). The number counts up as it is said.
+- emoji: {"type":"emoji","at":i,"until":j,"emoji":"<a name from EMOJI or the emoji character>","label":"optional 1–3 words","size":"m|l|xl","position":...,"side":"left|center|right"} — a FULLY ANIMATED emoji (the heart beats, breaks, the face cries, laughs, the fire burns). The best "symbol" for emotions, relationships, reactions and everyday ideas — prefer it over icons for personal/emotional talk; one per idea, landing on its word.
 - icon: {"type":"icon","at":i,"until":j,"icon":"<name from ICONS>","label":"1–3 words","color":"accent","position":...,"side":"left|center|right"} — a concrete concept (money, time, growth, warning, idea, check, phone…). The icon pops in a badge and draws itself.
 - list: {"type":"list","at":i,"until":j,"title":"optional","items":[{"text":"…","at":k},…],"position":...} — when the speaker enumerates (steps, reasons, mistakes). Each item ticks in at ITS word.
 - lower3: {"type":"lower3","at":i,"until":j,"name":"…","role":"…"} — the speaker's name and title in the first seconds, ONLY if the owner gave the name.
@@ -90,7 +91,8 @@ export function keepVoiceOnly(plan: OverlayPlan, idea: string): OverlayPlan {
 /** Writes the plan, compiles it against the real timings, and sends it back once with what is wrong. */
 export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: number; h: number; ask: Ask; log?: (s: string) => Promise<void>; feedback?: string[]; previous?: OverlayPlan }) {
   const system = `${OVERLAY_BRIEF}\nAnswer with the JSON object only.`;
-  const prompt = overlayPrompt(o.map, o.idea, o.w, o.h);
+  const noto = await loadNotoIndex();
+  const prompt = overlayPrompt(o.map, o.idea, o.w, o.h) + (noto ? `\nEMOJI (all animated — use one of these names): ${noto.names.join(" ")}` : "\n(Animated emoji are unavailable right now — use icons.)");
   const compile = (plan: OverlayPlan) => compileOverlay(plan, { words: o.map.words, frames: o.map.frames, duration: o.map.duration, w: o.w, h: o.h });
   const parse = (raw: string) => parseOverlayPlan(extractJsonObject(raw));
   let first: ReturnType<typeof parse>;
@@ -104,7 +106,8 @@ export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: numb
   }
   let plan = keepVoiceOnly(first.plan, o.idea);
   let compiled = compile(plan);
-  const issues = [...first.dropped, ...compiled.problems];
+  const badEmoji = (p: OverlayPlan) => p.items.filter(i => i.type === "emoji" && (!noto || !notoCodepoint(noto, i.emoji))).map(i => `emoji "${(i as { emoji: string }).emoji}" is not in the EMOJI list — pick a listed name`);
+  const issues = [...first.dropped, ...compiled.problems, ...badEmoji(plan)];
   if (!plan.items.length) issues.push("the plan has no elements — add the strongest moments");
   if (issues.length) {
     await o.log?.(`› ${issues.length} ملاحظة على الخطة — يصلحها`);
@@ -112,7 +115,7 @@ export async function writeOverlayPlan(o: { map: VideoMap; idea: string; w: numb
       const again = parse(await o.ask(system, `${prompt}\n\nYOUR PLAN:\n${JSON.stringify(plan)}\n\nFIX THESE:\n${issues.slice(0, 14).map(p => `- ${p}`).join("\n")}\n\nReturn the whole corrected JSON.`, "مراجعة الخطة"));
       const c2 = compile(again.plan);
       again.plan = keepVoiceOnly(again.plan, o.idea);
-      if (again.plan.items.length && again.dropped.length + c2.problems.length <= issues.length) { plan = again.plan; compiled = c2; }
+      if (again.plan.items.length && again.dropped.length + c2.problems.length + badEmoji(again.plan).length <= issues.length) { plan = again.plan; compiled = c2; }
     } catch { /* keep the first */ }
   }
   return { plan, compiled };
@@ -208,6 +211,64 @@ export async function resolveCutaways(compiled: CompiledOverlay, userId: number 
   await log?.(`✓ ${compiled.cutaways.length} لقطة قطع (B-roll) مطابقة`);
 }
 
+/* ------------------------------------------------------------------ animated emoji (Google Noto, CC BY 4.0) */
+
+const NOTO_API = "https://googlefonts.github.io/noto-emoji-animation/data/api.json";
+const NOTO_DIR = join(homedir(), ".reellllocal", "noto");
+type NotoIndex = { byKey: Map<string, string>; names: string[] };
+let notoIndex: Promise<NotoIndex | null> | null = null;
+const cpToChar = (cp: string) => cp.split("_").map(h => String.fromCodePoint(parseInt(h, 16))).join("");
+const normKey = (s: string) => s.trim().toLowerCase().replace(/^:|:$/g, "").replace(/[\s_]+/g, "-").replace(/\ufe0f/g, "");
+/** The ~880 animated Noto emoji: tag/character → codepoint (cached on disk; null when offline). */
+export function loadNotoIndex(): Promise<NotoIndex | null> {
+  notoIndex ??= (async () => {
+    const file = join(NOTO_DIR, "api.json");
+    let raw: string | null = null;
+    try {
+      const r = await fetch(NOTO_API, { signal: AbortSignal.timeout(15_000) });
+      if (r.ok) { raw = await r.text(); await mkdir(NOTO_DIR, { recursive: true }); await writeFile(file, raw); }
+    } catch { /* fall back to the cache */ }
+    if (!raw) { try { raw = await readFile(file, "utf8"); } catch { return null; } }
+    const data = JSON.parse(raw) as { icons?: { codepoint: string; tags?: string[] }[] };
+    const byKey = new Map<string, string>();
+    const names: string[] = [];
+    for (const ic of data.icons ?? []) {
+      byKey.set(normKey(cpToChar(ic.codepoint)), ic.codepoint);
+      byKey.set(ic.codepoint, ic.codepoint);
+      ic.tags?.forEach((t, i) => { const k = normKey(t); if (!byKey.has(k)) byKey.set(k, ic.codepoint); if (i === 0) names.push(k); });
+    }
+    return { byKey, names };
+  })().catch(() => { notoIndex = null; return null; });
+  return notoIndex;
+}
+export function notoCodepoint(idx: NotoIndex, emoji: string) {
+  return idx.byKey.get(normKey(emoji)) ?? idx.byKey.get(normKey(emoji).replace(/-face$/, "")) ?? null;
+}
+/** Each emoji in the plan → its Lottie animation, inlined in the page (downloaded once, then cached). */
+export async function resolveEmoji(compiled: CompiledOverlay, log?: (s: string) => Promise<void>) {
+  const emojis = compiled.items.filter(i => i.type === "emoji");
+  if (!emojis.length) return;
+  const idx = await loadNotoIndex();
+  for (const it of emojis) {
+    const cp = idx ? notoCodepoint(idx, String(it.emoji)) : null;
+    if (!cp) { it.lottie = null; await log?.(`› لا رمز متحرك لـ «${it.emoji}»`); continue; }
+    const file = join(NOTO_DIR, `${cp}.json`);
+    try {
+      let json: string;
+      try { json = await readFile(file, "utf8"); } catch {
+        const r = await fetch(`https://fonts.gstatic.com/s/e/notoemoji/latest/${cp}/lottie.json`, { signal: AbortSignal.timeout(20_000) });
+        if (!r.ok) throw new Error(String(r.status));
+        json = await r.text();
+        await mkdir(NOTO_DIR, { recursive: true });
+        await writeFile(file, json);
+      }
+      it.lottie = JSON.parse(json);
+    } catch (e) { it.lottie = null; await log?.(`› الرمز «${it.emoji}»: ${e instanceof Error ? e.message.slice(0, 60) : e}`); }
+  }
+  compiled.items = compiled.items.filter(i => i.type !== "emoji" || i.lottie);
+}
+
+const LOTTIE = resolve(process.cwd(), "node_modules", "lottie-web", "build", "player", "lottie_light.min.js");
 const RUNTIME = resolve(process.cwd(), "tools", "overlay", "runtime.js");
 /** The self-contained page the overlay renderer plays: fonts, the plan (editable JSON), icons, the runtime. */
 export function buildOverlayHtml(compiled: CompiledOverlay) {
@@ -219,6 +280,7 @@ export function buildOverlayHtml(compiled: CompiledOverlay) {
   const { problems: _p, cues: _c, zooms: _z, ...page } = compiled;
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
   const runtime = readFileSync(RUNTIME, "utf8");
+  const lottie = compiled.items.some(i => i.type === "emoji") ? readFileSync(LOTTIE, "utf8") : "";
   return `<!doctype html>
 <html><head><meta charset="utf-8">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -227,6 +289,7 @@ export function buildOverlayHtml(compiled: CompiledOverlay) {
 </head><body><div id="ov"></div>
 <script type="application/json" id="plan">${json(page)}</script>
 <script type="application/json" id="icons">${json(icons)}</script>
+${lottie ? `<script>${lottie}</script>` : ""}
 <script>${runtime}</script>
 </body></html>`;
 }

@@ -45,6 +45,8 @@ export const overlayItemSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("punch"), ...when, text: txt(70), style: z.enum(OVERLAY_PUNCH_STYLES).catch("slam").default("slam"), color, emphasis: txt(40).optional(), position: band, size: z.enum(["xl", "l", "m", "s"]).catch("l").default("l"), strikeAt: z.number().int().min(0).optional() }),
   z.object({ type: z.literal("counter"), ...when, from: z.number().default(0), to: z.number(), decimals: z.number().int().min(0).max(2).default(0), prefix: txt(6).default(""), suffix: txt(12).default(""), label: txt(50).optional(), color, position: band }),
   z.object({ type: z.literal("icon"), ...when, icon: txt(40), label: txt(40).optional(), color, position: band, side }),
+  // A fully animated emoji (Google Noto, drawn frame by frame): the face laughs, the heart beats, the heart breaks.
+  z.object({ type: z.literal("emoji"), ...when, emoji: txt(60), label: txt(40).optional(), size: z.enum(["m", "l", "xl"]).catch("l").default("l"), position: band, side }),
   z.object({ type: z.literal("list"), ...when, title: txt(50).optional(), items: z.array(z.object({ text: txt(50), at: z.number().int().min(0).optional(), t: z.number().min(0).optional() })).min(1).max(6), position: band }),
   z.object({ type: z.literal("lower3"), ...when, name: txt(40), role: txt(60).optional() }),
   z.object({ type: z.literal("chapter"), ...when, num: txt(4).optional(), title: txt(50) }),
@@ -125,6 +127,7 @@ function itemHalfHeight(it: OverlayItem, vert: boolean) {
     case "punch": return ({ xl: 0.075, l: 0.06, m: 0.045, s: 0.035 } as const)[it.size] * k;
     case "counter": return 0.075 * k;
     case "icon": return 0.065 * k;
+    case "emoji": return ({ m: 0.06, l: 0.08, xl: 0.11 } as const)[it.size] * k;
     case "list": return (0.04 + it.items.length * 0.032) * k;
     case "photo": return 0.17 * k;
     case "lower3": return 0.045 * k;
@@ -250,7 +253,7 @@ export function compileOverlay(plan: OverlayPlan, o: { words: OWord[]; frames: O
       if (base.strike != null) sfx({ t: base.strike as number, name: "hit", gain: 0.4 });
     }
     if (it.type === "counter") sfx({ t: start, name: "count", gain: 0.35, dur: Math.min(1.4, end - start - 0.3) });
-    if (it.type === "icon") sfx({ t: start, name: "pop", gain: 0.45 });
+    if (it.type === "icon" || it.type === "emoji") sfx({ t: start, name: "pop", gain: 0.45 });
     if (it.type === "chapter") sfx({ t: start, name: "whoosh", gain: 0.45 });
     if (it.type === "quote") { sfx({ t: start, name: "chime", gain: 0.35 }); base.rtl = isRtlText(it.text); }
     if (it.type === "photo") sfx({ t: start, name: "whoosh", gain: 0.4 });
