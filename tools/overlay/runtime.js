@@ -45,7 +45,7 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
 .caret{display:inline-block;width:${6 * U}px;height:.9em;background:var(--acc);vertical-align:middle;margin:0 ${4 * U}px}
 .cap{left:0;right:0;text-align:center;padding:0 7%}
 .cap .ln{display:inline-block;font-weight:900;line-height:1.25;white-space:normal}
-.cap .cw{display:inline-block;margin:0 ${7 * U}px;transform-origin:50% 60%}
+.cap .cw{display:inline-block;margin:0 .14em;transform-origin:50% 60%}
 .cap.box .ln{background:rgba(8,8,12,.72);border-radius:${16 * U}px;padding:${8 * U}px ${22 * U}px ${14 * U}px;box-shadow:0 ${8 * U}px ${26 * U}px rgba(0,0,0,.35)}
 .cap.clean .ln{font-weight:700}
 .ctr{text-align:center}
@@ -100,7 +100,7 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
   const place = (el, y) => { el.style.top = y * H + "px"; };
 
   /* ---------------- build */
-  const SIZE = VERT ? { xl: 150, l: 112, m: 84, s: 64 } : { xl: 120, l: 92, m: 70, s: 54 };
+  const SIZE = VERT ? { xl: 160, l: 124, m: 94, s: 70 } : { xl: 124, l: 96, m: 74, s: 56 };
   const items = P.items.map(it => ({ ...it }));
   for (const it of items) {
     if (it.type === "punch") {
@@ -135,13 +135,13 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
       row.style.justifyContent = it.side === "left" ? "flex-start" : it.side === "right" ? "flex-end" : "center";
       const box = mk("div", "ic", row); box.dir = "ltr";
       if (it.side === "right") box.style.flexDirection = "row-reverse";
-      const d = (VERT ? 150 : 128) * U;
+      const d = (VERT ? 190 : 140) * U;
       const c = col(it.color);
       const badge = mk("div", "badge", box);
       badge.style.cssText = `width:${d}px;height:${d}px;background:radial-gradient(circle at 35% 30%,#ffffff40,transparent 60%),${c};box-shadow:0 ${12 * U}px ${36 * U}px rgba(0,0,0,.45),0 0 ${40 * U}px ${c}66`;
       badge.innerHTML = svgIcon(it.icon, d * 0.52, darkOn(c) ? "#111" : "#fff", 2.3);
       it.paths = prepDraw(badge);
-      if (it.label) { it.pill = mk("div", "pill sh", box, it.label); it.pill.style.fontSize = (VERT ? 54 : 46) * U + "px"; it.pill.dir = isRtl(it.label) ? "rtl" : "ltr"; }
+      if (it.label) { it.pill = mk("div", "pill sh", box, it.label); it.pill.style.fontSize = (VERT ? 64 : 50) * U + "px"; it.pill.dir = isRtl(it.label) ? "rtl" : "ltr"; }
       it.row = row; it.box = box; it.badge = badge;
     }
     if (it.type === "list") {
@@ -191,7 +191,7 @@ html,body{margin:0;padding:0;background:transparent!important;width:${W}px;heigh
     place(cap.el, P.captions.y);
     cap.el.style.transform = "translateY(-50%)";
     cap.ln = mk("div", "ln sh", cap.el);
-    cap.ln.style.fontSize = (VERT ? 78 : 60) * U + "px";
+    cap.ln.style.fontSize = (VERT ? 96 : 66) * U + "px";
     cap.cur = -1;
   }
   const flash = mk("div", "", ov); flash.id = "flash";

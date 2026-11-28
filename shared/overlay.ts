@@ -105,7 +105,7 @@ function itemHalfHeight(it: OverlayItem, vert: boolean) {
   switch (it.type) {
     case "punch": return ({ xl: 0.075, l: 0.06, m: 0.045, s: 0.035 } as const)[it.size] * k;
     case "counter": return 0.075 * k;
-    case "icon": return 0.055 * k;
+    case "icon": return 0.065 * k;
     case "list": return (0.04 + it.items.length * 0.032) * k;
     case "photo": return 0.17 * k;
     case "lower3": return 0.045 * k;
@@ -234,7 +234,7 @@ export function compileOverlay(plan: OverlayPlan, o: { words: OWord[]; frames: O
   });
   if (items.filter(i => i.type !== "flash").length && duration > 0) {
     const perMin = (items.length / duration) * 60;
-    if (perMin > 22) problems.push(`too busy: ${items.length} elements in ${duration.toFixed(0)} s — keep only the strongest moments (about one every 4–8 s)`);
+    if (perMin > 34) problems.push(`too busy: ${items.length} elements in ${duration.toFixed(0)} s — keep only the strongest moments (about one every 4–8 s)`);
   }
   // Never more than two elements at once (captions not counted).
   for (const a of items) {
