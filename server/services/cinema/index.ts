@@ -155,7 +155,7 @@ async function resolveNeeds(plan: ReturnType<typeof compileCinema>, dir: string,
       shot.highlight = (n.highlight ?? []).map(h => ({ c: countryInfo(h.country), color: h.color })).filter(h => h.c).map(h => ({ id: h.c!.id, color: h.color }));
     }
     if (type === "assemble" && !shot.country) shot.type = "dark";
-    if (type === "photo") {
+    if (type === "photo" || type === "newspaper") {
       let got: { file: string; rel: string } | null = null;
       const name = `p${n.shot}`;
       if (n.wiki) {
@@ -171,7 +171,10 @@ async function resolveNeeds(plan: ReturnType<typeof compileCinema>, dir: string,
           if (item) { const imp = await importStockPhoto(item, { query: n.query, userId }); got = await assetToFile(imp.asset.url, dir, name); credits.push(item.credit); }
         } catch (e) { await log(`› صورة مجانية «${n.query}»: ${e instanceof Error ? e.message.slice(0, 100) : e}`); }
       }
-      if (!got) { shot.type = "dark"; await log(`› لا صورة لـ «${n.wiki ?? n.query ?? "?"}» — مشهد داكن بدلها`); continue; }
+      if (!got) {
+        if (type === "photo") { shot.type = "dark"; await log(`› لا صورة لـ «${n.wiki ?? n.query ?? "?"}» — مشهد داكن بدلها`); }
+        continue;
+      }
       shot.img = got.rel;
       shot.cut = null;
       if (n.cutout) {

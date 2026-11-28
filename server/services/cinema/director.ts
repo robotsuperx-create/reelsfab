@@ -20,8 +20,11 @@ SHOTS — pick the one that makes each sentence VISIBLE (the engine has these, a
 - assemble: fragments fly together into the country's shape, then it ignites in gold on "fillAt". Use for resilience, unity, rebirth, "it did not break".
 - launch: a missile/rocket lifts off from the ground into space with smoke and fire. Use for missiles, rockets, space programmes, military power built at home.
 - flag: the country's flag waving in 3D with embers — for national pride and the closing line.
+- newspaper: a front page spins in from the dark (the classic documentary move), then the camera pushes in. {"type":"newspaper","masthead":"<a generic paper name in the narration's language, never a real newspaper's name>","date":"5 نوفمبر 1979","headline":"<the headline, ≤ 8 words>","sub":"<optional one line>","wiki":"<optional photo for the page>","highlightAt":"<word: a yellow marker sweeps the headline>"}. Use it when the line reports what the world was told: a crisis breaking, a declaration, a scandal, a date that made the news.
+- document: a typed classified paper slides in, its lines type themselves, a red seal slams, lines get blacked out. {"type":"document","title":"برقية","date":"1953","lines":["<2–5 short lines, ≤ 7 words each>"],"stamp":"سري للغاية","stampAt":"<word>","redact":[1],"redactAt":"<word>"}. Use it for secrets, plots, intelligence, coups, leaked papers, sanctions decisions, treaties.
+- timeline: dated nodes light up one by one along a golden line. {"type":"timeline","events":[{"date":"1925","label":"رضا شاه","at":"<word>"},…]} 3–6 events; each "at" is the word where it appears (it may be in this line or the next two lines). Use it whenever the narration walks through years.
 - dark: textured dark background ("tint":"red" for threat) — ONLY for a pure abstract statement. Never for an event, crisis, war, revolution, treaty or place: those have a Wikipedia article → photo with "wiki" (e.g. "Iran hostage crisis", "Iran–Iraq War", "Iranian revolution").
-Rules: change shot every 2.5–6 s (a line longer than ~6 s gets a second shot on a later word) (a line can hold up to 3 shots, each starting on its "at" word); never the same shot type twice in a row (globe variants count as one); use at least 4 different types in 30 s; open on a globe dive or a strong photo; close on flag or assemble when the story is about a nation.
+Rules: change shot every 2.5–6 s (a line longer than ~6 s gets a second shot on a later word) (a line can hold up to 3 shots, each starting on its "at" word); never the same shot type twice in a row (globe variants count as one); use at least 4 different types in 30 s (newspaper, document and timeline count — use them whenever the story has news, secrets or dates); open on a globe dive or a strong photo; close on flag or assemble when the story is about a nation.
 
 WORDS ON SCREEN — the engine animates them; you choose what and when:
 - At most 5 words per text item, 1–3 items per line. Never repeat the whole narration — only the key words the ear must SEE.
@@ -81,7 +84,7 @@ export function scriptProblems(s: CinemaScript, seconds: number) {
   });
   const types = s.lines.flatMap(l => l.shots.map(sh => sh.type));
   for (let i = 1; i < types.length; i++) if (types[i] === types[i - 1] && types[i] !== "globe" && types[i] !== "photo") out.push(`two "${types[i]}" shots in a row — vary`);
-  if (new Set(types).size < Math.min(4, Math.ceil(seconds / 8))) out.push(`only ${new Set(types).size} shot types — use more variety (globe, photo, assemble, launch, flag…)`);
+  if (new Set(types).size < Math.min(4, Math.ceil(seconds / 8))) out.push(`only ${new Set(types).size} shot types — use more variety (globe, photo, newspaper, document, timeline, assemble, launch, flag…)`);
   return out;
 }
 

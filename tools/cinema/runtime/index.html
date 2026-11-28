@@ -35,6 +35,28 @@ svg.cracks{position:absolute;inset:0;visibility:hidden}
 .stamp.white{color:#f5f6f8}
 .strike{position:absolute;left:-4%;right:-4%;top:52%;height:.09em;background:#ff3b30;box-shadow:0 0 .2em rgba(255,59,48,.7);border-radius:.05em;transform-origin:100% 50%;transform:scaleX(0)}
 .caption{font-weight:700;color:#fff;text-shadow:0 3px 14px rgba(0,0,0,.95),0 0 2px #000}
+.paper{position:absolute;left:50%;top:50%;visibility:hidden;background:#efe6d0;color:#1b1712;box-shadow:0 40px 90px rgba(0,0,0,.75),0 0 0 1px rgba(0,0,0,.2);padding:3.2% 3.6%;box-sizing:border-box;font-family:Cairo,serif;background-image:radial-gradient(rgba(120,90,40,.10) 1px,transparent 1px),radial-gradient(120% 80% at 50% 40%,rgba(255,255,255,0),rgba(120,90,40,.22));background-size:7px 7px,100% 100%}
+.paper .mast{font-family:Kufi,Cairo,serif;font-weight:700;text-align:center;border-bottom:.12em double #1b1712;padding-bottom:.1em;letter-spacing:.02em}
+.paper .dateline{display:flex;justify-content:space-between;border-bottom:2px solid #1b1712;font-weight:700;opacity:.8;padding:.2em 0}
+.paper .head{font-weight:900;line-height:1.08;margin:.25em 0 .15em;position:relative}
+.paper .head .mark{position:absolute;inset:-.05em -.15em;background:rgba(255,214,0,.55);mix-blend-mode:multiply;transform-origin:100% 50%;transform:scaleX(0)}
+.paper .sub{font-weight:700;opacity:.85;margin-bottom:.4em}
+.paper .cols{display:flex;gap:3%}
+.paper .col{flex:1}
+.paper .col i{display:block;height:.42em;margin:.36em 0;background:rgba(27,23,18,.55);border-radius:.1em}
+.paper img{width:100%;aspect-ratio:4/3;object-fit:cover;filter:grayscale(1) contrast(1.35) brightness(.95);display:block;margin-bottom:.4em}
+.doc{position:absolute;left:50%;top:50%;visibility:hidden;background:#f4f1e8;color:#16181c;box-shadow:0 40px 90px rgba(0,0,0,.8);padding:5% 6%;box-sizing:border-box;font-family:"Courier New",Cairo,monospace;background-image:linear-gradient(rgba(0,0,0,.035) 1px,transparent 1px);background-size:100% 1.5em}
+.doc .dh{display:flex;justify-content:space-between;font-weight:700;border-bottom:2px solid #16181c;padding-bottom:.3em;margin-bottom:.8em}
+.doc .ln{position:relative;white-space:nowrap;overflow:hidden;font-weight:700;margin:.5em 0;font-family:Cairo,"Courier New",monospace}
+.doc .ln .tx{display:inline-block}
+.doc .ln .bar{position:absolute;top:.1em;bottom:.1em;inset-inline-start:0;width:100%;background:#0b0b0d;transform-origin:100% 50%;transform:scaleX(0)}
+.doc .seal{position:absolute;top:30%;left:50%;color:#c1121f;border:.12em solid #c1121f;border-radius:.15em;padding:.05em .4em .15em;font-weight:900;font-family:Cairo,sans-serif;white-space:nowrap;opacity:0;mix-blend-mode:multiply}
+.tl{position:absolute;inset:0;visibility:hidden}
+.tl .line{position:absolute;background:linear-gradient(90deg,#d4af37,#fff0b0);box-shadow:0 0 18px rgba(212,175,55,.6)}
+.tl .ev{position:absolute;opacity:0}
+.tl .dot{position:absolute;width:.9em;height:.9em;border-radius:50%;background:#f1cb57;box-shadow:0 0 0 .35em rgba(241,203,87,.25),0 0 30px rgba(241,203,87,.8)}
+.tl .date{font-weight:900;color:#f1cb57;text-shadow:0 4px 18px rgba(0,0,0,.9);white-space:nowrap}
+.tl .lab{font-weight:700;color:#f5f6f8;text-shadow:0 4px 18px rgba(0,0,0,.9);white-space:nowrap}
 #flash{background:#fff;opacity:0;mix-blend-mode:screen}
 #dip{background:#000;opacity:0}
 #gflash{background:radial-gradient(60% 40% at 50% 47%,rgba(255,225,140,.95),rgba(212,175,55,.35) 50%,rgba(0,0,0,0) 80%);opacity:0;mix-blend-mode:screen}
@@ -48,6 +70,7 @@ svg.cracks{position:absolute;inset:0;visibility:hidden}
   <canvas id="gl"></canvas>
   <div id="photos" class="layer"></div>
   <canvas id="fx"></canvas>
+  <div id="cards" class="layer"></div>
   <div id="texts" class="layer"></div>
   <div id="leak" class="layer"></div>
   <div id="gflash" class="layer"></div>

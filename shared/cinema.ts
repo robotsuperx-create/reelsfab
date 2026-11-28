@@ -9,7 +9,7 @@ import { z } from "zod";
 export const CINEMA_FORMATS = ["9:16", "16:9"] as const;
 export type CinemaFormat = (typeof CINEMA_FORMATS)[number];
 export const CINEMA_SIZE: Record<CinemaFormat, { w: number; h: number }> = { "9:16": { w: 1080, h: 1920 }, "16:9": { w: 1920, h: 1080 } };
-export const CINEMA_SHOTS = ["globe", "photo", "assemble", "launch", "flag", "dark"] as const;
+export const CINEMA_SHOTS = ["globe", "photo", "assemble", "launch", "flag", "dark", "newspaper", "document", "timeline"] as const;
 export const CINEMA_TEXT_STYLES = ["slam", "show", "kicker", "counter", "stamp", "caption"] as const;
 export const CINEMA_MUSIC = ["epic", "tense", "calm", "upbeat", "tech", "playful"] as const;
 /** Free neural voices (Microsoft Edge) — documentary male first. */
@@ -47,6 +47,20 @@ const shotSchema = z.object({
   focusY: z.number().min(0).max(1).optional(),
   // assemble
   fillAt: word,
+  // newspaper / document
+  masthead: z.string().trim().max(40).optional(),
+  headline: z.string().trim().max(90).optional(),
+  sub: z.string().trim().max(120).optional(),
+  date: z.string().trim().max(40).optional(),
+  highlightAt: word,
+  title: z.string().trim().max(40).optional(),
+  lines: z.array(z.string().trim().max(60)).max(7).optional(),
+  stamp: z.string().trim().max(24).optional(),
+  stampAt: word,
+  redact: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  redactAt: word,
+  // timeline
+  events: z.array(z.object({ date: z.string().trim().max(24), label: z.string().trim().max(40), at: word })).max(6).optional(),
 });
 const textSchema = z.object({
   text: z.string().trim().max(80).default(""),
@@ -166,10 +180,27 @@ export function compileCinema(script: CinemaScript, timings: LineTiming[], opts?
       if (s.shatterAt) shot.shatterAt = at(i, s.shatterAt, ls + 1);
       if (s.fillAt) shot.fillAt = at(i, s.fillAt, lineEnds[i] - 0.6);
       if (s.tint) shot.tint = s.tint;
+      for (const k of ["masthead", "headline", "sub", "date", "title", "lines", "stamp", "redact"] as const) if (s[k] !== undefined) shot[k] = s[k];
+      if (s.highlightAt) shot.highlightAt = at(i, s.highlightAt, start + 1.2);
+      if (s.stampAt) shot.stampAt = at(i, s.stampAt, start + 1.5);
+      if (s.redactAt) shot.redactAt = at(i, s.redactAt, start + 1.8);
+      if (s.events?.length) {
+        // Events may cue words of this line or of the next ones (a timeline often spans two lines).
+        let t0 = start;
+        shot.events = s.events.map((ev, n) => {
+          let tt = -1;
+          for (let j = i; j < Math.min(script.lines.length, i + 3) && tt < 0; j++) {
+            const k = findWord(timings[j].words.map(x => x.w), ev.at);
+            if (k >= 0) tt = lineStarts[j] + timings[j].words[k].s;
+          }
+          t0 = tt >= 0 ? Math.max(tt, t0) : t0 + (n === 0 ? 0.6 : 1.1);
+          return { date: ev.date, label: ev.label, at: +t0.toFixed(3) };
+        });
+      }
       if (s.motion) shot.motion = s.motion;
       if (s.focusY != null) shot.focusY = s.focusY;
-      if (s.type === "photo" || s.type === "globe" || s.type === "assemble" || s.type === "flag") {
-        shot.need = { wiki: s.wiki, query: s.query, cutout: s.type === "photo" ? s.cutout !== false : undefined, country: s.country, arcsFrom: s.arcsFrom, highlight: s.highlight };
+      if (s.type === "photo" || s.type === "globe" || s.type === "assemble" || s.type === "flag" || (s.type === "newspaper" && (s.wiki || s.query))) {
+        shot.need = { wiki: s.wiki, query: s.query, cutout: s.type === "photo" ? s.cutout !== false : false, country: s.country, arcsFrom: s.arcsFrom, highlight: s.highlight };
       }
       shots.push(shot);
       cues.push({ t: start, name: shot.transition === "flash" ? "whoosh" : "whoosh-soft", gain: 0.8 });
@@ -180,6 +211,11 @@ export function compileCinema(script: CinemaScript, timings: LineTiming[], opts?
       if (shot.shatterAt != null) cues.push({ t: shot.shatterAt as number, name: "glitch", gain: 0.8 }, { t: (shot.shatterAt as number) + 0.02, name: "impact", gain: 1.2 });
       if (shot.fillAt != null) cues.push({ t: (shot.fillAt as number) - 1.6, name: "swell", gain: 0.6, dur: 1.6 }, { t: shot.fillAt as number, name: "shimmer", gain: 0.8 });
       if (s.type === "launch") cues.push({ t: start + 0.2, name: "riser", gain: 0.8, dur: 2.2 });
+      if (s.type === "newspaper") cues.push({ t: start + 0.85, name: "impact", gain: 0.9 });
+      if (shot.highlightAt != null) cues.push({ t: shot.highlightAt as number, name: "whoosh-soft", gain: 0.5 });
+      if (shot.stampAt != null) cues.push({ t: (shot.stampAt as number) + 0.12, name: "impact", gain: 1.2 });
+      if (shot.redactAt != null) cues.push({ t: shot.redactAt as number, name: "glitch", gain: 0.5 });
+      for (const ev of (shot.events as { at: number }[] | undefined) ?? []) cues.push({ t: ev.at, name: "pop", gain: 0.7 });
     });
     line.texts.forEach(x => {
       const start = at(i, x.at, ls + 0.05);

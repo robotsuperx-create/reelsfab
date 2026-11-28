@@ -26,6 +26,8 @@ function rng(seed) {
   return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 const stage = $("stage");
+document.documentElement.lang = plan.lang || "ar";
+document.documentElement.dir = /^(ar|fa|ur|he)/.test(plan.lang || "ar") ? "rtl" : "ltr";
 stage.style.width = W + "px";
 stage.style.height = H + "px";
 document.body.style.width = W + "px";
@@ -265,6 +267,79 @@ for (const s of shots) {
       s.pieces.push({ x, y, sx: W / 2 + Math.cos(a) * d, sy: H * 0.47 + Math.sin(a) * d, rot: (r() - 0.5) * 12, size: (10 + r() * 16) * U * (VERT ? 1 : 0.8), delay: r() * 0.35, hue: r() });
     }
   }
+
+  if (s.type === "newspaper") {
+    const el = document.createElement("div");
+    el.className = "paper";
+    const pw = W * (VERT ? 0.86 : 0.5);
+    el.style.width = pw + "px";
+    el.style.fontSize = pw / 22 + "px";
+    el.style.direction = plan.lang === "ar" ? "rtl" : "ltr";
+    const esc = v => String(v ?? "").replace(/[<>&]/g, "");
+    const cols = n => Array.from({ length: n }, (_, k) => `<i style="width:${60 + ((k * 37 + s.i * 11) % 40)}%"></i>`).join("");
+    el.innerHTML = `<div class="mast" style="font-size:2.3em">${esc(s.masthead || (plan.lang === "ar" ? "الصحيفة" : "THE DAILY"))}</div>
+      <div class="dateline" style="font-size:.8em"><span>${esc(s.date || "")}</span><span>${plan.lang === "ar" ? "عدد خاص" : "SPECIAL EDITION"}</span></div>
+      <div class="head" style="font-size:${(s.headline || "").length > 26 ? 2.1 : 2.8}em">${esc(s.headline)}<span class="mark"></span></div>
+      ${s.sub ? `<div class="sub" style="font-size:1.05em">${esc(s.sub)}</div>` : ""}
+      <div class="cols"><div class="col">${s.img ? `<img src="${s.img}" alt="">` : ""}${cols(s.img ? 5 : 12)}</div><div class="col">${cols(14)}</div>${VERT ? "" : `<div class="col">${cols(14)}</div>`}</div>`;
+    $("cards").appendChild(el);
+    s.el = el;
+    s.mark = el.querySelector(".mark");
+  }
+  if (s.type === "document") {
+    const el = document.createElement("div");
+    el.className = "doc";
+    const pw = W * (VERT ? 0.84 : 0.46);
+    el.style.width = pw + "px";
+    el.style.fontSize = pw / 20 + "px";
+    el.style.direction = plan.lang === "ar" ? "rtl" : "ltr";
+    const esc = v => String(v ?? "").replace(/[<>&]/g, "");
+    el.innerHTML = `<div class="dh"><span>${esc(s.title || (plan.lang === "ar" ? "وثيقة" : "DOCUMENT"))}</span><span>${esc(s.date || "")}</span></div>` +
+      (s.lines || []).map(l => `<div class="ln"><span class="tx">${esc(l)}</span><span class="bar"></span></div>`).join("") +
+      (s.stamp ? `<div class="seal" style="font-size:2.2em">${esc(s.stamp)}</div>` : "");
+    $("cards").appendChild(el);
+    s.el = el;
+    s.lns = [...el.querySelectorAll(".ln")].map(l => ({ l, tx: l.querySelector(".tx"), bar: l.querySelector(".bar") }));
+    s.seal = el.querySelector(".seal");
+  }
+  if (s.type === "timeline") {
+    const el = document.createElement("div");
+    el.className = "tl";
+    const evs = (s.events || []).slice(0, 6);
+    const n = Math.max(1, evs.length);
+    const line = document.createElement("div");
+    line.className = "line";
+    el.appendChild(line);
+    s.items = evs.map((ev, k) => {
+      const d = document.createElement("div");
+      d.className = "ev";
+      d.style.fontSize = 52 * U + "px";
+      const esc = v => String(v ?? "").replace(/[<>&]/g, "");
+      d.innerHTML = `<div class="dot"></div><div class="date" style="font-size:1.25em">${esc(ev.date)}</div><div class="lab" style="font-size:.9em">${esc(ev.label)}</div>`;
+      if (VERT) {
+        const y = H * (0.22 + (0.56 * k) / Math.max(1, n - 1 || 1));
+        d.style.top = y - 40 * U + "px";
+        if (plan.lang === "ar") { d.style.right = W * 0.18 + "px"; d.style.textAlign = "right"; d.querySelector(".dot").style.right = -W * 0.07 - 12 * U + "px"; }
+        else { d.style.left = W * 0.18 + "px"; d.querySelector(".dot").style.left = -W * 0.07 - 12 * U + "px"; }
+        d.querySelector(".dot").style.top = 26 * U + "px";
+      } else {
+        const x = W * (0.12 + (0.76 * (plan.lang === "ar" ? n - 1 - k : k)) / Math.max(1, n - 1 || 1));
+        d.style.left = x - 160 * U + "px";
+        d.style.width = 320 * U + "px";
+        d.style.textAlign = "center";
+        d.style.top = H * 0.5 - 30 * U + "px";
+        const dot = d.querySelector(".dot"); dot.style.left = 160 * U - 12 * U + "px"; dot.style.top = -40 * U + "px";
+        d.querySelector(".date").style.marginTop = 10 * U + "px";
+      }
+      el.appendChild(d);
+      return { d, at: ev.at };
+    });
+    if (VERT) { line.style.width = 6 * U + "px"; line.style.top = H * 0.2 + "px"; line.style[plan.lang === "ar" ? "right" : "left"] = W * 0.11 + "px"; line.style.height = "0px"; s.lineMax = H * 0.6; }
+    else { line.style.height = 6 * U + "px"; line.style.top = H * 0.5 - 52 * U + "px"; line.style.left = W * 0.1 + "px"; line.style.width = "0px"; s.lineMax = W * 0.8; }
+    s.line = line;
+    $("cards").appendChild(el);
+    s.el = el;
+  }
   if (s.type === "flag") {
     const img = await loadImg(s.flag);
     const c = document.createElement("canvas"); c.width = 2100; c.height = 1200;
@@ -365,6 +440,7 @@ for (const s of shots) {
   if (s.shatterAt != null) shakes.push({ at: s.shatterAt, amp: 26 * U, d: 0.55 });
   if (s.cracksAt != null) shakes.push({ at: s.cracksAt, amp: 12 * U, d: 0.35 });
   if (s.pulseAt != null) shakes.push({ at: s.pulseAt + 0.7, amp: 8 * U, d: 0.3 });
+  if (s.type === "document" && s.stampAt != null) shakes.push({ at: s.stampAt + 0.12, amp: 18 * U, d: 0.4 });
   if (s.type === "launch") shakes.push({ at: s.start + 0.4, amp: 9 * U, d: Math.min(2, s.end - s.start - 0.4) });
 }
 function shakeAt(t) {
@@ -584,6 +660,49 @@ function drawLaunch(s, t) {
   lg.addColorStop(0, `rgba(255,170,60,${0.55 * (1 - sk)})`); lg.addColorStop(1, "rgba(255,120,20,0)");
   fx.fillStyle = lg; fx.fillRect(0, 0, W, H);
 }
+
+function drawNewspaper(s, t) {
+  const lt = t - s.start, dur = s.end - s.start;
+  s.el.style.visibility = "visible";
+  const k = E.out5(lt / 0.9);
+  const push = lerp(1, 1.12, E.inOut(clamp((lt - 0.9) / Math.max(0.5, dur - 0.9))));
+  const rot = lerp(-700, -2.5, k), sc = lerp(0.08, 1, k) * push;
+  s.el.style.transform = `translate(-50%,-50%) translateY(${(lerp(0, -0.06, E.inOut(clamp(lt / dur))) * H).toFixed(1)}px) rotate(${rot.toFixed(2)}deg) scale(${sc.toFixed(4)})`;
+  s.el.style.opacity = String(clamp(lt / 0.25));
+  if (s.mark) s.mark.style.transform = `scaleX(${s.highlightAt == null ? 0 : E.inOut((t - s.highlightAt) / 0.5).toFixed(3)})`;
+}
+function drawDocument(s, t) {
+  const lt = t - s.start, dur = s.end - s.start;
+  s.el.style.visibility = "visible";
+  const k = E.out3(lt / 0.7);
+  s.el.style.transform = `translate(-50%,-50%) translateY(${((1 - k) * H * 0.6 + lerp(0, -0.04, clamp(lt / dur)) * H).toFixed(1)}px) rotate(${lerp(8, -1.5, k).toFixed(2)}deg) scale(${lerp(1, 1.08, E.inOut(clamp(lt / dur))).toFixed(4)})`;
+  const per = Math.max(0.35, Math.min(1.1, ((s.stampAt ?? s.end - 0.8) - s.start - 0.6) / Math.max(1, s.lns.length)));
+  s.lns.forEach((x, i) => {
+    const q = clamp((lt - 0.6 - i * per) / (per * 0.9));
+    x.l.style.clipPath = plan.lang === "ar" ? `inset(0 0 0 ${(100 - q * 100).toFixed(1)}%)` : `inset(0 ${(100 - q * 100).toFixed(1)}% 0 0)`;
+    const r = s.redact && s.redact.includes(i) && s.redactAt != null ? E.inOut((t - s.redactAt - i * 0.08) / 0.4) : 0;
+    x.bar.style.transform = `scaleX(${r.toFixed(3)})`;
+  });
+  if (s.seal) {
+    const q = s.stampAt == null ? 0 : clamp((t - s.stampAt) / 0.22);
+    s.seal.style.opacity = String(q > 0 ? clamp(q * 3) : 0);
+    s.seal.style.transform = `translate(-50%,0) rotate(-12deg) scale(${lerp(2.6, 1, E.in2(q)).toFixed(3)})`;
+  }
+}
+function drawTimeline(s, t) {
+  s.el.style.visibility = "visible";
+  let reach = 0;
+  s.items.forEach((it, k) => {
+    const q = E.out3((t - it.at) / 0.5);
+    it.d.style.opacity = q.toFixed(3);
+    it.d.style.transform = `translateY(${((1 - q) * 30 * U).toFixed(1)}px)`;
+    if (t >= it.at) reach = (k + 1) / Math.max(1, s.items.length);
+    if (t >= it.at - 0.4 && t < it.at) reach = Math.max(reach, (k + (t - it.at + 0.4) / 0.4) / Math.max(1, s.items.length));
+  });
+  const len = s.lineMax * Math.min(1, reach + 0.02);
+  if (VERT) s.line.style.height = len + "px"; else s.line.style.width = len + "px";
+}
+function hideCard(s) { if (s.el) s.el.style.visibility = "hidden"; }
 function drawDark(s, t) {
   const g = fx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, Math.max(W, H) * 0.7);
   g.addColorStop(0, s.tint === "red" ? "rgba(60,6,6,1)" : "rgba(22,18,10,1)"); g.addColorStop(1, "rgba(3,4,6,1)");
@@ -595,6 +714,7 @@ window.renderAt = now => {
   const active = shots.find(s => now >= s.start && now < s.end) ?? shots[shots.length - 1];
   fx.clearRect(0, 0, W, H);
   for (const s of shots) if (s.type === "photo" && s !== active) hidePhoto(s);
+  for (const s of shots) if ((s.type === "newspaper" || s.type === "document" || s.type === "timeline") && s !== active) hideCard(s);
   const gl = active.type === "globe" || active.type === "flag";
   $("gl").style.visibility = gl ? "visible" : "hidden";
   if (active.type === "globe") drawGlobe(active, now);
@@ -603,6 +723,12 @@ window.renderAt = now => {
   if (active.type === "dark") drawDark(active, now);
   if (active.type === "launch") drawLaunch(active, now);
   if (active.type === "assemble") { drawDark({ tint: "none" }, now); drawAssemble(active, now); }
+  if (active.type === "newspaper" || active.type === "document" || active.type === "timeline") {
+    drawDark({ tint: active.tint || "none" }, now);
+    if (active.type === "newspaper") drawNewspaper(active, now);
+    if (active.type === "document") drawDocument(active, now);
+    if (active.type === "timeline") drawTimeline(active, now);
+  }
   if (active.type === "flag") {
     const dark = fx.createLinearGradient(0, 0, 0, H);
     dark.addColorStop(0, "rgba(0,0,0,.72)"); dark.addColorStop(0.32, "rgba(0,0,0,.25)"); dark.addColorStop(0.55, "rgba(0,0,0,.25)"); dark.addColorStop(0.78, "rgba(0,0,0,.75)"); dark.addColorStop(1, "rgba(0,0,0,.9)");
