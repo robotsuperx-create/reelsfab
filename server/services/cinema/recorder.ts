@@ -92,7 +92,7 @@ export async function recordCinema(o: RecordOptions): Promise<{ frames: number; 
     const fps = o.fps ?? 30;
     const frames = Math.round(duration * fps);
     const out = o.out ?? join(o.dir, "silent.mp4");
-    const ff = spawn("ffmpeg", ["-y", "-v", "error", "-f", "image2pipe", "-framerate", String(fps), "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p", "-r", String(fps), "-movflags", "+faststart", out], { stdio: ["pipe", "ignore", "pipe"] });
+    const ff = spawn("ffmpeg", ["-y", "-v", "error", "-f", "image2pipe", "-framerate", String(fps), "-c:v", "mjpeg", "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", String(fps), "-movflags", "+faststart", out], { stdio: ["pipe", "ignore", "pipe"] });
     let ffErr = "";
     let exited: number | null = null;
     ff.stderr.on("data", d => { ffErr += d; });

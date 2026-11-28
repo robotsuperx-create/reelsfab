@@ -7,7 +7,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { CINEMA_SIZE, cinemaScriptSchema, compileCinema, estimateTiming, type CinemaScript, type LineTiming } from "../../../shared/cinema";
@@ -263,6 +263,8 @@ async function runJob(job: CinemaJob, userId: number | null, write?: (job: Cinem
   await run("ffmpeg", ["-y", "-v", "error", "-i", join(dir, "silent.mp4"), "-i", join(dir, "mix.wav"), "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "256k", "-shortest", "-movflags", "+faststart", final]);
   await run("ffmpeg", ["-y", "-v", "error", "-ss", String(Math.min(2.5, plan.duration / 3)), "-i", final, "-frames:v", "1", "-q:v", "3", join(dir, "poster.jpg")]);
   if (credits.length) await writeFile(join(dir, "credits.txt"), [...new Set(credits)].join("\n"));
+  // Keep only the finished reel: the silent picture and the stems are big and can be made again.
+  for (const f of ["silent.mp4", "mix.wav", "bed.wav"]) await unlink(join(dir, f)).catch(() => undefined);
   job.video = `/api/output/cinema/${job.id}/final.mp4`;
   job.poster = `/api/output/cinema/${job.id}/poster.jpg`;
   job.status = "done";
