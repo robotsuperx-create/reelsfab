@@ -9,6 +9,7 @@
  * to the agent once to be fixed.
  */
 import { libraryForDirector, prepareStoryboard } from "./code-media";
+import { findTemplate, templateBrief } from "../../shared/code-craft/templates";
 import type { Storyboard } from "../../shared/code-craft/storyboard";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -271,7 +272,7 @@ export async function startAgentVideo(input: CodeAgentInput, userId?: number | n
   const title = input.idea.replace(/\s+/g, " ").trim().slice(0, 80);
   const [row] = await db
     .insert(codeVideos)
-    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: { styleId: input.styleId, mode: input.mode ?? "compose", kind: input.kind, accent: input.accent, sound: input.sound ?? "auto", mood: input.mood, musicAssetId: input.musicAssetId, stock: input.stock === true, library: input.library === true }, createdBy: userId ?? null })
+    .values({ title, html: "", width: size.width, height: size.height, durationSec: input.durationSec, fps: input.fps, quality: input.quality ?? "standard", status: "writing", idea: input.idea, engine: input.engine, agentLog: [], analysis: { styleId: input.styleId, mode: input.mode ?? "compose", kind: input.kind, accent: input.accent, sound: input.sound ?? "auto", mood: input.mood, musicAssetId: input.musicAssetId, stock: input.stock === true, library: input.library === true, templateId: input.templateId }, createdBy: userId ?? null })
     .returning({ id: codeVideos.id });
   queue.push(row.id);
   void drainAgent(input.autoConvert);
@@ -333,7 +334,7 @@ async function writeVideo(id: number, autoConvert: boolean) {
   }
 }
 
-type AgentOptions = { styleId?: string; mode?: AgentMode; kind?: VideoKind; accent?: string; storyboard?: unknown; reviews?: Review[]; stock?: boolean; library?: boolean; credits?: string[] };
+type AgentOptions = { templateId?: string; styleId?: string; mode?: AgentMode; kind?: VideoKind; accent?: string; storyboard?: unknown; reviews?: Review[]; stock?: boolean; library?: boolean; credits?: string[] };
 
 /**
  * Compose mode: the director plans storyboards that the motion kit plays, with the critic loop. Long videos keep the
@@ -355,7 +356,10 @@ async function composeJob(id: number, job: typeof codeVideos.$inferSelect, engin
     r.credits.forEach(c => credits.add(c));
     return r;
   };
-  const base = { idea: job.idea ?? "", width: job.width, height: job.height, theme, themeChosen: Boolean(opts.styleId), kind, accent: opts.accent, ask: askFor, log: (line: string) => log(id, line), media, prepare };
+  // A chosen template fixes structure and style; the idea is its scenario.
+  const tpl = findTemplate(opts.templateId);
+  const tplTheme = tpl ? tpl.theme : theme;
+  const base = { idea: job.idea ?? "", width: job.width, height: job.height, theme: tplTheme, themeChosen: Boolean(opts.styleId) || Boolean(tpl), kind: tpl?.kind ?? kind, accent: opts.accent ?? tpl?.accent, ask: askFor, log: (line: string) => log(id, line), media, prepare, template: tpl ? templateBrief(tpl, job.idea ?? "") : undefined };
   if (job.durationSec <= CODE_VIDEO_SINGLE_MAX) {
     const r = await composeVideo({ ...base, durationSec: job.durationSec });
     const best = r.reviews[r.best];

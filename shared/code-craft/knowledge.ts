@@ -41,6 +41,7 @@ export const STYLE_TO_THEME: Record<string, KitTheme> = { documentary: "document
 const DIRECTION = `MOTION DIRECTION (how a senior motion designer thinks):
 - Every scene has ONE job (hook, fact, contrast, reveal, proof, payoff). Write that job in "note" before choosing items.
 - The eye needs one hero per scene: the biggest, first-moving element carries the message; the rest supports it.
+- AIRY SCREENS: one idea per screen, at most ~12 words visible at once (a kicker + a short title, or a number + a short label). Never stack title + long text + source. When a point needs more words, make TWO short scenes (statement → proof) instead of one crowded one — more scenes, fewer words, more motion.
 - Rhythm = variety with intent. Alternate dense and airy scenes; short punchy scenes after a long one; never three scenes in a row led by the same component.
 - Transitions carry meaning: "mask"/"slide" = next point in a list or story, "zoom" = going deeper / a reveal, "flash" = shock or a hard number, "fade" = calm change of subject, "cut" = on a beat in fast reels, "iris" = focus on one thing, "stripes" = new chapter (bold, branded), "whip" = fast jump to a contrast, "glitch" = tech / something broken or hidden. Do not use the same transition everywhere.
 - Camera: "push" for statements that build tension, "pull" for reveals and conclusions, "drift" for lists and calm passages, "none" when the scene is busy.
@@ -98,11 +99,12 @@ function mediaGuide(kind: VideoKind, m: { stock?: boolean; library?: boolean; li
 - CLIPS (moving backdrops) are the strongest hook: one in the first scene is often worth it; then at most one every ~15 s, on scenes of 3–8 s.
 - Alternate picture scenes with typography/data scenes: picture → stat → picture → kinetic. Vary "motion" (in, out, left, right, up).
 - "photo" items (framed card/polaroid/circle) suit people-free objects, products and "before/after" pairs inside an explainer.`);
+    if (m.stock) lines.push(`- NAMED THINGS GET THEIR REAL PICTURE: when the script names a real person (a president, a CEO, a player), show a "person" item with the EXACT English Wikipedia title in "wiki" the first time they appear. A named landmark, city, company, product, ship or event gets {"type":"photo","wiki":"<English Wikipedia title>"} — never a stock search, which returns lookalikes. Countries get "flags" (two rivals: "vs": true) or a map.`);
     if (m.stock) lines.push(`- Search words: ENGLISH, 2–5 concrete visual nouns + one mood/light word ("oil tanker ocean sunset", "empty supermarket shelves", "Marrakech medina alley"). No abstract words ("inflation", "success"), no text, no logos, no brand names, no named people.
 - Stock pictures are illustrations: never present one as a specific named person or a specific real event (no "this is the president", no "the 2008 crash" photo). For named people use a lowerThird or a quote, not a stranger's face.`);
     if (m.library) lines.push(`- THE OWNER'S LIBRARY (prefer these when they fit — they are the owner's own pictures): use "asset": n.
 ${m.libraryText?.trim() || "(the library is empty)"}`);
-  } else lines.push("- Free photos and clips are OFF for this video: do not use photo items or photo/clip backdrops (maps are fine).");
+  } else lines.push("- Free photos and clips are OFF for this video: do not use photo items, person portraits or photo/clip backdrops (maps and flags are fine).");
   return lines.join("\n");
 }
 

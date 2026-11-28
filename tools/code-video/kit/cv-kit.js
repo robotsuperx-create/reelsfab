@@ -253,6 +253,20 @@
       ".cv-onmedia .cv-panel{background:var(--mpanel);border-color:var(--mline)}",
       ".cv-onmedia .cv-plate .cv-title,.cv-onmedia .cv-plate .cv-text,.cv-onmedia .cv-panel *{text-shadow:none}",
       ".cv-stat .n{white-space:nowrap}.cv-stat .n .u{font-size:.4em;margin-inline-start:.18em;letter-spacing:0;font-weight:800}",
+      "@property --sweep{syntax:'<angle>';inherits:false;initial-value:0deg}",
+      ".cv-bar .bu{margin-inline-start:.3em;font-size:.82em;opacity:.85}",
+      ".cv-person{display:flex;flex-direction:column;align-items:center;gap:" + px(14) + ";flex:none}",
+      ".cv-person .ring{position:relative;border-radius:50%;padding:" + px(9) + ";background:conic-gradient(var(--accent) var(--sweep),rgba(255,255,255,.12) 0)}",
+      ".cv-person .face{width:100%;height:100%;border-radius:50%;overflow:hidden;background:var(--panel);display:grid;place-items:center;border:" + px(5) + " solid var(--bg)}",
+      ".cv-person .face img{width:100%;height:100%;object-fit:cover;object-position:50% 22%}",
+      ".cv-person .ini{font-family:var(--display);font-weight:900;font-size:" + px(sz.l) + ";color:var(--ink)}",
+      ".cv-person .nm{font-family:var(--display);font-weight:var(--displayw);font-size:" + px(sz.m * 0.82) + ";color:var(--ink);line-height:1.25;text-align:center}",
+      ".cv-person .rl{font-size:" + px(sz.small + 6) + ";color:var(--accent);font-weight:700;text-align:center}",
+      ".cv-flags{display:flex;align-items:center;justify-content:center;gap:" + px(26) + ";flex-wrap:wrap;flex:none;perspective:" + px(900) + "}",
+      ".cv-flags .f{display:flex;flex-direction:column;align-items:center;gap:" + px(14) + "}",
+      ".cv-flags img{display:block;border-radius:" + px(10) + ";box-shadow:0 " + px(18) + " " + px(50) + " rgba(0,0,0,.45);object-fit:cover}",
+      ".cv-flags .l{font-family:var(--display);font-weight:800;font-size:" + px(sz.small + 8) + ";color:var(--ink)}",
+      ".cv-flags .x{font-family:var(--display);font-weight:900;font-size:" + px(sz.m) + ";color:var(--accent);font-style:italic}",
       ".cv-ph-wrap{margin:0;display:flex;flex-direction:column;align-items:center;gap:" + px(18) + ";flex:none}",
       ".cv-ph{position:relative;overflow:hidden;border-radius:" + px(t.radius + 4) + ";box-shadow:0 " + px(26) + " " + px(70) + " rgba(0,0,0,.42);background:#000}",
       ".cv-ph .im{position:relative;overflow:hidden}",
@@ -1062,7 +1076,10 @@
         var v = row.querySelector(".v"), fill = row.querySelector(".fill"), c = { v: 0 };
         var unit = it.unit != null ? it.unit : o.unit || "";
         var dec = num(o.decimals, 0);
-        var show = function (x) { v.textContent = Number(x).toLocaleString("en-US", { maximumFractionDigits: dec, minimumFractionDigits: dec }) + unit; };
+        var show = function (x) {
+          var nstr = Number(x).toLocaleString("en-US", { maximumFractionDigits: dec, minimumFractionDigits: dec });
+          v.innerHTML = /^\s*[%×x°]?\s*$/.test(unit) ? "<bdi>" + nstr + esc(unit.trim()) + "</bdi>" : "<bdi>" + nstr + "</bdi><span class=\"bu\">" + esc(unit.trim()) + "</span>";
+        };
         show(0);
         fill.style.width = Math.max(2, Math.min(100, (Math.abs(num(it.value, 0)) / max) * 100)) + "%";
         if (it.color) fill.style.background = it.color;
@@ -1189,6 +1206,71 @@
       var out = Math.min(sc.to - 0.3, at + num(o.dur, 3.2));
       tl.to(n, { autoAlpha: 0, x: (cv.rtl ? 40 : -40) * cv.u, duration: 0.35, ease: "power2.in" }, out);
     },
+    /** A real person named in the video: portrait in a ring, name and role (initials when no picture). */
+    person: function (sc, o) {
+      o = o || {};
+      var cv = sc.cv, tl = cv.tl, u = cv.u, at = when(sc, o.at, 0.6);
+      var d = Math.round(Math.min(cv.W, cv.H) * ({ s: 0.3, m: 0.4, l: 0.5 }[o.size] || 0.4));
+      var wrap = el("div", "cv-person", sc.box);
+      var ring = el("div", "ring", wrap);
+      ring.style.width = ring.style.height = d + "px";
+      var face = el("div", "face", ring);
+      if (o.key) {
+        var img = el("img", "", face);
+        img.alt = "";
+        img.src = mediaUrl(o.key);
+        track(img);
+        var gr = gradeOf(cv);
+        if (gr.f) img.style.filter = gr.f.replace(/sepia\([^)]*\)|grayscale\([^)]*\)/g, "");
+        tl.fromTo(img, { scale: 1.12 }, { scale: 1.02, duration: Math.max(0.5, sc.to - at + 0.4), ease: "none" }, at);
+      } else {
+        var initials = String(o.name || "").replace(/[«»"'()\[\]…]/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map(function (w) { return w.charAt(0); }).join(" ");
+        el("div", "ini " + (AR.test(initials) ? "cv-ar" : "cv-lat"), face, esc(initials));
+      }
+      var nm = el("div", "nm " + (AR.test(o.name) ? "cv-ar" : "cv-lat"), wrap, esc(o.name || ""));
+      if (o.role) el("div", "rl " + (AR.test(o.role) ? "cv-ar" : "cv-lat"), wrap, esc(o.role));
+      g.set(ring, { autoAlpha: 0, scale: 0.6 });
+      tl.to(ring, { autoAlpha: 1, scale: 1, duration: 0.7, ease: "back.out(1.6)" }, at);
+      tl.fromTo(ring, { "--sweep": "0deg" }, { "--sweep": "360deg", duration: 0.9, ease: "power2.inOut" }, at + 0.1);
+      g.set(nm, { autoAlpha: 0, y: 30 * u });
+      tl.to(nm, { autoAlpha: 1, y: 0, duration: 0.5, ease: "power3.out" }, at + 0.35);
+      var rl = wrap.querySelector(".rl");
+      if (rl) { g.set(rl, { autoAlpha: 0, y: 20 * u }); tl.to(rl, { autoAlpha: 1, y: 0, duration: 0.45, ease: "power3.out" }, at + 0.5); }
+      if (o.sfx !== false) { cv.cue(at, "whoosh-soft", 0.5); cv.cue(at + 0.4, "pop", 0.45); }
+      sc.cursor = Math.max(sc.cursor, at + 0.9);
+    },
+    /** Country flags (1–4); two with "vs" make a face-off. */
+    flags: function (sc, list, o) {
+      o = o || {};
+      list = [].concat(list || []).slice(0, 4);
+      var cv = sc.cv, tl = cv.tl, u = cv.u, at = when(sc, o.at, 0.6);
+      var vs = o.vs && list.length === 2;
+      var wrap = el("div", "cv-flags" + (vs ? " vs" : ""), sc.box);
+      var w = Math.round((cv.W - 2 * cv.safe.x) * (list.length === 1 ? 0.62 : vs ? 0.36 : list.length === 2 ? 0.4 : list.length === 3 ? 0.28 : 0.21));
+      list.forEach(function (c, i) {
+        if (vs && i === 1) {
+          var v = el("div", "x cv-lat", wrap, "VS");
+          g.set(v, { autoAlpha: 0, scale: 2.4 });
+          tl.to(v, { autoAlpha: 1, scale: 1, duration: 0.4, ease: "power4.in" }, at + 0.55);
+          cv.cue(at + 0.95, "impact", 0.8);
+        }
+        var f = el("div", "f", wrap);
+        var img = el("img", "", f);
+        img.alt = "";
+        img.style.width = w + "px";
+        img.style.height = Math.round(w * 0.75) + "px";
+        img.src = "https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/flags/4x3/" + String(c.code || c).toLowerCase() + ".svg";
+        track(img);
+        if (c.label) el("div", "l " + (AR.test(c.label) ? "cv-ar" : "cv-lat"), f, esc(c.label));
+        var side = vs ? (i === 0 ? -1 : 1) * (cv.rtl ? -1 : 1) : 0;
+        g.set(f, { autoAlpha: 0, x: side * 160 * u, y: vs ? 0 : 50 * u, rotation: side * 6 });
+        tl.to(f, { autoAlpha: 1, x: 0, y: 0, rotation: 0, duration: 0.6, ease: "power3.out" }, at + (vs ? 0 : i * 0.14));
+        tl.to(img, { rotationY: 6, duration: 1.4, yoyo: true, repeat: 3, ease: "sine.inOut" }, at + 0.7 + i * 0.2);
+        if (!vs) cv.cue(at + i * 0.14, "pop", 0.45, { v: i / 4 });
+      });
+      if (vs) cv.cue(at, "whoosh", 0.7);
+      sc.cursor = Math.max(sc.cursor, at + 0.9);
+    },
     cta: function (sc, text, o) {
       o = o || {};
       var cv = sc.cv, tl = cv.tl, at = when(sc, o.at, 0.6);
@@ -1224,6 +1306,8 @@
       case "cta": sc.cta(it.text, it); break;
       case "emoji": sc.emoji(it.char || it.text, it); break;
       case "photo": sc.photo(it); break;
+      case "person": sc.person(it); break;
+      case "flags": sc.flags(it.countries, it); break;
       case "sfx": sc.sfx(it.name, it); break;
     }
     return sc;
@@ -1302,5 +1386,5 @@
     return cv;
   }
 
-  window.CV = { create: create, play: play, themes: THEMES, icons: Object.keys(ICONS), components: API.slice(), version: "1.3.0" };
+  window.CV = { create: create, play: play, themes: THEMES, icons: Object.keys(ICONS), components: API.slice(), version: "1.4.0" };
 })();

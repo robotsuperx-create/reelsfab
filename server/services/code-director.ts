@@ -43,6 +43,8 @@ export type ComposeOptions = {
   passScore?: number;
   /** Free photos/clips (Pexels, Pixabay) and the owner's library: what the director may ask for. */
   media?: { stock?: boolean; library?: boolean; libraryText?: string };
+  /** A ready-made template to follow (structure and style), filled with the idea as its scenario. */
+  template?: string;
   /** Turns picture requests into stored files and computes map geometry before each recording. */
   prepare?: (sb: Storyboard) => Promise<{ storyboard: Storyboard; geo: Record<string, unknown>; notes?: string[] }>;
 };
@@ -75,7 +77,7 @@ ${o.segment.index === o.segment.count - 1 ? "It closes the video: end with the \
 ${storyboardDoc(o.width, o.height, seconds(o), { stock: o.media?.stock, library: o.media?.library })}
 
 ${o.themeChosen ? `Theme: "${o.theme}" (fixed).` : `Suggested theme: "${o.theme}" — keep it unless another theme clearly fits the idea better.`}${o.accent ? ` Brand accent colour: ${o.accent} (put it in "accent").` : ""}
-${segment}
+${segment}${o.template ? `\n${o.template}\n` : ""}
 THE IDEA (from the owner — every on-screen word in its language):
 """${o.idea}"""
 

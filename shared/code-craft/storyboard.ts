@@ -5,7 +5,7 @@
  */
 import { KIT_ICONS, KIT_PLACEHOLDER, KIT_THEMES, type KitTheme } from "./kit";
 
-export const SB_ITEM_TYPES = ["kicker", "title", "text", "kinetic", "stat", "bars", "list", "timeline", "compare", "quote", "icon", "emoji", "photo", "divider", "source", "lowerThird", "cta", "sfx"] as const;
+export const SB_ITEM_TYPES = ["kicker", "title", "text", "kinetic", "stat", "bars", "list", "timeline", "compare", "quote", "icon", "emoji", "photo", "person", "flags", "divider", "source", "lowerThird", "cta", "sfx"] as const;
 export type SbItemType = (typeof SB_ITEM_TYPES)[number];
 export const SB_TRANSITIONS = ["rise", "fade", "mask", "zoom", "slide", "flash", "cut", "iris", "stripes", "whip", "glitch"] as const;
 export const SB_FX = ["confetti", "sparkles", "shake", "rings", "lightleak", "letterbox", "dust", "glitch"] as const;
@@ -24,6 +24,8 @@ export const SB_PHOTO_FRAMES = ["card", "polaroid", "circle", "wide"] as const;
 /** Where a picture comes from: a search (resolved by the studio), an asset of the owner's library, or a stored file. */
 export type SbMediaRef = {
   query?: string;
+  /** A named person, place, company or thing: the lead picture of its Wikipedia article (exact English title). */
+  wiki?: string;
   asset?: number;
   /** Storage key once resolved (the studio fills it — keep it unless you want another picture). */
   key?: string;
@@ -122,6 +124,8 @@ export function itemWords(it: SbItem): number {
     case "stat": return 2 + s("label");
     case "quote": return s("text") + s("by");
     case "photo": return s("caption");
+    case "person": return s("name") + s("role");
+    case "flags": return arr("countries").reduce<number>((a, c) => a + wordsOf(String((c as { label?: string }).label ?? "")), 0);
     case "source": case "lowerThird": case "icon": case "divider": case "emoji": case "sfx": return 0;
     default: return s("text");
   }
@@ -210,6 +214,22 @@ function cleanItemBody(raw: unknown, issues: string[], where: string): SbItem | 
       if (!(SB_SFX as readonly string[]).includes(name)) { issues.push(`${where}: unknown sound "${name}" (use one of ${SB_SFX.join(", ")})`); return null; }
       return { ...base, name, gain: Math.max(0.1, Math.min(1.2, n(o.gain, 1))) };
     }
+    case "person": {
+      const name = str(o.name ?? o.text, 50);
+      if (!name) { issues.push(`${where}: person item needs a "name"`); return null; }
+      const ref = mediaRef(o) ?? {};
+      return { ...base, ...ref, name, ...(str(o.role, 60) ? { role: str(o.role, 60) } : {}) };
+    }
+    case "flags": {
+      const list = (Array.isArray(o.countries) ? o.countries : typeof o.countries === "string" ? [o.countries] : [])
+        .map(c => (typeof c === "string" ? { code: c } : (c as { code?: unknown; label?: unknown }) ?? {}))
+        .map(c => ({ code: String(c.code ?? "").trim().toLowerCase(), label: str(c.label, 30) }))
+        .filter(c => /^[a-z]{2}$/.test(c.code))
+        .slice(0, 4)
+        .map(c => (c.label ? c : { code: c.code }));
+      if (!list.length) { issues.push(`${where}: flags item needs "countries" as ISO codes like ["US","IR"]`); return null; }
+      return { ...base, countries: list, ...(o.vs === true && list.length === 2 ? { vs: true } : {}) };
+    }
     case "photo": {
       const ref = mediaRef(o);
       if (!ref) { issues.push(`${where}: photo item needs a "query" (English search words) or an "asset" from the owner's library`); return null; }
@@ -226,9 +246,11 @@ function mediaRef(o: Record<string, unknown>): SbMediaRef | null {
   const query = str(o.query, 80).replace(/[^\p{L}\p{N} '&,-]/gu, "").trim();
   const asset = Number.isInteger(o.asset) && (o.asset as number) > 0 ? (o.asset as number) : undefined;
   const key = typeof o.key === "string" && KEY_RE.test(o.key) && !o.key.includes("..") ? o.key : undefined;
-  if (!query && !asset && !key) return null;
+  const wiki = str(o.wiki, 100).replace(/[<>{}[\]|#]/g, "").trim();
+  if (!query && !asset && !key && !wiki) return null;
   const out: SbMediaRef = {};
   if (query) out.query = query;
+  if (wiki) out.wiki = wiki;
   if (asset) out.asset = asset;
   if (key) out.key = key;
   if (key && typeof o.poster === "string" && KEY_RE.test(o.poster) && !o.poster.includes("..")) out.poster = o.poster;
@@ -320,6 +342,9 @@ export function normalizeStoryboard(raw: unknown, durationSec: number, fallbackT
     if (media?.type === "clip" && to - from > 10) issues.push(`${where}: a clip backdrop longer than 10 s gets dull — split the scene or use a photo`);
     const words = kept.reduce((a, it) => a + itemWords(it), 0);
     const need = r2(words * 0.28 + 0.7);
+    // Airy screens: one idea per screen. A scene that carries more words than a glance should be split in two.
+    const shown = kept.filter(i => i.type !== "source").reduce((a, i) => a + itemWords(i), 0);
+    if (shown > 14) issues.push(`${where}: ${shown} words on one screen is crowded — keep one idea per screen (≤ 12 words): split it into two short scenes or cut the supporting line`);
     if (words && to - from < need) issues.push(`${where}: ${words} words need about ${need} s to read but the scene lasts ${r2(to - from)} s — cut words or give it more time`);
     if (to - from < 1.1) issues.push(`${where}: shorter than 1.1 s — merge it with a neighbour`);
     for (const it of kept) if (it.at !== undefined && it.at > to - from - 0.4) issues.push(`${where}: item "${it.type}" starts at ${it.at} s, too late for a ${r2(to - from)} s scene`);
@@ -379,7 +404,10 @@ export function mediaSlots(sb: Storyboard): MediaSlot[] {
   const out: MediaSlot[] = [];
   sb.scenes.forEach((s, i) => {
     if (s.media && s.media.type !== "map") out.push({ scene: i, item: null, kind: s.media.type, ref: s.media });
-    s.items.forEach((it, j) => { if (it.type === "photo") out.push({ scene: i, item: j, kind: "photo", ref: it as unknown as SbMediaRef }); });
+    s.items.forEach((it, j) => {
+      const r = it as unknown as SbMediaRef;
+      if (it.type === "photo" || (it.type === "person" && (r.wiki || r.query || r.asset || r.key))) out.push({ scene: i, item: j, kind: "photo", ref: r });
+    });
   });
   return out;
 }
@@ -467,6 +495,9 @@ ITEMS (every item may have "at": seconds from the scene start; omit it and items
 - {"type":"quote","text":"...","by":"who said it"}
 - {"type":"icon","name":"${KIT_ICONS.join("|")}"}
 - {"type":"emoji","char":"🔥","motion":"float|bounce|spin|pulse|wiggle","size":240}   a glossy 3D emoji that pops in and keeps moving${pics ? `\n- {"type":"photo",${media.stock ? `"query":"vintage oil barrels"` : `"asset":12`},"frame":"card|polaroid|circle|wide","size":"s|m|l","caption":"short caption"}   a framed picture inside the scene` : ""}
+${media.stock ? `- {"type":"person","name":"دونالد ترامب","role":"الرئيس الأمريكي","wiki":"Donald Trump"}   a real person named in the video: their portrait (lead picture of their Wikipedia article — give the EXACT English Wikipedia title) with name and role
+- {"type":"photo","wiki":"Eiffel Tower","frame":"card"} or a backdrop {"type":"photo","wiki":"Strait of Hormuz"}   a NAMED place, building, company, product or event: its real picture from Wikipedia (better than a stock search for anything with a name)
+` : ""}- {"type":"flags","countries":[{"code":"US","label":"أمريكا"},{"code":"IR","label":"إيران"}],"vs":true}   country flags (1–4); "vs": true with two = a face-off
 - {"type":"sfx","name":"impact|hit|ding|chime|riser|whoosh|pop|sparkle|…","at":1.2}   an extra sound at a precise moment (most sounds are automatic)
 - {"type":"cta","text":"short button-like call"} · {"type":"divider"} · {"type":"source","text":"source credit"} · {"type":"lowerThird","name":"...","role":"..."}
 TIMING RULES:

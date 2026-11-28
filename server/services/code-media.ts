@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { assets } from "../../drizzle/schema";
 import { compileStoryboard, extractJsonObject, looksLikeStoryboard, mediaSlots, normalizeStoryboard, storyboardFromHtml, type MediaSlot, type SbMediaRef, type Storyboard } from "../../shared/code-craft/storyboard";
 import { STYLE_TO_THEME } from "../../shared/code-craft/knowledge";
@@ -101,6 +101,61 @@ export async function libraryForDirector(limit = 40) {
   return { text: lines.join("\n"), logoKey: logo ? keyOf(logo) : null, count: pick.length };
 }
 
+const WIKI_UA = "ReellllLocaL-studio/1.0 (code-video; local)";
+/**
+ * The lead picture of a Wikipedia article (a person's portrait, a landmark, a company logo…), stored once in the
+ * library with its credit. Tries the English article, then a search for the closest one.
+ */
+export async function importWikiImage(title: string, userId: number | null) {
+  const db = await requireDb();
+  const id = title.trim().replace(/\s+/g, "_");
+  const [existing] = await db.select().from(assets).where(sql`${assets.meta}->>'source' = 'wikipedia' and ${assets.meta}->>'sourceId' = ${id}`).limit(1);
+  if (existing) return { asset: existing, credit: (existing.meta as { credit?: string } | null)?.credit ?? `Wikipedia: ${title}` };
+  const get = async (url: string) => {
+    const r = await fetch(url, { headers: { "user-agent": WIKI_UA, accept: "application/json" } });
+    return r.ok ? ((await r.json()) as Record<string, unknown>) : null;
+  };
+  type Summary = { title?: string; thumbnail?: { source: string; width: number; height: number }; originalimage?: { source: string; width: number; height: number }; content_urls?: { desktop?: { page?: string } } };
+  let page = (await get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(id)}?redirect=true`)) as Summary | null;
+  if (!page?.thumbnail) {
+    const found = (await get(`https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=1&format=json&srsearch=${encodeURIComponent(title)}`)) as { query?: { search?: { title: string }[] } } | null;
+    const best = found?.query?.search?.[0]?.title;
+    if (best) page = (await get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(best.replace(/\s+/g, "_"))}?redirect=true`)) as Summary | null;
+  }
+  const thumb = page?.thumbnail?.source;
+  if (!thumb) return null;
+  // A sharp version: the thumbnail service at 1000 px (or the original when it is smaller).
+  const orig = page?.originalimage;
+  const src = orig && orig.width <= 1200 && !/\.svg$/i.test(orig.source) ? orig.source : thumb.replace(/\/(\d+)px-/, "/1000px-");
+  const r = await fetch(src, { headers: { "user-agent": WIKI_UA } });
+  if (!r.ok) return null;
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (!buf.length || buf.length > 20 * 1024 * 1024) return null;
+  const type = r.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(type)) return null;
+  const hash = createHash("sha1").update(id).digest("hex").slice(0, 10);
+  const put = await mediaPut(`stills/wiki-${hash}.${type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg"}`, buf, type);
+  const credit = `Wikipedia / Wikimedia Commons: ${page?.title ?? title}`;
+  const [row] = await db
+    .insert(assets)
+    .values({
+      kind: "other",
+      characterId: null,
+      title: `ويكيبيديا: ${page?.title ?? title}`.slice(0, 255),
+      url: put.url,
+      storageKey: put.key,
+      mimeType: type,
+      sizeBytes: buf.length,
+      width: orig?.width ?? null,
+      height: orig?.height ?? null,
+      tags: ["stock", "wikipedia", (page?.title ?? title).slice(0, 60)],
+      meta: { source: "wikipedia", sourceId: id, sourceUrl: page?.content_urls?.desktop?.page, credit, query: title },
+      createdBy: userId,
+    })
+    .returning();
+  return { asset: row, credit };
+}
+
 /** Stock providers configured in the vault (for the room's switch). */
 export async function stockStatus() {
   try {
@@ -124,6 +179,9 @@ export async function prepareStoryboard(input: Storyboard, o: PrepareOptions): P
   let stockError: string | null = null;
   for (const slot of mediaSlots(sb)) {
     const ref = slot.ref;
+    // Template placeholders («…») are not real names or search words.
+    if (ref.wiki?.includes("«")) delete ref.wiki;
+    if (ref.query?.includes("«")) delete ref.query;
     try {
       if (ref.key) {
         used.add(ref.ref ?? ref.key);
@@ -143,6 +201,18 @@ export async function prepareStoryboard(input: Storyboard, o: PrepareOptions): P
         const credit = (a.meta as { credit?: string } | null)?.credit;
         if (credit) { ref.credit = credit; credits.push(credit); }
         continue;
+      }
+      if (ref.wiki && slot.kind === "photo") {
+        if (!o.stock) { drop.push(slot); continue; }
+        const w = await importWikiImage(ref.wiki, o.userId ?? null);
+        if (w) {
+          ref.key = keyOf(w.asset);
+          ref.credit = w.credit;
+          credits.push(w.credit);
+          continue;
+        }
+        notes.push(`لا صورة في ويكيبيديا لـ «${ref.wiki}»${ref.query ? " — بحث في الصور المجانية بدلًا منها" : ""}`);
+        if (!ref.query) { drop.push(slot); continue; }
       }
       if (!ref.query) { drop.push(slot); continue; }
       if (!o.stock) { drop.push(slot); continue; }

@@ -3,6 +3,7 @@
  * (virtual clock) and encoded to MP4. The page runs isolated: a strict Content-Security-Policy that only lets it
  * load libraries from public CDNs and Google Fonts, no access to the studio's origin, cookies or keys.
  */
+import { findTemplate, templateBrief } from "./code-craft/templates";
 import { z } from "zod";
 import { expandKit, type KitTheme } from "./code-craft/kit";
 import { STYLE_TO_THEME, VIDEO_KIND_IDS, guessKind, knowledgeFor, themeForKind, type VideoKind } from "./code-craft/knowledge";
@@ -102,6 +103,8 @@ export const codeAgentInputSchema = z.object({
   accent: z.string().regex(/^#[\da-fA-F]{6}$/).optional(),
   ...soundFields,
   ...mediaFields,
+  /** A ready-made template (structure + style) the idea fills in as its scenario. */
+  templateId: z.string().max(60).optional(),
 });
 export type CodeAgentInput = z.infer<typeof codeAgentInputSchema>;
 
@@ -325,7 +328,12 @@ ${MOTION_QUALITY_RULES.map((r, i) => `${i + 1}. ${r}`).join("\n")}
  * The storyboard request for Gemini, DeepSeek or any AI: it only has to write a short JSON (no animation code), which
  * the room plays with the tested motion kit. Far more reliable than asking a free model for hundreds of lines of GSAP.
  */
-export function storyboardPrompt(width: number, height: number, seconds: number, styleId: string | null | undefined, idea = "[اكتب الفكرة هنا]", kind?: VideoKind, media: { stock?: boolean } = {}) {
+export function storyboardPrompt(width: number, height: number, seconds: number, styleId: string | null | undefined, idea = "[اكتب الفكرة هنا]", kind?: VideoKind, media: { stock?: boolean } = {}, templateId?: string | null) {
+  const tpl = findTemplate(templateId);
+  if (tpl) {
+    kind = tpl.kind;
+    styleId = null;
+  }
   const k = kind ?? guessKind(idea, seconds);
   const chosen = styleId ? STYLE_TO_THEME[styleId] ?? null : null;
   // Another AI cannot see the owner's library: only free photos (searched by the studio) and maps.
@@ -335,9 +343,9 @@ export function storyboardPrompt(width: number, height: number, seconds: number,
 ${knowledgeFor(k, { chosenTheme: chosen, vertical: height > width, media: m })}
 
 ${storyboardDoc(width, height, seconds, m)}
-
+${tpl ? `\n${templateBrief(tpl, idea)}\n\nReturn ONLY the storyboard JSON.` : `
 THE IDEA (from the owner — keep its language for every on-screen word):
-${idea}`;
+${idea}`}`;
 }
 
 /* ------------------------------------------------------------ inspection of pasted code */

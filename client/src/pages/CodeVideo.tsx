@@ -45,8 +45,10 @@ import {
 } from "@shared/code-video";
 import { VIDEO_KINDS, CRITIC_RUBRIC, type VideoKind } from "@shared/code-craft/knowledge";
 import { looksLikeStoryboard, type Storyboard } from "@shared/code-craft/storyboard";
+import { TEMPLATE_CATEGORIES, VIDEO_TEMPLATES, findTemplate, templateScenario, templateSeconds, templateStoryboard, type VideoTemplate } from "@shared/code-craft/templates";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { Bot, CircleAlert, CircleCheck, Code2, Download, Eye, Film, Image as ImageIcon, Lock, Map as MapIcon, RefreshCw, ScanSearch, Scissors, Search, ShieldCheck, Shuffle, Sparkles, Terminal, Trash2, TriangleAlert, Undo2, Upload, Wand2, WifiOff } from "lucide-react";
+import { LayoutTemplate, X as XIcon, Bot, CircleAlert, CircleCheck, Code2, Download, Eye, Film, Image as ImageIcon, Lock, Map as MapIcon, RefreshCw, ScanSearch, Scissors, Search, ShieldCheck, Shuffle, Sparkles, Terminal, Trash2, TriangleAlert, Undo2, Upload, Wand2, WifiOff } from "lucide-react";
 import { uploadBlob } from "@/lib/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
@@ -59,7 +61,7 @@ const DRAFT_KEY = "code-video-draft";
 
 function readDraft() {
   try {
-    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality; agentMode?: AgentMode; kind?: VideoKind | ""; accent?: string; sound?: SoundModeId; mood?: SoundMoodId | ""; musicAssetId?: number | null; stock?: boolean; library?: boolean } | null;
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as { html?: string; size?: CodeVideoSizeId; duration?: number; fps?: 30 | 60; idea?: string; engine?: CodeAgentEngine; auto?: boolean; styleId?: StyleRecipeId | ""; quality?: RenderQuality; agentMode?: AgentMode; kind?: VideoKind | ""; accent?: string; sound?: SoundModeId; mood?: SoundMoodId | ""; musicAssetId?: number | null; stock?: boolean; library?: boolean; templateId?: string } | null;
   } catch {
     return null;
   }
@@ -97,6 +99,10 @@ export default function CodeVideoPage() {
   const [stock, setStock] = useState(draft?.stock ?? false);
   const [library, setLibrary] = useState(draft?.library ?? false);
   const [slots, setSlots] = useState<MediaSlotView[]>([]);
+  // A ready-made template: fixed structure and style; the idea box holds its scenario.
+  const [templateId, setTemplateId] = useState<string>(draft?.templateId ?? "");
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const template = findTemplate(templateId);
   const [credits, setCredits] = useState<string[]>([]);
   const [inspection, setInspection] = useState<{ result: CodeInspection; fixedFrom?: { html: string; before: CodeIssue[] } } | null>(null);
   const size = codeVideoSize(sizeId);
@@ -106,10 +112,10 @@ export default function CodeVideoPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId, stock, library })); } catch { /* private mode */ }
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ html, size: sizeId, duration: seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId, stock, library, templateId })); } catch { /* private mode */ }
     }, 400);
     return () => clearTimeout(t);
-  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId, stock, library]);
+  }, [html, sizeId, seconds, fps, idea, engine, auto, styleId, quality, agentMode, kind, accent, sound, mood, musicAssetId, stock, library, templateId]);
   const tracks = trpc.codeVideos.musicTracks.useQuery(undefined, { staleTime: 60_000 });
   const soundOpts = { sound, mood: mood || undefined, musicAssetId: sound !== "off" && musicAssetId ? musicAssetId : undefined };
   const mediaOpts = { stock, library };
@@ -211,7 +217,25 @@ export default function CodeVideoPage() {
   const startAgent = () => {
     if (idea.trim().length < 8) return toast.error("اكتب الفكرة بجملة على الأقل");
     if (!durationOk) return toast.error("اختر مدة بين ثانية و40 دقيقة");
-    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality, mode: agentMode, kind: kind || undefined, accent: /^#[\da-f]{6}$/i.test(accent) ? accent : undefined, ...soundOpts, ...mediaOpts });
+    agent.mutate({ idea, size: sizeId, durationSec: seconds, fps, engine, autoConvert: auto, styleId: styleId || undefined, quality, mode: agentMode, kind: kind || undefined, accent: /^#[\da-f]{6}$/i.test(accent) ? accent : undefined, ...soundOpts, ...mediaOpts, templateId: template && agentMode === "compose" ? template.id : undefined });
+  };
+  /** Picks a template: its length, music and pictures; its scenario sheet in the idea box; its layout in the preview. */
+  const chooseTemplate = (t: VideoTemplate) => {
+    setTemplateId(t.id);
+    setGalleryOpen(false);
+    setAgentMode("compose");
+    setStyleId("");
+    setKind(t.kind);
+    setMood(t.mood);
+    setSound("auto");
+    const sec = templateSeconds(t);
+    setDuration(String(sec));
+    if (t.pictures) setStock(true);
+    if (!idea.trim() || /^الموضوع:/.test(idea.trim())) setIdea(templateScenario(t));
+    const json = JSON.stringify(templateStoryboard(t), null, 2);
+    setHtml(json);
+    previewMut.mutate({ html: json, size: sizeId, durationSec: sec, stock: t.pictures || stock, library });
+    toast.success(`القالب «${t.name}» جاهز — املأ السيناريو ثم «اكتب بالوكيل» أو انسخ الطلب لذكاء مجاني`);
   };
   const e = engines.data;
 
@@ -222,7 +246,7 @@ export default function CodeVideoPage() {
         subtitle="اكتب الفكرة فيخرجها الوكيل بمكتبة قطع مجرَّبة، أو انسخ «قالب القصة» لأي ذكاء اصطناعي مجاني (DeepSeek، Gemini…) وألصق القصة JSON التي يكتبها، أو ألصق ملف HTML كاملًا. يتحول إلى MP4 فريمًا بفريم حتى 40 دقيقة، مجانًا على جهازك، والكود يشتغل معزولًا بلا وصول للاستوديو أو مفاتيحه. الفيديو يدخل مكتبة الأصول لتستعمله غرفة المونتاج."
         actions={
           <div className="flex flex-wrap gap-2">
-            <CopyButton text={storyboardPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || null, idea.trim() || undefined, kind || undefined, { stock })} label="نسخ قالب القصة (JSON)" variant="default" />
+            <CopyButton text={storyboardPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || null, idea.trim() || undefined, kind || undefined, { stock }, templateId || null)} label="نسخ قالب القصة (JSON)" variant="default" />
             <CopyButton text={strongPrompt(size.width, size.height, durationOk ? seconds : 15, styleId || "documentary", idea.trim() || undefined)} label="نسخ قالب الكود (HTML)" variant="secondary" />
           </div>
         }
@@ -319,8 +343,10 @@ export default function CodeVideoPage() {
               <span className="truncate">agent@reellllocal:~# write --from-idea</span>
             </div>
             <div className="flex flex-col gap-3 p-4" dir="rtl">
-              <Label htmlFor="code-video-idea" className="text-xs text-muted-foreground">الفكرة — ماذا يظهر في الفيديو، بأي أسلوب، بأي لغة</Label>
-              <Textarea id="code-video-idea" value={idea} onChange={ev => setIdea(ev.target.value)} placeholder="مثال: فيديو يشرح كيف يأكل التضخم الرواتب، أسلوب وثائقي داكن بالأحمر، أرقام كبيرة متحركة، بالعربية" className="min-h-[96px] resize-y bg-black/40 p-3 text-sm leading-6" />
+              <TemplateBar template={template} onOpen={() => setGalleryOpen(true)} onClear={() => { setTemplateId(""); if (/^الموضوع:/.test(idea.trim())) setIdea(""); }} />
+              <TemplateGallery open={galleryOpen} onOpenChange={setGalleryOpen} current={templateId} onPick={chooseTemplate} />
+              <Label htmlFor="code-video-idea" className="text-xs text-muted-foreground">{template ? "السيناريو — املأ ما بعد كل نقطتين (الأرقام والأسماء والمصادر منك)" : "الفكرة — ماذا يظهر في الفيديو، بأي أسلوب، بأي لغة"}</Label>
+              <Textarea id="code-video-idea" value={idea} onChange={ev => setIdea(ev.target.value)} placeholder="مثال: فيديو يشرح كيف يأكل التضخم الرواتب، أسلوب وثائقي داكن بالأحمر، أرقام كبيرة متحركة، بالعربية" className={cn("resize-y bg-black/40 p-3 text-sm leading-6", template ? "min-h-[260px]" : "min-h-[96px]")} />
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs text-muted-foreground">طريقة العمل</span>
                 <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="طريقة عمل الوكيل">
@@ -926,5 +952,87 @@ function MediaStrip({ slots, credits, busy, onSwap }: { slots: MediaSlotView[]; 
       {credits.length > 0 && <p className="mt-2 text-[10px] leading-4 text-muted-foreground" dir="ltr">{credits.slice(0, 8).join(" · ")}</p>}
       <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground"><MapIcon className="size-3" /> الخرائط لا تحتاج تبديلًا: تُرسم من أسماء الدول في القصة.</p>
     </div>
+  );
+}
+
+const THEME_SWATCH: Record<string, [string, string, string]> = {
+  documentary: ["#0b0d10", "#ff3b30", "#f2f2f2"],
+  kinetic: ["#111111", "#ffd60a", "#ffffff"],
+  neon: ["#070712", "#22d3ee", "#e9e9ff"],
+  infographic: ["#f6f5f1", "#2563eb", "#14161a"],
+  storybook: ["#fdf6e3", "#ff7a59", "#2b2d42"],
+};
+const MOOD_AR: Record<string, string> = { tense: "توتر", upbeat: "حماسي", tech: "تقني", calm: "هادئ", playful: "مرح", epic: "ملحمي" };
+
+/** The chosen template, or the button that opens the gallery. */
+function TemplateBar({ template, onOpen, onClear }: { template: VideoTemplate | null; onOpen: () => void; onClear: () => void }) {
+  if (!template) {
+    return (
+      <Button variant="outline" onClick={onOpen} className="justify-start">
+        <LayoutTemplate /> اختر قالبًا جاهزًا ({VIDEO_TEMPLATES.length}) — سياسة، اقتصاد، علوم، رياضة…
+      </Button>
+    );
+  }
+  const [bg, ac, ink] = THEME_SWATCH[template.theme] ?? THEME_SWATCH.documentary;
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border p-2.5">
+      <div className="grid size-12 shrink-0 place-items-center rounded-md text-lg font-black" style={{ background: bg, color: template.accent ?? ac, border: `2px solid ${template.accent ?? ac}` }}>
+        <span style={{ color: ink }}>{TEMPLATE_CATEGORIES.find(c => c.id === template.cat)?.icon}</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold">القالب: {template.name}</div>
+        <div className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">{template.style}</div>
+      </div>
+      <Button size="sm" variant="outline" onClick={onOpen}>تغيير</Button>
+      <Button size="sm" variant="ghost" onClick={onClear} aria-label="بلا قالب"><XIcon /></Button>
+    </div>
+  );
+}
+
+/** All templates by category: a card each (look, length, music, pictures). */
+function TemplateGallery({ open, onOpenChange, current, onPick }: { open: boolean; onOpenChange: (v: boolean) => void; current: string; onPick: (t: VideoTemplate) => void }) {
+  const [cat, setCat] = useState<string>("all");
+  const shown = VIDEO_TEMPLATES.filter(t => cat === "all" || t.cat === cat);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88vh] max-w-5xl overflow-hidden p-0" dir="rtl">
+        <DialogHeader className="border-b border-border p-4 pb-3">
+          <DialogTitle>القوالب الجاهزة</DialogTitle>
+          <DialogDescription>كل قالب له أسلوبه وبناؤه الثابت وسيناريو تملؤه. اختر واحدًا، اكتب السيناريو، والمخرج يصنعه.</DialogDescription>
+          <div className="flex flex-wrap gap-1.5 pt-2" role="tablist">
+            <Chip on={cat === "all"} onClick={() => setCat("all")}>الكل ({VIDEO_TEMPLATES.length})</Chip>
+            {TEMPLATE_CATEGORIES.map(c => (
+              <Chip key={c.id} on={cat === c.id} onClick={() => setCat(c.id)}>{c.icon} {c.label} ({VIDEO_TEMPLATES.filter(t => t.cat === c.id).length})</Chip>
+            ))}
+          </div>
+        </DialogHeader>
+        <div className="grid max-h-[62vh] grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2 lg:grid-cols-3">
+          {shown.map(t => {
+            const [bg, ac, ink] = THEME_SWATCH[t.theme] ?? THEME_SWATCH.documentary;
+            const accent = t.accent ?? ac;
+            return (
+              <button key={t.id} type="button" onClick={() => onPick(t)} className={cn("group flex flex-col overflow-hidden rounded-lg border text-start transition hover:border-tally", current === t.id ? "border-tally" : "border-border")}>
+                <div className="relative flex h-24 items-center justify-center gap-2 px-3" style={{ background: bg }}>
+                  <span className="text-2xl">{TEMPLATE_CATEGORIES.find(c => c.id === t.cat)?.icon}</span>
+                  <span className="line-clamp-2 text-center text-base font-black leading-6" style={{ color: ink }}>
+                    {t.name.split(" ").map((w, i) => <span key={i} style={i === t.name.split(" ").length - 1 ? { color: accent } : undefined}>{w} </span>)}
+                  </span>
+                  <span className="absolute bottom-0 start-0 h-1 w-full" style={{ background: accent }} />
+                </div>
+                <div className="flex flex-1 flex-col gap-1.5 p-3">
+                  <p className="line-clamp-3 text-[11px] leading-4 text-muted-foreground">{t.style}</p>
+                  <div className="mt-auto flex flex-wrap gap-1 pt-1">
+                    <span className="cv-chip num">{templateSeconds(t)} ث</span>
+                    <span className="cv-chip">{t.scenes.length} مشهد</span>
+                    <span className="cv-chip">♪ {MOOD_AR[t.mood]}</span>
+                    {t.pictures && <span className="cv-chip">صور</span>}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
