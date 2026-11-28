@@ -129,7 +129,16 @@ async function cutout(file: string, out: string) {
     return false;
   }
 }
-const flagFile = (a2: string) => resolve(process.cwd(), "node_modules", "flag-icons", "flags", "4x3", `${a2}.svg`);
+async function depthMap(file: string, out: string) {
+  if (process.env.CINEMA_NO_DEPTH) return false;
+  try {
+    await run(PY, [join(TOOLS, "depth.py"), file, out], { timeout: 300_000 });
+    return existsSync(out);
+  } catch {
+    return false;
+  }
+}
+const flagFile =(a2: string) => resolve(process.cwd(), "node_modules", "flag-icons", "flags", "4x3", `${a2}.svg`);
 
 async function resolveNeeds(plan: ReturnType<typeof compileCinema>, dir: string, userId: number | null, log: (s: string) => Promise<void>) {
   await mkdir(join(dir, "a"), { recursive: true });
@@ -177,7 +186,14 @@ async function resolveNeeds(plan: ReturnType<typeof compileCinema>, dir: string,
       }
       shot.img = got.rel;
       shot.cut = null;
-      if (n.cutout) {
+      shot.depth = null;
+      // A real depth map turns the still into a 2.5D camera move; the flat cutout is only the fallback.
+      if (type === "photo") {
+        const out = join(dir, "a", `${name}_depth.png`);
+        if (await depthMap(got.file, out)) shot.depth = `/a/${name}_depth.png`;
+        else await log("› العمق ثلاثي الأبعاد لم يعمل لهذه الصورة — حركة مسطحة");
+      }
+      if (n.cutout && !shot.depth) {
         const out = join(dir, "a", `${name}_cut.png`);
         if (await cutout(got.file, out)) shot.cut = `/a/${name}_cut.png`;
       }

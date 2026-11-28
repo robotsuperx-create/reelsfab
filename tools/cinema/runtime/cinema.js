@@ -184,6 +184,92 @@ const flagMat = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughne
 const flagMesh = new THREE.Mesh(flagGeo, flagMat);
 scene.add(flagMesh);
 
+/* ------------------------------------------------------------------ 2.5D photos: a real depth map moves the camera */
+// The photo is drawn on a full-screen plane. Every pixel finds the part of the picture it sees once the camera has
+// moved: near things (the person) slide and grow differently from far ones (the wall behind), like a real dolly.
+const photoScene = new THREE.Scene();
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const TINTS = { sepia: 0, bw: 1, gold: 2, red: 3, cold: 4, none: 5 };
+const photoMat = new THREE.ShaderMaterial({
+  uniforms: { map: { value: null }, depthMap: { value: null }, win: { value: new THREE.Vector2(1, 1) }, center: { value: new THREE.Vector2(0.5, 0.5) }, zoom: { value: 1.15 }, dolly: { value: 0 }, focus: { value: 0.7 }, shift: { value: new THREE.Vector2() }, blur: { value: 0.004 }, tint: { value: 0 }, aspect: { value: W / H } },
+  vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+  fragmentShader: `
+precision highp float;
+uniform sampler2D map, depthMap;
+uniform vec2 win, center, shift;
+uniform float zoom, dolly, focus, blur, tint, aspect;
+varying vec2 vUv;
+vec3 grade(vec3 c) {
+  float l = dot(c, vec3(.299, .587, .114));
+  if (tint < .5) { c = mix(c, vec3(l), .82) * vec3(1.08, .97, .80); c = (c - .5) * 1.16 + .5; }
+  else if (tint < 1.5) { c = vec3((l - .5) * 1.25 + .5); }
+  else if (tint < 2.5) { c = mix(c, vec3(l), .45) * vec3(1.14, .98, .70); c = (c - .5) * 1.12 + .5; }
+  else if (tint < 3.5) { c = vec3((l - .5) * 1.25 + .5) * .9; }
+  else if (tint < 4.5) { c = mix(c, vec3(l), .6) * vec3(.86, .96, 1.1); c = (c - .5) * 1.15 + .5; }
+  else { c = (c - .5) * 1.08 + .5; }
+  return clamp(c, 0., 1.);
+}
+void main() {
+  vec2 q = vUv - .5;
+  vec2 p = center + win * q / zoom;
+  for (int i = 0; i < 14; i++) {
+    float d = texture2D(depthMap, p).r - focus;
+    p = center + win * (q - shift * d) / (zoom * (1. + dolly * d));
+  }
+  p = clamp(p, vec2(.002), vec2(.998));
+  float dr = texture2D(depthMap, p).r;
+  // Shallow depth of field: what is far behind the subject goes soft.
+  float r = blur * smoothstep(.08, .55, focus - dr);
+  vec3 c = texture2D(map, p).rgb;
+  if (r > .0004) {
+    vec3 acc = c; float n = 1.;
+    for (int k = 0; k < 12; k++) {
+      float a = float(k) * 2.39996, rr = r * sqrt((float(k) + .5) / 12.);
+      acc += texture2D(map, clamp(p + vec2(cos(a), sin(a) * aspect) * rr, vec2(.002), vec2(.998))).rgb; n += 1.;
+    }
+    c = acc / n;
+  }
+  c = grade(c);
+  // The subject keeps the light, the background falls into shadow.
+  c *= mix(.5, 1., smoothstep(focus - .5, focus - .02, dr));
+  gl_FragColor = vec4(c, 1.);
+}`,
+  depthTest: false,
+  depthWrite: false,
+});
+photoScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), photoMat));
+const texLoader = new THREE.TextureLoader();
+const loadTex = src => new Promise((res, rej) => texLoader.load(src, t => { t.colorSpace = THREE.NoColorSpace; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; res(t); }, undefined, () => rej(new Error("image " + src))));
+// The subject's depth: the nearest big thing in the middle of the frame.
+function subjectDepth(img) {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"); g.drawImage(img, 0, 0, 64, 64);
+  const px = g.getImageData(8, 6, 48, 52).data, v = [];
+  for (let i = 0; i < px.length; i += 4) v.push(px[i] / 255);
+  v.sort((a, b) => a - b);
+  return clamp(v[Math.floor(v.length * 0.85)], 0.35, 0.95);
+}
+function depthCamera(s, t) {
+  const k0 = clamp((t - s.start) / Math.max(0.5, s.end - s.start)), k = lerp(k0, k0 * k0 * (3 - 2 * k0), 0.5);
+  const m = s.motion || "out";
+  if (m === "in") return { zoom: lerp(1.14, 1.32, k), dolly: lerp(0, 0.2, k), sx: 0, sy: lerp(0, -0.012, k) };
+  if (m === "left") return { zoom: 1.17, dolly: 0.04, sx: lerp(0.055, -0.055, k), sy: 0 };
+  if (m === "right") return { zoom: 1.17, dolly: 0.04, sx: lerp(-0.055, 0.055, k), sy: 0 };
+  return { zoom: lerp(1.32, 1.14, k), dolly: lerp(0.2, 0, k), sx: 0, sy: lerp(-0.012, 0, k) };
+}
+function drawDepthPhoto(s, t) {
+  const c = depthCamera(s, t), u = photoMat.uniforms;
+  u.map.value = s.tex; u.depthMap.value = s.depthTex;
+  u.win.value.copy(s.win); u.center.value.copy(s.center);
+  u.zoom.value = c.zoom; u.dolly.value = c.dolly; u.focus.value = s.focusDepth;
+  u.shift.value.set(c.sx, c.sy);
+  u.aspect.value = s.imgAspect;
+  u.tint.value = TINTS[s.tint || "sepia"] ?? 0;
+  const tm = renderer.toneMapping; renderer.toneMapping = THREE.NoToneMapping;
+  renderer.render(photoScene, orthoCam);
+  renderer.toneMapping = tm;
+}
+
 /* ------------------------------------------------------------------ shots: build */
 const shots = plan.shots.map((s, i) => ({ ...s, i }));
 for (const s of shots) {
@@ -212,7 +298,20 @@ for (const s of shots) {
     box.className = "photo";
     const tint = { sepia: "grayscale(1) sepia(.55) brightness(.5) blur(7px)", bw: "grayscale(1) contrast(1.2) brightness(.45) blur(6px)", gold: "grayscale(.6) sepia(.8) saturate(1.3) brightness(.5) blur(7px)", red: "grayscale(1) brightness(.42) blur(6px)", cold: "grayscale(.7) brightness(.45) hue-rotate(180deg) saturate(.6) blur(6px)", none: "brightness(.6) blur(5px)" }[s.tint || "sepia"];
     const tintCut = { sepia: "grayscale(.85) sepia(.4) contrast(1.18) brightness(.98)", bw: "grayscale(1) contrast(1.25)", gold: "grayscale(.5) sepia(.6) saturate(1.25) contrast(1.12)", red: "grayscale(1) contrast(1.25) brightness(.9)", cold: "grayscale(.6) contrast(1.15)", none: "contrast(1.08)" }[s.tint || "sepia"];
+    if (s.depth) {
+      try {
+        const [tex, depthTex, dImg] = await Promise.all([loadTex(s.img), loadTex(s.depth), loadImg(s.depth)]);
+        s.tex = tex; s.depthTex = depthTex;
+        s.focusDepth = subjectDepth(dImg);
+        const ia = tex.image.width / tex.image.height, sa = W / H;
+        s.imgAspect = ia;
+        s.win = ia > sa ? new THREE.Vector2(sa / ia, 1) : new THREE.Vector2(1, ia / sa);
+        const fy = s.focusY ?? 0.35;
+        s.center = new THREE.Vector2(0.5, 1 - (fy * (1 - s.win.y) + s.win.y / 2));
+      } catch { s.depth = null; }
+    }
     const bg = document.createElement("img"); bg.src = s.img; bg.style.filter = s.cut ? tint : tint.replace(/blur\([^)]*\)/, ""); bg.style.objectPosition = `50% ${(s.focusY ?? 0.35) * 100}%`;
+    if (s.depth) { bg.style.display = "none"; s.cut = null; }
     box.appendChild(bg);
     s.bgEl = bg;
     if (s.cut) { const c = document.createElement("img"); c.src = s.cut; c.style.filter = tintCut; c.style.objectPosition = `50% ${(s.focusY ?? 0.35) * 100}%`; box.appendChild(c); s.cutEl = c; }
@@ -350,7 +449,7 @@ for (const s of shots) {
   }
 }
 // Shards: built after the photo images have loaded (they carry the portrait as it looks when it breaks).
-await Promise.all(shots.filter(s => s.type === "photo").flatMap(s => [s.bgEl, s.cutEl].filter(Boolean).map(img => (img.complete ? null : new Promise(r => { img.onload = img.onerror = r; })))));
+await Promise.all(shots.filter(s => s.type === "photo" && !s.depth).flatMap(s => [s.bgEl, s.cutEl].filter(Boolean).map(img => (img.complete ? null : new Promise(r => { img.onload = img.onerror = r; })))));
 for (const s of shots.filter(s => s.type === "photo" && s.shatterAt != null)) {
   const shot = document.createElement("canvas"); shot.width = W; shot.height = H;
   const g = shot.getContext("2d");
@@ -358,8 +457,11 @@ for (const s of shots.filter(s => s.type === "photo" && s.shatterAt != null)) {
   const cover = (img, scale) => { const k = Math.max(W / img.naturalWidth, H / img.naturalHeight) * scale; const w = img.naturalWidth * k, h = img.naturalHeight * k; return [W / 2 - w / 2, (H - h) * fy, w, h]; };
   g.fillStyle = "#050403"; g.fillRect(0, 0, W, H);
   const k = photoScale(s, s.shatterAt);
-  g.filter = s.bgEl.style.filter; g.drawImage(s.bgEl, ...cover(s.bgEl, k.bg));
-  if (s.cutEl) { g.filter = s.cutEl.style.filter; g.drawImage(s.cutEl, ...cover(s.cutEl, k.cut)); }
+  if (s.depth) { drawDepthPhoto(s, s.shatterAt); g.drawImage(renderer.domElement, 0, 0, W, H); }
+  else {
+    g.filter = s.bgEl.style.filter; g.drawImage(s.bgEl, ...cover(s.bgEl, k.bg));
+    if (s.cutEl) { g.filter = s.cutEl.style.filter; g.drawImage(s.cutEl, ...cover(s.cutEl, k.cut)); }
+  }
   g.filter = "none";
   const v = g.createRadialGradient(W / 2, H * 0.4, 200 * U, W / 2, H * 0.45, 1100 * U);
   v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(5,4,2,.78)");
@@ -561,6 +663,7 @@ function drawFlag(s, t) {
 function drawPhoto(s, t) {
   s.box.style.visibility = "visible";
   const broken = s.shatterAt != null && t >= s.shatterAt;
+  if (s.depth && !broken) drawDepthPhoto(s, t);
   const k = photoScale(s, broken ? s.shatterAt : t);
   const fy = (s.focusY ?? 0.35) * 100;
   s.bgEl.style.transformOrigin = `50% ${fy}%`;
@@ -715,7 +818,7 @@ window.renderAt = now => {
   fx.clearRect(0, 0, W, H);
   for (const s of shots) if (s.type === "photo" && s !== active) hidePhoto(s);
   for (const s of shots) if ((s.type === "newspaper" || s.type === "document" || s.type === "timeline") && s !== active) hideCard(s);
-  const gl = active.type === "globe" || active.type === "flag";
+  const gl = active.type === "globe" || active.type === "flag" || (active.type === "photo" && !!active.depth && !(active.shatterAt != null && now >= active.shatterAt));
   $("gl").style.visibility = gl ? "visible" : "hidden";
   if (active.type === "globe") drawGlobe(active, now);
   if (active.type === "flag") drawFlag(active, now);
