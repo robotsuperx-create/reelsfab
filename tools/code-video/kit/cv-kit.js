@@ -769,11 +769,12 @@
   }
   /** Shade over a picture so the scene's words stay readable: darker where text and captions sit. */
   function shade(cv, box, m, place) {
-    var t = cv.theme, c = rgbOf(t.bg), d = num(m.dim, lum(t.bg) < 0.45 ? 0.42 : 0.5);
-    var top = Math.min(0.92, d + 0.3), bot = Math.min(0.95, d + 0.45);
-    if (place && /^top/.test(place)) { top = Math.min(0.95, d + 0.45); bot = Math.min(0.9, d + 0.25); }
+    var t = cv.theme, c = rgbOf(t.bg), d = num(m.dim, lum(t.bg) < 0.45 ? 0.52 : 0.55);
+    // Even under the middle of the frame (where centred text sits), darker towards the edges (captions, kicker).
+    var top = Math.min(0.92, d + 0.25), bot = Math.min(0.95, d + 0.38);
+    if (place && /^top/.test(place)) top = Math.min(0.95, d + 0.4);
     var sh = el("div", "sh", box);
-    sh.style.background = "linear-gradient(0deg,rgba(" + c + "," + bot + ") 0%,rgba(" + c + "," + d + ") 42%,rgba(" + c + "," + (d * 0.75).toFixed(2) + ") 64%,rgba(" + c + "," + top + ") 100%)";
+    sh.style.background = "linear-gradient(0deg,rgba(" + c + "," + bot + ") 0%,rgba(" + c + "," + d + ") 30%,rgba(" + c + "," + d + ") 70%,rgba(" + c + "," + top + ") 100%)";
   }
   /** Slow camera move on a picture (Ken Burns), varied scene to scene. */
   function kenBurns(cv, img, motion, from, span, idx) {
