@@ -188,7 +188,7 @@ const sat = new THREE.Group();
   const p2 = p1.clone(); p2.position.x = -0.11; sat.add(p2);
   const dish = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.02, 24, 1, true), metal); dish.position.z = 0.05; dish.rotation.x = -Math.PI / 2; sat.add(dish);
 }
-sat.scale.setScalar(1.4);
+sat.scale.setScalar(2.4);
 const orbit = new THREE.Group();
 orbit.add(sat);
 orbit.rotation.set(0.45, 0, -0.35);
@@ -524,6 +524,7 @@ function drawFx(t) {
       fx.save();
       fx.translate(mx, my);
       fx.rotate(-0.045 - kk * 0.05);
+      fx.scale(1.45, 1.45);
       // flame
       const fl = 1 + 0.18 * Math.sin(t * 61) + 0.12 * Math.sin(t * 37);
       const fg = fx.createRadialGradient(0, 120, 0, 0, 150, 230 * fl);
