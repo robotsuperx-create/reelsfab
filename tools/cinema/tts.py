@@ -7,7 +7,7 @@ import asyncio, json, os, sys
 
 async def main():
     import edge_tts
-    job = json.load(sys.stdin)
+    job = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     out = []
     for i, text in enumerate(job["lines"]):
         c = edge_tts.Communicate(text, job.get("voice") or "ar-SA-HamedNeural", rate=job.get("rate", "+0%"), pitch=job.get("pitch", "-4Hz"), boundary="WordBoundary")
@@ -19,6 +19,6 @@ async def main():
                 elif ch["type"] == "WordBoundary":
                     words.append({"w": ch["text"], "s": round(ch["offset"] / 1e7, 3), "d": round(ch["duration"] / 1e7, 3)})
         out.append({"words": words})
-    sys.stdout.write(json.dumps(out, ensure_ascii=False))
+    sys.stdout.buffer.write(json.dumps(out, ensure_ascii=False).encode("utf-8"))
 
 asyncio.run(main())

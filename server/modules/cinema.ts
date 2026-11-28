@@ -34,6 +34,12 @@ export const cinemaRouter = router({
         }),
       });
     }),
+  /** Same script again (no new writing): after a fix, or to try another voice or format. */
+  retry: memberProcedure.input(z.object({ id: z.string().max(40), voice: z.string().max(60).optional(), format: z.enum(CINEMA_FORMATS).optional() })).mutation(async ({ input, ctx }) => {
+    const j = await getCinemaJob(input.id);
+    if (!j?.script) throw new TRPCError({ code: "BAD_REQUEST", message: "لا سكربت محفوظ لهذا الريل" });
+    return startCinemaJob({ idea: j.idea, script: j.script, userId: ctx.user?.id ?? null, options: { ...j.options, voice: input.voice ?? j.options.voice, format: input.format ?? j.options.format } });
+  }),
   get: memberProcedure.input(z.object({ id: z.string().max(40) })).query(async ({ input }) => {
     const j = await getCinemaJob(input.id);
     if (!j) throw new TRPCError({ code: "NOT_FOUND", message: "غير موجود" });

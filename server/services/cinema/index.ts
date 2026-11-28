@@ -74,13 +74,13 @@ async function voiceLines(script: CinemaScript, dir: string): Promise<{ timings:
   const files = script.lines.map((_, i) => join(dir, `line${i}.mp3`));
   try {
     const out = await new Promise<string>((res, rej) => {
-      const p = spawn(PY, [join(TOOLS, "tts.py")], { stdio: ["pipe", "pipe", "pipe"] });
+      const p = spawn(PY, [join(TOOLS, "tts.py")], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } });
       let o = "", e = "";
       p.stdout.on("data", d => { o += d; });
       p.stderr.on("data", d => { e += d; });
       p.on("error", rej);
       p.on("close", c => (c === 0 ? res(o) : rej(new Error(e.slice(-400) || `tts ${c}`))));
-      p.stdin.end(JSON.stringify({ voice: script.voice || (script.lang === "en" ? "en-US-AndrewNeural" : "ar-SA-HamedNeural"), rate: "+2%", pitch: "-5Hz", lines: script.lines.map(l => l.say), out: dir }));
+      p.stdin.end(Buffer.from(JSON.stringify({ voice: script.voice || (script.lang === "en" ? "en-US-AndrewNeural" : "ar-SA-HamedNeural"), rate: "+2%", pitch: "-5Hz", lines: script.lines.map(l => l.say), out: dir }), "utf8"));
     });
     const words = JSON.parse(out) as { words: { w: string; s: number; d: number }[] }[];
     const timings: LineTiming[] = [];
@@ -91,7 +91,9 @@ async function voiceLines(script: CinemaScript, dir: string): Promise<{ timings:
     }
     return { timings, files, engine: "edge" };
   } catch (e) {
-    // No voice engine (offline, or edge-tts missing): estimated timing and silence, so the picture still renders.
+    const why = e instanceof Error ? e.message : String(e);
+    if (!process.env.CINEMA_SILENT_OK) throw new Error(`الصوت لم يُصنع (edge-tts): ${why.split("\n").filter(Boolean).slice(-2).join(" ").slice(0, 240)} — ثبّته بـ: python -m pip install --user edge-tts`);
+    // Tests and offline machines: estimated timing and silence, so the picture still renders.
     const timings = script.lines.map(l => estimateTiming(l.say));
     for (let i = 0; i < files.length; i++) await run("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", timings[i].seconds.toFixed(2), "-c:a", "libmp3lame", files[i]]);
     return { timings, files, engine: `silent (${e instanceof Error ? e.message.slice(0, 120) : e})` };
