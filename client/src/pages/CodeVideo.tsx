@@ -997,8 +997,8 @@ function TemplateGallery({ open, onOpenChange, current, onPick }: { open: boolea
   const shown = VIDEO_TEMPLATES.filter(t => cat === "all" || t.cat === cat);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-5xl overflow-hidden p-0" dir="rtl">
-        <DialogHeader className="border-b border-border p-4 pb-3">
+      <DialogContent className="flex max-h-[90vh] w-[96vw] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl" dir="rtl">
+        <DialogHeader className="shrink-0 border-b border-border p-4 pb-3">
           <DialogTitle>القوالب الجاهزة</DialogTitle>
           <DialogDescription>كل قالب له أسلوبه وبناؤه الثابت وسيناريو تملؤه. اختر واحدًا، اكتب السيناريو، والمخرج يصنعه.</DialogDescription>
           <div className="flex flex-wrap gap-1.5 pt-2" role="tablist">
@@ -1008,7 +1008,7 @@ function TemplateGallery({ open, onOpenChange, current, onPick }: { open: boolea
             ))}
           </div>
         </DialogHeader>
-        <div className="grid max-h-[62vh] grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map(t => {
             const [bg, ac, ink] = THEME_SWATCH[t.theme] ?? THEME_SWATCH.documentary;
             const accent = t.accent ?? ac;
