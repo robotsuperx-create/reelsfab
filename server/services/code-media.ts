@@ -108,25 +108,23 @@ const WIKI_UA = "ReellllLocaL-studio/1.0 (code-video; local)";
  */
 export async function importWikiImage(title: string, userId: number | null) {
   const db = await requireDb();
-  const id = title.trim().replace(/\s+/g, "_");
+  const id = `pi:${title.trim().replace(/\s+/g, "_")}`;
   const [existing] = await db.select().from(assets).where(sql`${assets.meta}->>'source' = 'wikipedia' and ${assets.meta}->>'sourceId' = ${id}`).limit(1);
   if (existing) return { asset: existing, credit: (existing.meta as { credit?: string } | null)?.credit ?? `Wikipedia: ${title}` };
   const get = async (url: string) => {
     const r = await fetch(url, { headers: { "user-agent": WIKI_UA, accept: "application/json" } });
     return r.ok ? ((await r.json()) as Record<string, unknown>) : null;
   };
-  type Summary = { title?: string; thumbnail?: { source: string; width: number; height: number }; originalimage?: { source: string; width: number; height: number }; content_urls?: { desktop?: { page?: string } } };
-  let page = (await get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(id)}?redirect=true`)) as Summary | null;
-  if (!page?.thumbnail) {
-    const found = (await get(`https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=1&format=json&srsearch=${encodeURIComponent(title)}`)) as { query?: { search?: { title: string }[] } } | null;
-    const best = found?.query?.search?.[0]?.title;
-    if (best) page = (await get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(best.replace(/\s+/g, "_"))}?redirect=true`)) as Summary | null;
-  }
-  const thumb = page?.thumbnail?.source;
-  if (!thumb) return null;
-  // A sharp version: the thumbnail service at 1000 px (or the original when it is smaller).
-  const orig = page?.originalimage;
-  const src = orig && orig.width <= 1200 && !/\.svg$/i.test(orig.source) ? orig.source : thumb.replace(/\/(\d+)px-/, "/1000px-");
+  // The article's page image: Wikipedia's own choice of a FREE lead picture (logos and non-free files are left out),
+  // already scaled to the size asked for.
+  type Page = { title?: string; missing?: boolean; fullurl?: string; thumbnail?: { source: string; width: number; height: number }; original?: { source: string; width: number; height: number } };
+  const props = "prop=pageimages|info&inprop=url&piprop=thumbnail|original&pithumbsize=1200&redirects=1&format=json&formatversion=2";
+  const first = (j: Record<string, unknown> | null) => ((j?.query as { pages?: Page[] } | undefined)?.pages ?? []).find(p => !p.missing && p.thumbnail) ?? null;
+  let page = first(await get(`https://en.wikipedia.org/w/api.php?action=query&${props}&titles=${encodeURIComponent(title)}`));
+  if (!page) page = first(await get(`https://en.wikipedia.org/w/api.php?action=query&${props}&generator=search&gsrlimit=1&gsrsearch=${encodeURIComponent(title)}`));
+  const src = page?.thumbnail?.source;
+  if (!src) return null;
+  const orig = page?.original;
   const r = await fetch(src, { headers: { "user-agent": WIKI_UA } });
   if (!r.ok) return null;
   const buf = Buffer.from(await r.arrayBuffer());
@@ -146,10 +144,10 @@ export async function importWikiImage(title: string, userId: number | null) {
       storageKey: put.key,
       mimeType: type,
       sizeBytes: buf.length,
-      width: orig?.width ?? null,
-      height: orig?.height ?? null,
+      width: page?.thumbnail?.width ?? orig?.width ?? null,
+      height: page?.thumbnail?.height ?? orig?.height ?? null,
       tags: ["stock", "wikipedia", (page?.title ?? title).slice(0, 60)],
-      meta: { source: "wikipedia", sourceId: id, sourceUrl: page?.content_urls?.desktop?.page, credit, query: title },
+      meta: { source: "wikipedia", sourceId: id, sourceUrl: page?.fullurl, credit, query: title },
       createdBy: userId,
     })
     .returning();
