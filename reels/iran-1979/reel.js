@@ -191,7 +191,7 @@ const sat = new THREE.Group();
 sat.scale.setScalar(2.4);
 const orbit = new THREE.Group();
 orbit.add(sat);
-orbit.rotation.set(0.45, 0, -0.35);
+orbit.rotation.set(-0.55, 0, 0.3);
 scene.add(orbit);
 const trailPts = new Float32Array(120 * 3);
 const trail = new THREE.Line(new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(trailPts, 3)), new THREE.LineBasicMaterial({ color: 0xffd76a, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending }));
